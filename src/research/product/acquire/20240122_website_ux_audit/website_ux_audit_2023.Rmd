@@ -1,0 +1,10 @@
+---
+title: "Website UX Audit 2023"
+author: "Lu Zheng"
+region: "EU"
+date: "2024-01-22"
+link: "https://docs.google.com/presentation/d/1zfesk1RSZOCDlSW2NOqwvVnPRfcyHWQtWZAsOUzIKyg/edit?usp=sharing"
+tags: "acquire, upper funnel, snowplow"
+research_type: "Data Deep Dives"
+summary: "Evaluation of website traffic and user engagement in 2023."
+---
