@@ -1,0 +1,228 @@
+---
+title: "Can we identify recurring transactions? What proportion of our users potentially have recurring transactions?"
+author: "Wendy Vu"
+date: "2020-04-22"
+region: "EU"
+link: "https://docs.google.com/presentation/d/1LNUM2HlbZhTHz_YZtvmJ0UQgc86bAQtTKAWA-F_B4j8/edit?usp=sharing"
+tags: "recurring transactions, subscriptions, enable"
+summary: "We analysed a KYCc cohort in February 2019 to identify potential recurring payments. In this analysis, we considered deposits, direct debits, and card payments. For each user and partner IBAN, we looked at transactions from each partner that repeated 4+ times and calculated a Coefficient of Variation (CV), which is a metric that describes how likely a transaction is repeated periodically over time/amount."
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+
+
+```{r}
+
+
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library(dplyr)
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/Recurrring_Txns/Recurring_txns.RData"))
+dd <- as.data.frame(direct_debits_query)
+ct <- as.data.frame(ct_query) # NOTE NEED TO REDO THIS QUERY BUT FOR THE TIME BEING IT I'LL WORK ON THIS
+aa <- as.data.frame(card_query)
+mcc <- as.data.frame(mcc_query)
+
+dd$user_certified <- as.Date(dd$user_certified)
+ct$created <- as.Date(ct$created)
+dim(dd)
+str(dd)
+head(dd)
+
+dd %>% summarise_all(n_distinct)
+ct %>% summarise_all(n_distinct)
+aa %>% summarise_all(n_distinct)
+
+```
+
+
+# Filtering data:
+-when calculating CV, only focus on repeated trxns that occur > 3 times 
+-Make sure to remove repeated trxns occurring on the same day, there are some repeated trxns that occur on the same day (double payments/separate charges) but is in fact recurring. Also, recurring payments by definition should not occur on the same day
+
+# summary
+- Total Feb. 2019 cohort size = 102,161, Active users = 82324 (1+ CT)
+
+- Direct Debits, total users N = 12,485
+- Deposits, total users N = 82324
+- Card transactions, total users N = 72,119
+
+# Edge cases
+- CV can be influenced tremendously by outliers
+
+-There are recurring txns that have lapse payments. 
+  EX Netflix subscription: User had a subscription for months but can cancel and resubscribe which causes a gap between payment cycles 
+
+- some trxns are recurring for some people but not for others
+  EX. partner_iban = 01395003 , 'POSTCODE LOTTERY'
+
+- how to deal with subscription cancelations and resubscription? adding breaks to model
+
+```{r}
+# CT's 
+summary(ct)
+
+# 
+
+# 1st quartile = 0.6 
+# this is not a good cut off, there is way too much variation
+ct.q1 <- ct[ct$cv_days < 0.6,]
+
+# cv < 0.4 might better based on looking at the data, txn_cnt > 3 bc from the data it seems like recurring deposits are much more reliably recurring
+ct.filt <- ct[(ct$cv_days < 0.4) & (ct$txn_cnt >3),]
+ct.filt <- ct.filt[order(ct.filt$user_id,ct.filt$partner_bic,ct.filt$created),]
+
+# make rows unique to user_id, partner_iban, mean_days, mean_amount, 
+ct.filt.uniq <- unique(ct.filt[ct.filt$txn_cnt > 3,c(2,5:6,8:12,14:15)])
+
+hist(ct$date_diff,breaks=500,xlim=c(0,100),cex.main=1.5,main = 'Deposits: Unique to user and partner_iban', xlab = 'Days',cex.lab=1.5,cex.axis=1.5,font=2, col='skyblue',border=F)
+hist(ct.filt$mean_days,breaks=500,xlim=c(0,100),cex.main=3,
+     main = 'Deposits: Coef. Variation < 0.4, Unique to user and partner_iban', 
+     xlab = 'Days',cex.lab=1.5,cex.axis=1.5,font=2, add=T,col=scales::alpha('red',.5),border=F)
+
+hist(ct.filt$mean_days,breaks=1000,xlim=c(0,100),main = 'Deposits: Coef. Variation < 0.4, Unique to user and partner_iban', xlab = 'Days',cex.lab=1.5,cex.axis=1.5,font=2)
+hist(ct.filt$mean_days,breaks=1000,xlim=c(0,50),main = 'Deposits: Coef. Variation < 0.4, Unique to user and partner_iban', xlab = 'Days',cex.lab=1.5,cex.axis=1.5,font=2)
+
+#Number of users that potentially have recurring deposits
+length(unique(ct.filt$user_id))
+
+```
+
+```{r}
+# DIRECT DEBITS
+
+# cv < 0.4 might better based on looking at the data, txn_cnt > 3 bc from the data it seems like recurring deposits are much more reliably recurring
+dd.filt <- dd[(dd$cv_days <= 0.6) & (dd$txn_cnt_filt >3 ),]
+dd.filt <- dd.filt[order(dd.filt$user_id,dd.filt$partner_iban,dd.filt$user_certified),]
+
+# make rows unique to user_id, partner_iban, mean_days, mean_amount, 
+dd.filt.uniq <- unique(dd.filt[dd.filt$txn_cnt_filt > 3,c(1,4:5,7:16)])
+
+# sort by partner iban
+dd.uniq <- unique(dd[dd$txn_cnt_filt > 3
+                     ,c(1,4:5,7:16)])
+dd.uniq.sort <- dd.uniq[order(dd.uniq$partner_iban,dd.uniq$cv_days),]
+dd.filt.sort <- dd.filt[order(dd.filt$partner_iban,dd.filt$cv_days),]
+
+hist(dd$cv_days,breaks=500, cex.main=2,main = 'Direct Debits: Dist of Coef. Variation days', 
+     xlab = 'Coef. Variation Days',cex.lab=1.5,cex.axis=1.5,font=2)
+
+hist(abs(dd$cv_amt),breaks=500, cex.main=2,main = 'Direct Debits: Dist of Coef. Variation Amount', 
+     xlab = 'Coef. Variation Amount',cex.lab=1.5,cex.axis=1.5,font=2)
+
+hist(dd$date_diff,breaks = 500, xlim=c(0,100), cex.main=2,main = 'Direct Debits: Days between all repeated trxns', 
+     xlab = 'Days b/w repeated payments',cex.lab=1.5,cex.axis=1.5,font=2, col='skyblue',border=F)
+hist(dd[dd$cv_days < 0.40, ]$date_diff,breaks = 500, xlim=c(0,100), 
+     cex.main=2,main = 'Direct Debits: Coef. Variation < 0.4, Days b/w all repeated payments', 
+     xlab = 'Days',cex.lab=1.5,cex.axis=1.5,font=2, add=T,col=scales::alpha('red',.5),border=F)
+
+
+
+hist(dd.uniq$mean_days, breaks = 100,xlim=c(0,100), cex.main=1.5,
+     main = 'Direct Debits: Unique to user and partner_iban, Avg Days b/w repeated payments', 
+     xlab = 'Avg Days b/w repeated Payments',cex.lab=1.5,cex.axis=1.5,font=2, col='skyblue',border=F)
+hist(dd.filt.uniq$mean_days,breaks=100,xlim=c(0,100),cex.main=1.5,
+     main = 'Direct Debits: Coef. Variation < 0.4, Unique to user and partner_iban, Avg Days b/w repeated payments', 
+     xlab = 'Days',cex.lab=1.5,cex.axis=1.5,font=2, add=T,col=scales::alpha('red',.5),border=F)
+
+
+#Number of users that potentially have recurring deposits
+length(unique(dd.filt$user_id))
+
+# Rank Partner names for transactions that are potentially recurring vs non-recurring trxns
+dd.rank <- as.data.frame(dd.filt %>% group_by(partner_name) %>%
+  summarise(num_txns = length(txn_cnt)))
+dd.rank <- dd.rank[order(dd.rank[,2],decreasing=TRUE),]
+
+dd.rank.user <- as.data.frame(dd.filt %>% group_by(partner_name) %>%
+  summarise(txn_users = length(unique(user_id))))
+dd.rank.user <- dd.rank.user[order(dd.rank.user[,2],decreasing=TRUE),]
+
+#non-recurring 
+dd.norec <- filter(dd, cv_days > 0.6 & txn_cnt > 3)
+
+dd.norec.rank <- as.data.frame(dd.norec %>% group_by(partner_name) %>%
+  summarise(num_txns = length(txn_cnt)))
+dd.norec.rank <- dd.norec.rank[order(dd.norec.rank[,2],decreasing=TRUE),]
+
+dd.norec.user <- as.data.frame(dd.norec %>% group_by(partner_name) %>%
+  summarise(txn_users = length(unique(user_id))))
+dd.norec.user <- dd.norec.user[order(dd.norec.user[,2],decreasing=TRUE),]
+
+```
+
+```{r }
+# Card payments
+
+aa.uniq <- unique(aa[aa$txn_cnt_filt > 3,c(1,5,6,8:18)])
+aa.uniq.sort <- aa.uniq[order(aa.uniq$merchant_name,aa.uniq$cv_day),]
+
+hist(aa$cv_days,breaks=500, xlab='Coef. Varition Days')
+
+# subscription mcc code
+aa.sub <- filter(aa,mcc %in% c(5968,5964,5969,5967,5965) & txn_cnt_filt > 3)
+aa.sub <- filter(aa,mcc %in% c(5968,5967) & txn_cnt_filt > 3)
+aa.sub.filt <- filter(aa.sub,cv_days < 0.6)
+
+aa.sub.uniq <- unique(aa.sub[,c(1,5,6,8:18)])
+aa.sub.sort <- aa.sub.uniq[order(aa.sub.uniq$merchant_name, aa.sub.uniq$cv_days),]
+
+aa.sub.6 <- aa.sub.sort
+
+# cv < 0.6
+aa.filt.6 <- filter(aa,cv_days < 0.6 & txn_cnt_filt > 3)
+aa.filt <- filter(aa,cv_days <= 0.4 & txn_cnt_filt > 3)
+
+hist(aa$date_diff,breaks = 100, xlim=c(0,100), cex.main=2,main = 'Card Payments: Days between all repeated trxns', 
+     xlab = 'Days b/w repeated payments',cex.lab=1.5,cex.axis=1.5,font=2, col='skyblue',border=F)
+hist(dd[dd$cv_days < 0.40, ]$date_diff,breaks = 100, xlim=c(0,100), 
+     cex.main=2,main = 'Card Payments: Coef. Variation < 0.4, Days b/w all repeated payments', 
+     xlab = 'Days',cex.lab=1.5,cex.axis=1.5,font=2, add=T,col=scales::alpha('red',.5),border=F)
+
+hist(aa$date_diff,breaks = 100, xlim=c(0,100), cex.main=2,main = 'Card Payments: Days between all repeated trxns', 
+     xlab = 'Days b/w repeated payments',cex.lab=1.5,cex.axis=1.5,font=2, col='skyblue',border=F, ylim = c(0,100000))
+hist(dd[dd$cv_days < 0.40, ]$date_diff,breaks = 100, xlim=c(0,100), 
+     cex.main=2,main = 'Card Payments: Coef. Variation < 0.4, Days b/w all repeated payments', 
+     xlab = 'Days',cex.lab=1.5,cex.axis=1.5,font=2, add=T,col=scales::alpha('red',.5),border=F)
+
+
+length(unique(aa.filt$user_id))
+
+
+# Rank Partner names for transactions that are potentially recurring vs non-recurring trxns
+aa.rank <- as.data.frame(aa.filt %>% group_by(merchant_name) %>%
+  summarise(num_txns = length(txn_cnt)))
+aa.rank <- aa.rank[order(aa.rank[,2],decreasing=TRUE),]
+
+dd.rank.user <- as.data.frame(dd.filt %>% group_by(partner_name) %>%
+  summarise(txn_users = length(unique(user_id))))
+dd.rank.user <- dd.rank.user[order(dd.rank.user[,2],decreasing=TRUE),]
+
+#non-recurring 
+aa.norec <- aa[(aa$cv_days > 0.4),]
+
+aa.norec.rank <- as.data.frame(aa.norec %>% group_by(merchant_name) %>%
+  summarise(num_txns = length(txn_cnt)))
+aa.norec.rank <- aa.norec.rank[order(aa.norec.rank[,2],decreasing=TRUE),]
+
+dd.norec.user <- as.data.frame(dd.norec %>% group_by(partner_name) %>%
+  summarise(txn_users = length(unique(user_id))))
+dd.norec.user <- dd.norec.user[order(dd.norec.user[,2],decreasing=TRUE),]
+
+
+```
+

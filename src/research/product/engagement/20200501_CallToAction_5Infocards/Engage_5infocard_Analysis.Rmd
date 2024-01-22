@@ -1,0 +1,1012 @@
+---
+title: "AB Test: Does educating users with infocards work and are the CTAs associated with future financial activity?"
+author: "Wendy Vu"
+region: "EU"
+date: "2020-04-04"
+link: "https://docs.google.com/presentation/d/1LFDvbxTpDo7NM3vM4nGFGykWzy98Qr9IignUIgiVzZI/edit#slide=id.g84b4ee7d7e_0_220"
+tags: "engage segment, ab test, infocards, cta, education, transactions, trigger"
+summary: "With this AB Test we assessed whether the 5 CTA infocards lead to significantly higher conversion rates in the test group relative to the control group. Overall, these results suggest that customer behavior in the first 35 days of Top-up can be influenced by CTA infocards. Furthermore, we should focus on designing infocards that nudge customers to use specific product features that have a high impact on future financial engagement."
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+``` {r}
+setwd('/Users/wendyvu/Documents/Engage_Analysis/CTA_5infocard_analysis')
+
+```
+
+
+## Summary of 5 Infocard AB Testing experiment
+
+In this experiment, we are testing whether educating users with call-to-action infocards will 
+1) help users learn about the app features and encourage usage
+2) encourage long term financial activity through education
+
+## Experimental Design
+Experiment start date: January 14, 2020
+Last user that entered the experiment: March 10, 2020
+Experiment end date: TBA
+
+160K users who completed their first topup were randomly selected to be in a treatment and control group. Users in the treatment group were shown up to 5 infocards that were triggered by specific transactions.
+
+Reference this [SLIDE DECK](https://docs.google.com/presentation/d/1LFDvbxTpDo7NM3vM4nGFGykWzy98Qr9IignUIgiVzZI/edit#slide=id.g84b4ee7d7e_0_220) for a complete summary of the results.
+
+```{r Load tables}
+library(data.table)
+library(scales)
+library(kableExtra)
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/Engage_Analysis/CTA_5infocard_analysis/Engage_5infocards_20200416.RData"))
+df.ic <- as.data.frame(infocard_query)
+df.txn <- as.data.frame(info_cards_txns)
+df.trig <- as.data.frame(info_card_txn_triggers)
+
+head(df.ic)
+summary(df.ic)
+
+head(df.txn)
+summary(df.txn)
+
+```
+
+
+``` {r}
+library('dplyr')
+
+upgrade <- filter(df.ic, df.ic[,7] == 'premium_upgrade' | df.ic[,5] %in% ('CONTROL'))
+spaces <- filter(df.ic, df.ic[,7] == 'spaces' | df.ic[,5] %in% ('CONTROL'))
+lock_card <- filter(df.ic, df.ic[,7] == 'lock_card' | df.ic[,5] %in% ('CONTROL'))
+daily_limits <- filter(df.ic, df.ic[,7] == 'daily_limits' | df.ic[,5] %in% ('CONTROL'))
+moneybeam <- filter(df.ic, df.ic[,7] == 'moneybeam' | df.ic[,5] %in% ('CONTROL'))
+
+
+# Calculate Conversion rate between test and control groups for all 5 infocards
+up <- upgrade %>% group_by(customer_group) %>% 
+  summarise(tot_users = length(user_id), 
+            converted = length(user_id[upgrade == 1]),
+            prop = converted/tot_users) 
+
+sp <- spaces %>% group_by(customer_group) %>% 
+  summarise(tot_users = length(user_id), 
+            converted = length(user_id[spaces == 1]),
+            prop = converted/tot_users)
+
+lc <- lock_card %>% group_by(customer_group) %>% 
+  summarise(tot_users = length(user_id), 
+            converted = length(user_id[lock_card == 1]),
+            prop = converted/tot_users)
+
+dl <- daily_limits %>% group_by(customer_group) %>% 
+  summarise(tot_users = length(user_id), 
+            converted = length(user_id[daily_limit == 1]),
+            prop = converted/tot_users)
+
+mb <- moneybeam %>% group_by(customer_group) %>% 
+  summarise(tot_users = length(user_id), 
+            converted = length(user_id[moneybeam == 1]),
+            prop = converted/tot_users)
+
+
+# Here I use a simple 2-sample test for equality of proportions
+data.list <- list(upgrade=up,spaces=sp,lock_card=lc,daily_limit=dl,moneybeam=mb)
+
+datalist = list()
+for( i in names(data.list)) { 
+  infocard = i
+  table = data.list[[i]]
+  results = prop.test(table$converted,table$tot_users,correct=F,conf.level = .95)
+  dat <- data.frame(cta = infocard,control_prop_convert = results$estimate[1], test_prop_convert = results$estimate[2], 
+                    x_squared = results$statistic, 
+                    Confidence_Interval = paste(round(results$conf.int[1],3),round(results$conf.int[2],3),sep = ' , '), 
+                    pvalue = results$p.value)
+  datalist[[i]] <- dat
+}
+#datalist
+
+test_results = do.call(rbind, datalist)
+test_results
+
+```
+## RESULTS: Testing significance of differences between conversion rates in Test and Control groups
+
+
+
+
+``` {r}
+
+# What are the proportion of users that refer a friend among the test and control groups?
+# Among the test groups, are there differences in the amount of friends a user refers based on the info cards they see?
+
+data.list <- list(upgrade=upgrade,spaces=spaces,lock_card=lock_card,daily_limits=daily_limits,
+                  moneybeam=moneybeam, all=unique(df.ic[,c(1,5,27)]))
+
+datalist = list()
+for (i in names(data.list)) { 
+  infocard = i 
+  table = data.list[[i]]
+  results <- as.data.frame(table %>% group_by(customer_group) %>%
+  summarise(friend_users = length(unique(user_id[num_friend_ref>0],na.rm=T)),
+            total_number_ref = sum(num_friend_ref>0,na.rm=T),
+            tot_users = length(unique(user_id,na.rm=TRUE)),
+            prop_users = round(friend_users/tot_users,2)
+            ))
+  fin <- data.frame(results, infocard=rep(i,times=dim(results)[1]))
+  datalist[[i]] <- fin
+}
+
+results = do.call(rbind, datalist)
+results <- results[complete.cases(results),]
+
+results
+
+library(ggplot2)
+library(scales) 
+ggplot(results, aes(x=infocard, y=prop_users)) + ylim(0.10,0.20) + xlab("Infocards") + ylab("Percent Users") + theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=14,face="bold",angle=45)) +
+  geom_bar(aes(fill = customer_group), position = "dodge", stat="identity") +   scale_y_continuous(labels=scales::percent_format()) + 
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+
+
+
+```
+## Results
+
+Overall, there is no significant differences in the proportion of users that referred a friend between Test and Control groups. When users were segmented based on the info cards they saw, there were some differences. 17% of Users having seen infocards related to premium upgrades and locking cards referred a friend, compared to 15% in the control group (13% increase from baseline). 
+
+```{r}
+# Assessing the customer behavior and infocard distribution among the test and control groups.
+
+# what prop of users from test and control groups recieve 1,2,3,4,5 infocards?
+ic_num.df <- unique(df.trig[,c(1,2,7)])
+ic_num <- ic_num.df %>% 
+  group_by(customer_group) %>%
+  count(ic_num) %>%
+  mutate(perc=n / nrow(ic_num.df[ic_num.df$customer_group == 'CONTROL',])) 
+ic_num
+
+ggplot(ic_num[ic_num[,1]=='TEST',], aes(x=as.factor(ic_num), y=perc)) + xlab("Number of Infocards Test Users Recieved") + 
+  ylab("Percent Users") + labs(fill="No. of Infocards\n per user") + 
+  theme(
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold", angle=45
+                           ),
+    axis.title=element_text(size=16)) +
+  geom_bar(aes(fill = reorder(as.factor(ic_num), perc)), position = "dodge", stat="identity") + 
+  #geom_errorbar(aes(ymin=txn_avg_2 - txn_se, ymax=txn_avg_2 + txn_se), width=.1) +
+  scale_y_continuous(labels=scales::percent_format()) + 
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+# Which info card is shown the most apart form First topup?
+
+ic_freq <- df.trig %>% 
+  group_by(customer_group,name) %>%
+  summarise(
+    users = length(unique(user_id)),
+    perc = users/60000
+  )
+
+ggplot(ic_freq, aes(x=as.factor(customer_group), y=perc)) + xlab("Group") + 
+  ylab("Percent Users") + labs(fill="Infocard") + 
+  theme(
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold", #angle=45
+                           )) +
+  geom_bar(aes(fill = reorder(name, -perc)), position = "dodge", stat="identity") + 
+  #geom_errorbar(aes(ymin=txn_avg_2 - txn_se, ymax=txn_avg_2 + txn_se), width=.1) +
+  scale_y_continuous(labels=scales::percent_format()) + 
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+# On average how many days does it take from first top up to the next trxns?
+
+trig_tc <- df.trig %>% group_by(customer_group) %>%
+  summarise( 
+    users = length(unique(user_id)),
+    avg_days = round(mean(date_diff_ic,na.rm=T)),
+    med_days = median(date_diff_ic,na.rm=T),
+    users_after35days = length(unique(user_id[date_diff_ic > 35]))/length(unique(user_id))
+    )
+
+trig <- df.trig %>% group_by(customer_group,name) %>%
+  summarise( 
+    users = length(unique(user_id)),
+    avg_days = round(mean(date_diff_ic,na.rm=T)),
+    med_days = median(date_diff_ic,na.rm=T),
+    users_35days = length(unique(user_id[date_diff_ic > 35]))/length(unique(user_id))
+    )
+trig
+
+ggplot(trig, aes(x=as.factor(customer_group), y=med_days)) + xlab("Group") + 
+  ylab("Median days from First Topup") + labs(fill="InfoCard Trxn\n Trigger") + 
+  theme(
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold", #angle=45
+                           )) +
+  geom_bar(aes(fill = reorder(name,med_days)), position = "dodge", stat="identity") + 
+  #geom_errorbar(aes(ymin=txn_avg_2 - txn_se, ymax=txn_avg_2 + txn_se), width=.1) +
+  #scale_y_continuous(labels=scales::percent_format()) + 
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+ggplot(trig, aes(x=as.factor(customer_group), y=users_35days)) + xlab("Group") + 
+  ylab("% Users complete txn triggers after first 35 days") + labs(fill="InfoCard Trxn\n Trigger") + 
+  theme(
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold", #angle=45
+                           )) + geom_hline(yintercept=0.17, linetype="dashed", color = "red") +
+  geom_bar(aes(fill = reorder(name,med_days)), position = "dodge", stat="identity") + 
+  #geom_errorbar(aes(ymin=txn_avg_2 - txn_se, ymax=txn_avg_2 + txn_se), width=.1) +
+  scale_y_continuous(labels=scales::percent_format()) + 
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+```
+
+## Results: Summarizing the patterns of infocard distribution/customer behavior among Test and Control groups
+
+Test and Control groups display very similar baseline financial behavior.
+67% of users recieve at least 3 infocards in both test and control groups and only 12% of users recieve all 5 infocards.
+
+As expected most users recieved a First_income_transction infocard since users were added to the experiment once they completed their first topup.
+~75% of users in each group received a First_card_transaction, followed by first_atm, first_transfer, while only 20% of users recieved that second_atm infocard.
+
+Most users complete a card transaction first followed by first atm withdrawal, transfer (DD,DT) and lastly second atm withdrawal. 
+50% users complete their first card transaction within 7 days (avg = 11) of topping up, while completing a second atm withdrawal takes ~19 days (avg=23).
+
+Only 17% of users take longer than 35 days to complete any given transaction, indicating that most users generally complete triggers within the first 35 days.
+
+
+
+
+
+```{r}
+
+
+
+```
+
+
+```{r}
+# are there differences in the number of transactions between test and control groups?
+
+head(df.txn)
+
+txns <- as.data.frame(
+  df.txn %>% group_by(period) %>%
+  summarise(users = length(unique(user_id))
+            ))
+
+txns$prop_users <- txns$users/sum(txns$users)
+
+library(ggplot2)
+library(scales) 
+ggplot(txns, aes(x=as.factor(period), y=prop_users)) + ylim(0.10,0.20) + xlab("35-day period since first top-up") + ylab("Percent Users") + theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=20,face="bold",angle=45)) +
+  geom_bar(aes(fill = as.factor(period)), position = "dodge", stat="identity") +   
+  scale_y_continuous(labels=scales::percent_format()) + 
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+# merge infocard and txn tables for users that have been with us for >= 70 days and analyze txn data within the first 2 35-day period
+txn.users <- filter(df.txn, (df.txn[,3] == '2months') & (df.txn[,5] < 3))
+
+merged.df <- transform(merge(df.ic,txn.users,by.x="user_id",by.y="user_id"))
+
+
+# is there a difference in financial activity between users that see infocards and those that don't?
+# calculate the avg/median txn per user 
+
+ct.df <- unique(merged.df[,colnames(merged.df) %in% c("user_id","customer_group.x","period_txn","total_txn")])
+
+  
+  as.data.frame( 
+  merged.df %>% group_by(user_id,customer_group.x,period_txn) %>%
+    summarise(total_txn=sum(total_txn))
+  )
+
+txns.test.control <- as.data.frame(
+  ct.df %>% group_by(customer_group.x) %>%
+  summarise(users = length(unique(user_id)),
+            users_retained = length(unique(user_id[period_txn == 2])),
+            prop_user_retained = round(users_retained/users,3),
+            txn_avg_2 = mean(total_txn[period_txn==2],na.rm=T),
+            txn_med_2 = median(total_txn[period_txn==2],na.rm=T),
+            txn_sd = sd(total_txn[period_txn==2],na.rm=T),
+            txn_se = sd(total_txn[period_txn==2],na.rm=T)/sqrt(users_retained)
+            ))
+txns.test.control
+
+# since the distribution of trxn data is not normally distributed, we can use a non-parametric wilcoxon rank test to compare the means of the two distribution. 
+# Note that this test does not require balanced sample sizes.
+hist(ct.df$total_txn,breaks=1000,xlim=c(0,100))
+sig.test <- wilcox.test(ct.df[ct.df[,2]=='CONTROL',4], ct.df[ct.df[,2]=='TEST',4])
+sig.test
+
+# Are there differences among the 5 info cards in term of the effect it has on financial activity?
+
+ic.df <- unique(merged.df[,colnames(merged.df) %in% c("user_id","customer_group.x","name","cta","period_txn","total_txn","ic_num")])
+
+txns.ic <- as.data.frame(
+  merged.df %>% group_by(customer_group.y,name,cta) %>%
+  summarise(users = length(unique(user_id)),
+            users_retained = length(unique(user_id[period_txn == 2])),
+            prop_user_retained = round(users_retained/users,3),
+            txn_avg_2 = mean(total_txn[period_txn==2]),
+            txn_med_2 = median(total_txn[period_txn==2]),
+            txn_se = sd(total_txn[period_txn==2],na.rm=T)/sqrt(users_retained)
+            ))
+
+txns.ic 
+
+# Do users that recieve more infocards tend to be more active in month 2?
+
+num.ic.df <- unique(merged.df[,colnames(merged.df) %in% c("user_id","customer_group.x","name","cta","period_txn","total_txn","ic_num")])
+
+num.ic <- as.data.frame(
+  num.ic.df %>% group_by(ic_num) %>%
+  summarise(users = length(unique(user_id)),
+            users_retained = length(unique(user_id[period_txn == 2])),
+            prop_user_retained = round(users_retained/users,3),
+            txn_avg_2 = mean(total_txn[period_txn==2]),
+            txn_med_2 = median(total_txn[period_txn==2]),
+            txn_se = sd(total_txn[period_txn==2],na.rm=T)/sqrt(users_retained)
+            ))
+num.ic
+
+# BARPLOTS 
+
+ggplot(txns.test.control, aes(x=as.factor(customer_group.x), y=txn_avg_2)) + xlab("Groups") + 
+  ylab("Avg Txns in month 2") + labs(fill="Group") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=20,face="bold",angle=45)) +
+  geom_bar(aes(fill = as.factor(customer_group.x)), position = "dodge", stat="identity") + 
+  geom_errorbar(aes(ymin=txn_avg_2 - txn_se, ymax=txn_avg_2 + txn_se), width=.1) +
+  #scale_y_continuous(labels=scales::percent_format()) + 
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+
+txns.ic[1,c(2,3)] <- "CONTROL"
+txns.ic <- txns.ic[-7,] 
+
+ggplot(txns.ic, aes(x=as.factor(cta), y=txn_avg_2)) + xlab("Groups") + 
+  ylab("Avg Txns in month 2") + labs(fill="Infocards") +
+  theme(
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=11,face="bold",angle=45)) +
+  geom_bar(aes(fill = as.factor(cta)), position = "dodge", stat="identity") + 
+  geom_errorbar(aes(ymin=txn_avg_2 - txn_se, ymax=txn_avg_2 + txn_se), width=.1) +
+  #scale_y_continuous(labels=scales::percent_format()) + 
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+
+num.ic <- num.ic[-7,]
+
+ggplot(num.ic, aes(x=as.factor(ic_num), y=txn_avg_2)) + xlab("Number of Infocards Recieved") + 
+  ylab("Avg Txns in month 2") + labs(fill="No. of Infocards\n per user") +
+  theme(
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=11,face="bold",angle=45)) +
+  geom_bar(aes(fill = as.factor(ic_num)), position = "dodge", stat="identity") + 
+  geom_errorbar(aes(ymin=txn_avg_2 - txn_se, ymax=txn_avg_2 + txn_se), width=.1) +
+  #scale_y_continuous(labels=scales::percent_format()) + 
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+
+
+```
+
+## Results: Does educating users with infocards lead to increased financial engagement? 
+Analysis Date: April 20, 2020
+
+We analysed data from users that have been with us for at least 70 days since their first topup transaction and quantified txn data in the second month ( defined as a 35-day period, N=46034). In the second month, the avg/median txns completed in month 2 did not differ between the test (avg = 13.7, med = 8) and control (avg = 13.9, med = 8) groups, indicating that there is no overall effect of infocards on the financial activity of users in the second month. Furthermore, there are also no differences in the proportion of users that were MAU in the second month (Control = 71.7%, Test = 70.7%). These results suggests that education may not have an impact on user retention or increase financial activity in the second month but this could change longer down the road as it might be too early to see the differences.
+
+Next we assess whether there is variation on the impact of different infocards on financial engagement. Interestingly, we do see differences when comparing the avg/median txn across the 5 infocards. The results show that infocards related to premium upgrade, setting daily limits and moneybeam show the highest increase in avg/median txns within these groups, while spaces and lock card infocards show very little difference compared to the control group. One thing to consider is that there is a strong association between infocards and the corresponding txn behavior that triggers the infocard, so this means that the infocards might not be completely responsible for the increase in financial activity but rather it is the behavior that is associated with increased financial activity. for instance, premium_upgrade seems to correspond to the most txns on avg but this could be interpretted as users that complete their 2nd atm withdrawal is more likely to be active. We will have to compare these results to the control group based on the transaction behaviors (i.e. first topup, first/second atm withdrawal, first card transaction, first money transfer). Then we can see if there is an effect on info cards when comparing groups that did the same transactions and see if there is a difference between test and control.
+
+Its not surprising that users that recieve more infocards are more financially active in month 2 as the results show that users who recieved 5 info cards because they made 5 trigger txns are much more financially active than those that received only 1 or 2 infocards. This suggests that users that are more financially active are more likely to be active in month 2, which is not surprising.
+
+
+
+```{r MERGE CTA TABLE WITH TXNS TABLE AND FILTER FOR USERS THAT HAVE BEEN IN THE EXPERIMENT FOR AT LEAST 70 DAYS/2MONTHS}
+# Include actions for control group
+# replace control group from df.ic to get txn behavior data 
+control.ic <- df.ic[df.ic[,5]=='CONTROL',]
+control.trig <- df.trig[df.trig[,2]=='CONTROL', c(1,6,7)]
+merged.control <- transform(merge(control.ic,control.trig,by.x='user_id',by.y='user_id'))
+merged.control$name.x <- merged.control$name.y
+merged.control$ic_num.x <- merged.control$ic_num.y
+merged.control$name.y <- NULL
+merged.control$ic_num.y <- NULL
+names(merged.control)[6] <- 'name'
+names(merged.control)[13] <- 'ic_num'
+
+test.ic <- df.ic[df.ic[,5]=='TEST',]
+new.df <- rbind(merged.control,test.ic)
+
+```
+
+```{r}
+
+upgrade <- filter(df.ic, df.ic[,6] == 'premium_upgrade' | df.ic[,5] %in% ('CONTROL'))
+spaces <- filter(df.ic, df.ic[,7] == 'spaces' | df.ic[,5] %in% ('CONTROL'))
+lock_card <- filter(df.ic, df.ic[,7] == 'lock_card' | df.ic[,5] %in% ('CONTROL'))
+daily_limits <- filter(df.ic, df.ic[,7] == 'daily_limits' | df.ic[,5] %in% ('CONTROL'))
+moneybeam <- filter(df.ic, df.ic[,7] == 'moneybeam' | df.ic[,5] %in% ('CONTROL'))
+
+
+# Calculate Conversion rate between test and control groups for all 5 infocards
+up <- upgrade %>% group_by(customer_group) %>% 
+  summarise(tot_users = length(user_id), 
+            converted = length(user_id[upgrade == 1]),
+            prop = converted/tot_users) 
+
+sp <- spaces %>% group_by(customer_group) %>% 
+  summarise(tot_users = length(user_id), 
+            converted = length(user_id[spaces == 1]),
+            prop = converted/tot_users)
+
+lc <- lock_card %>% group_by(customer_group) %>% 
+  summarise(tot_users = length(user_id), 
+            converted = length(user_id[lock_card == 1]),
+            prop = converted/tot_users)
+
+dl <- daily_limits %>% group_by(customer_group) %>% 
+  summarise(tot_users = length(user_id), 
+            converted = length(user_id[daily_limit == 1]),
+            prop = converted/tot_users)
+
+mb <- moneybeam %>% group_by(customer_group) %>% 
+  summarise(tot_users = length(user_id), 
+            converted = length(user_id[moneybeam == 1]),
+            prop = converted/tot_users)
+
+
+# Here I use a simple 2-sample test for equality of proportions
+data.list <- list(upgrade=up,spaces=sp,lock_card=lc,daily_limit=dl,moneybeam=mb)
+
+datalist = list()
+for( i in names(data.list)) { 
+  infocard = i
+  table = data.list[[i]]
+  results = prop.test(table$converted,table$tot_users,correct=F,conf.level = .95)
+  dat <- data.frame(cta = infocard,control_prop_convert = results$estimate[1], test_prop_convert = results$estimate[2], 
+                    x_squared = results$statistic, 
+                    Confidence_Interval = paste(round(results$conf.int[1],3),round(results$conf.int[2],3),sep = ' , '), 
+                    pvalue = results$p.value)
+  datalist[[i]] <- dat
+}
+#datalist
+
+test_results = do.call(rbind, datalist)
+test_results
+```
+
+
+
+```{r}
+# merge infocard and txn tables for users that have been with us for >= 70 days and analyze txn data within the first 2 35-day period
+# create df for actions taken (moneybeam,spaces,lockcard,upgrade,dailylimits) and merged total trxn counts for period_txn = 2 
+cta <- unique(new.df[,c(1,2,5,15,16:19)])
+cta$cta_num <- rowSums(cta[,c(4:8)])
+cta$cta_usldm <- do.call(paste, c(cta[,c(4:8)], sep="")) # combine the cta columns to make an aggregate column of actions
+cta$period_ <- rep(2,times=length(cta[,1]))
+
+# Txns df filter for users that have been with us for at least 2 months/70 days
+txn.users <- filter(df.txn, (df.txn$length_time == '2months') & (df.txn$period_txn < 3))
+txns.cta <- transform(merge(cta,txn.users,by.x="user_id",by.y="user_id"))
+
+cta2 <- unique(txns.cta[,c(1:11)])
+txn2 <- txns.cta[,c(1,12:16)]
+
+cta.txn <- transform(merge(cta2,txn2[txn2$period_txn == 2,],by.x="user_id",by.y="user_id",all.x=T))
+cta.txn$total_txn[is.na(cta.txn$total_txn)] <- 0
+head(cta.txn)
+
+```
+
+```{r}
+
+# note use customer_group.x not .y (it has na's)
+
+# What is the Penetration of feature usage? How many users complete the following actions? 
+cta_penetration <- data.frame(
+  cta.txn %>% #group_by(customer_group.x) %>%
+  summarise(users = length(unique(user_id)),
+            upgrade = length(user_id[upgrade==1])/users,
+            spaces = length(user_id[spaces==1])/users,
+            lockcard = length(user_id[lock_card==1])/users,
+            daily_limit = length(user_id[daily_limit==1])/users,
+            moneybeam = length(user_id[moneybeam==1])/users,
+            do_nothing = length(user_id[cta_num==0])/users
+            ))
+
+
+# What is the median number of txns within do users complete in month 2 split between users that completed 1 of the 5 actions
+# ARE USERS THAT COMPLETE A SPECIFIC ACTION MORE LIKELY TO BE FINANCIALLY ACTIVE THAN THOSE THAT DID NOT?
+# Are there differences in the effect of actions on financial engagement?
+cta_txn1 <- data.frame(
+  cta.txn %>% group_by(customer_group.x) %>%
+  summarise(users = length(unique(user_id)),
+            upgrade = median(total_txn[upgrade==1]),
+            spaces = median(total_txn[spaces==1]),
+            lockcard = median(total_txn[lock_card==1]),
+            daily_limit = median(total_txn[daily_limit==1]),
+            moneybeam = median(total_txn[moneybeam==1]),
+            do_nothing = median(total_txn[cta_num == 0])
+            ))
+
+
+cta_txn2 <- data.frame(
+  cta.txn %>% group_by(customer_group.x) %>%
+  summarise(users = length(unique(user_id)),
+            upgrade = mean(total_txn[upgrade==1]),
+            spaces = mean(total_txn[spaces==1]),
+            lockcard = mean(total_txn[lock_card==1]),
+            daily_limit = mean(total_txn[daily_limit==1]),
+            moneybeam = mean(total_txn[moneybeam==1]),
+            do_nothing = mean(total_txn[cta_num == 0])
+            ))
+
+n=dim(cta.txn)[1]
+cta_num <- cta.txn %>% group_by(cta_num) %>%
+  summarise(avg_txns=mean(total_txn),
+            med_txns=median(total_txn),
+            users=length(user_id)/n)
+
+
+cta.txn$txn_cat <- case_when(
+  cta.txn$total_txn >= 10 ~ 2,
+  (cta.txn$total_txn > 0) & (cta.txn$total_txn < 10) ~ 1,
+  cta.txn$total_txn < 1 ~ 0
+)
+
+cta.txn$mau <- case_when(
+  cta.txn$total_txn > 0 ~ 1,
+  cta.txn$total_txn == 0 ~0
+)
+
+cta.txn$do_something <- case_when( 
+  cta.txn$cta_num < 1 ~ 0,
+  cta.txn$cta_num > 0 ~ 1
+  )
+
+cta_txn1
+cta_num
+
+# BARPLOT
+
+library(reshape2)
+gg.cta <- melt(cta_penetration, id.var=names(cta_penetration[,1]))
+gg.txn <- melt(cta_txn1, id.var=names(cta_txn1[,1]))
+
+ggplot(gg.cta[gg.cta[,1] != 'users',], aes(x=as.factor(variable), y=value ))+ xlab("Action") + 
+  ylab("Percent Users") + labs(fill="Action") + 
+  theme(
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold", angle=45
+                           )) +
+  geom_text(aes(label=round(value*100,2)), position=position_dodge(width=0.9), vjust=-0.25) +
+  geom_bar(aes(fill = reorder(variable,value)), position = "dodge", stat="identity") + 
+  #geom_errorbar(aes(ymin=txn_avg_2 - txn_se, ymax=txn_avg_2 + txn_se), width=.1) +
+  scale_y_continuous(labels=scales::percent_format()) + scale_x_discrete() +
+  #facet_grid(customer_group.x ~ ., scales = "free_y") +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+ggplot(gg.txn[gg.txn[,1] != "users",], aes(x=as.factor(variable), y=value)) + xlab("Action") + 
+  ylab("Median No. Txn in Month 2") + labs(fill="") + 
+  theme(
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold", angle=45
+                           )) +
+  #geom_text(aes(label=round(value*100,2)), position=position_dodge(width=0.9), vjust=-0.25)+
+  geom_bar(aes(fill = reorder(variable,value)), position = "dodge", stat="identity") + 
+  #geom_errorbar(aes(ymin=txn_avg_2 - txn_se, ymax=txn_avg_2 + txn_se), width=.1) +
+  #scale_y_continuous(labels=scales::percent_format()) + 
+  #facet_grid(customer_group.x ~ ., scales = "free_y") +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+
+ggplot(cta_num, aes(x=as.factor(cta_num), y=med_txns)) + xlab("Total number of Actions per User") + 
+  ylab("Median No. Txn in Month 2") + labs(fill="") + 
+  theme(
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold", angle=45
+                           )) +
+  geom_text(aes(label=round(med_txns)), position=position_dodge(width=0.9), vjust=-0.25) +
+  geom_bar(aes(fill = reorder(cta_num,med_txns)), position = "dodge", stat="identity") + 
+  #geom_errorbar(aes(ymin=txn_avg_2 - txn_se, ymax=txn_avg_2 + txn_se), width=.1) +
+  #scale_y_continuous(labels=scales::percent_format()) + 
+  #facet_grid(customer_group.x ~ ., scales = "free_y") +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+
+ggplot(cta_num, aes(x=as.factor(cta_num), y=users)) + xlab("Total number of Actions per User") + 
+  ylab("Percent of Users") + labs(fill="No. of Actions") + 
+  theme(
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold", angle=45
+                           )) +
+  geom_text(aes(label=round(users*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  geom_bar(aes(fill = reorder(cta_num,med_txns)), position = "dodge", stat="identity") + 
+  #geom_errorbar(aes(ymin=txn_avg_2 - txn_se, ymax=txn_avg_2 + txn_se), width=.1) +
+  scale_y_continuous(labels=scales::percent_format()) + 
+  #facet_grid(customer_group.x ~ ., scales = "free_y") +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+
+
+```
+
+## Results: Does customer behavior influence future financial activity?
+
+Note that that for the 5 CTAs, 90% of users complete the CTA within 35 days of first topup.
+
+ARE USERS THAT COMPLETE A SPECIFIC CTA MORE LIKELY TO BE FINANCIALLY ACTIVE THAN THOSE THAT DID NOT?
+
+
+
+
+```{r}
+# Are users more active when they do a particular action? Since the info cards encourage people to do 
+require(foreign)
+require(ggplot2)
+require(MASS)
+require(Hmisc)
+require(reshape2)
+
+
+m <- polr(as.factor(txn_cat) ~ as.factor(upgrade) + as.factor(spaces) + as.factor(lock_card) + as.factor(daily_limit) + as.factor(moneybeam) + customer_group.x + as.factor(market) + as.factor(do_something), Hess=TRUE,data=cta.txn)
+null.model <- polr(as.factor(txn_cat) ~ 1, Hess=TRUE,data=cta.txn)
+1-logLik(m)/logLik(null.model)
+
+
+summary(m)
+
+# store table
+(ctable <- coef(summary(m)))
+    
+# calculate and store p values
+p <- pnorm(abs(ctable[, "t value"]), lower.tail = FALSE) * 2
+pval <- as.data.frame(p)
+
+# get confidence interval
+(ci <- confint(m)) # default method gives profiled CIs
+
+# get odd ratio (OR) and CI
+or <- as.data.frame(exp(coef(m)))
+exp(cbind(OR = coef(m), ci))
+
+```
+Users that upgraded where 1.76 times more likely to be financially active than those that did not.
+Surprisingly, users that completed a moneybeam in the first 35 days of first topup are 1.83 times more likely to be financially engaged.
+
+There is a significant market effect in terms of financial engagement. All market comparisons are done relative to the Austrian market. Users from the German market are 1.6 times more likely to be financially active in the second month than those from other markets (FRA, ESP, GrE, ITA, NON-EUR).
+
+```{r}
+library(tidyr)
+cta.txn.piv <- gather(cta.txn, key = "actions", value = "actions_cat",
+       upgrade,spaces,lock_card,daily_limit,moneybeam,do_something)
+ 
+# What proportion of users that complete an action are MAU in the 2nd month?
+# what is the average amount of number of txns in the second month relative to users that did a particular action and those that did not
+
+
+avg.txn <- as.data.frame(
+  cta.txn.piv %>% group_by(actions,actions_cat) %>%
+  summarise(avg_txn = mean(total_txn),
+            se_txn = sd(total_txn)/sqrt(length(total_txn)),
+            med_txn = median(total_txn),
+            users = length(unique(user_id))))
+
+avg.txn$actions_cat <- case_when(
+  avg.txn$actions_cat > 0 ~ 'Yes',
+  avg.txn$actions_cat < 1 ~ 'No'
+)
+
+
+avg.txn$actions <- factor(avg.txn$actions,levels=c("do_something","daily_limit","lock_card","spaces","moneybeam","upgrade"))
+
+ggplot(avg.txn, aes(x=as.factor(actions), y=avg_txn)) + xlab("Group") + 
+  ylab("Avg No.Transactions in Second Month") + labs(fill="Action Taken") + 
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold", angle=45
+                           ),
+    axis.title=element_text(size=16)) + #geom_hline(yintercept=0.17, linetype="dashed", color = "red") +
+  geom_bar(aes(fill = as.factor(actions_cat)), position = "dodge", stat="identity") + 
+  #geom_errorbar(aes(ymin=txn_avg_2 - txn_se, ymax=txn_avg_2 + txn_se), width=.1) +
+  #scale_y_continuous(labels=scales::percent_format()) +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+
+ggplot(avg.txn, aes(x=as.factor(actions), y=med_txn)) + xlab("Group") + 
+  ylab("Median No.Transactions in Month 2") + labs(fill="Action Taken") + 
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold", angle=45,
+                           ),
+    axis.title=element_text(size=16)) + #geom_hline(yintercept=0.17, linetype="dashed", color = "red") +
+  geom_bar(aes(fill = as.factor(actions_cat)), position = "dodge", stat="identity") + 
+  #geom_errorbar(aes(ymin=txn_avg_2 - txn_se, ymax=txn_avg_2 + txn_se), width=.1) +
+  #scale_y_continuous(labels=scales::percent_format()) +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+# Does the number of actions have an impact on user txns in the 2nd month?
+
+num.actions <- cta.txn %>% group_by(cta_num) %>%
+  summarise(avg_txn = mean(total_txn),
+            med_txn = median(total_txn),
+            users = length(unique(user_id)))
+
+num.actions$percent_users <- num.actions$users/sum(num.actions$users)
+
+ggplot(num.actions, aes(x=as.factor(cta_num), y=med_txn)) + xlab("Number of Actions completed by a user within first 35 days") + 
+  ylab("Median No.Transactions in 2nd Month") + labs(fill="Action Taken") + 
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold", angle=45,
+                           ),
+    axis.title=element_text(size=16)) + #geom_hline(yintercept=0.17, linetype="dashed", color = "red") +
+  geom_bar(aes(fill = as.factor(cta_num)), position = "dodge", stat="identity") + 
+  #geom_errorbar(aes(ymin=txn_avg_2 - txn_se, ymax=txn_avg_2 + txn_se), width=.1) +
+  #scale_y_continuous(labels=scales::percent_format()) +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+ggplot(num.actions, aes(x=as.factor(cta_num), y=percent_users)) + xlab("Number of Actions completed by a user within first 35 days") + 
+  ylab("% Users") + labs(fill="Action Taken") + 
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold", angle=45,
+                           ),
+    axis.title=element_text(size=16)) + #geom_hline(yintercept=0.17, linetype="dashed", color = "red") +
+  geom_bar(aes(fill = as.factor(cta_num)), position = "dodge", stat="identity") + 
+  #geom_errorbar(aes(ymin=txn_avg_2 - txn_se, ymax=txn_avg_2 + txn_se), width=.1) +
+  scale_y_continuous(labels=scales::percent_format()) +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+tc <- cta.txn %>% group_by(customer_group.x) %>%
+  summarise(med_txn=median(total_txn),
+            avg_txn=mean(total_txn))
+
+ggplot(tc, aes(x=as.factor(customer_group.x), y=med_txn)) + xlab("Group") + 
+  ylab("Median No.Transactions in 2nd Month") + labs(fill="") + 
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold", angle=45,
+                           ),
+    axis.title=element_text(size=16)) + #geom_hline(yintercept=0.17, linetype="dashed", color = "red") +
+  geom_bar(aes(fill = as.factor(customer_group.x)), position = "dodge", stat="identity") + 
+  #geom_errorbar(aes(ymin=txn_avg_2 - txn_se, ymax=txn_avg_2 + txn_se), width=.1) +
+  #scale_y_continuous(labels=scales::percent_format()) +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+# user retention 
+
+retention <- as.data.frame(cta.txn.piv %>% group_by(actions, actions_cat,mau) %>%
+  summarise(users = length(unique(user_id))
+            ))
+
+ret.piv <- as.data.frame(retention %>% spread(mau,users))
+ret.piv$percent_retained <- ret.piv[,4]/(ret.piv[,3]+ret.piv[,4])
+
+ret.piv$actions_cat <- case_when(
+  ret.piv$actions_cat > 0 ~ 'Yes',
+  ret.piv$actions_cat < 1 ~ 'No'
+)
+
+ret.piv$actions <- factor(ret.piv$actions,levels=c("do_something","daily_limit","lock_card","spaces","moneybeam","upgrade"))
+
+ggplot(ret.piv, aes(x=as.factor(actions), y=percent_retained)) + xlab("Actions") + 
+  ylab("Percent User MAU in Month 2") + labs(fill="") + 
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold", angle=45,
+                           ),
+    axis.title=element_text(size=16)) + #geom_hline(yintercept=0.17, linetype="dashed", color = "red") +
+  geom_bar(aes(fill = as.factor(actions_cat)), position = "dodge", stat="identity") + 
+  #geom_errorbar(aes(ymin=txn_avg_2 - txn_se, ymax=txn_avg_2 + txn_se), width=.1) +
+  scale_y_continuous(labels=scales::percent_format()) +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+
+
+
+# how many users fall within the high, moderate, zero txns category split by cta?
+txn_cat <- as.data.frame(cta.txn.piv %>% group_by(actions,actions_cat,txn_cat) %>%
+  summarise(users = length(unique(user_id)))
+)
+
+txn_cat.piv <- as.data.frame(txn_cat %>% spread(actions_cat,users))
+txn_cat.piv$percent <- txn_cat.piv[,4]/(txn_cat.piv[,3]+txn_cat.piv[,4])
+
+
+```
+## Summary and Discussion of Results
+
+The results indicate that infocards are effective in educating our users about product features resulting in a significant conversion rate increase in the test compared to the control group. Furthermore, our analysis suggest that some of the 5 call to actions are significantly associated with future financial behavior but vary in the magnitude of its effects.
+
+In general, doing at least one of the 5 actions associated with the infocards leads to higher transactional activity as observed from the avg txns between users that did nothing vs those that did at least one action. However, the actions vary in the magnitude of their impact/influence on users' transactional activity in month 2. Here we see that upgrading has the most influence on the number of trxns a user completes in the second month, followed by completing a moneybeam trxn, and opening up a space account. Locking card and setting daily limits show the least influence on users' future financial activity. these results suggest that the types of financial behaviors in the first 35 days after the first top up varies significantly in terms of its impact on future financial activity. 
+
+Based on these results, we could infer that encouraging users to do specific actions that are linked to high future financial activity could potentially lead to increased user engagement in the long term. Because there is considerable variability in terms of the effects that the CTAs have on financial engagement, we should consider the types of CTA's we should focus on when designing infocard studies that educate users about our product. 
+
+In general ,designing infocards that educate users on our product is effective but focusing on specific actions that are found to be more impactful in future financial activity would be the most effective way to increase future financial engagment.
+

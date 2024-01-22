@@ -1,0 +1,14 @@
+---
+title: "Is there a relationship between In-App behavior and Financial Activity?"
+author: "Wendy Vu"
+date: "2020-02-22"
+region: "EU"
+link: "https://docs.google.com/presentation/d/1_X2y1hycUDUhe_lF2d_I32xmpFe0guNQKaee8_Ypqzk/edit?usp=sharing"
+tags: "engage, in-app, login, retention, financial behavior"
+summary: "For this research we used data from KYCC completed cohort from Jan, Feb, March 2019 (total users = 300k). About 50% of users stop going into transaction details 2 months after first usage. Users that continue to go into transaction details (on avg) do it ~16 times per month. As for spaces, roughly 20% of users that completed at least 1 txn (MAU) created 1+ spaces account within the first month of login  Also, about 50% of users viewed spaces within the first month of login activity indicating some interests/curiosity."
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+

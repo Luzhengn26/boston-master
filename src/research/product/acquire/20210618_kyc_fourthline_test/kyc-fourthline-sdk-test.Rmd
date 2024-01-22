@@ -1,0 +1,10 @@
+---
+title: "KYC Fourthline SDK A/B Test Phase 1.1"
+author: "Claudia Dai"
+region: "EU"
+date: "2021-06-18"
+link: "https://docs.google.com/presentation/d/1YJmYbl5crKzXBNUvvPghfJ33sA_39YYMhQ5j8ibMIGE/"
+tags: "acquire, kyc, fourthline, ab test, cs contact, conversion"
+research_type: "Data Deep Dives"
+summary: "With the new Fourthline SDK two changes were introduced: We expect that the SDK’s quality check prompts an overall increase in conversion and reduction in CS contacts, and that the liveness detection prompts the conversion rate to decrease and the number of CS contacts to increase. The A/B test was launched 1st June, 2021 with a weight split of 50% for the Fourthline provider in all markets on all platforms for app versions 3.61 or higher. Instead of evaluating the impact of each of the two changes individually, we look at the combined effect of both. We analyze the time period from 1st June 2021 until 13th June 2021. We observe a 3.16pp decrease with >99% confidence for % KYCi to KYCc within 3d. Furthermore, KYCi to KYCc on first attempt has worsened, and we observe more second attempts after first failed attempt and higher CS contacts within the variant group. The drops occur on the Selfie Capture screen, which is the screen that triggers both quality check and liveness detection. The in-device quality check was expected to improve CR while liveness detection was expected to worsen CR. It is recommended to set up separate tests to analyze the impact of these changes. Android is observed to throw significantly more errors than iOS, contributing to a higher drop for Android. Both platforms experience in majority TIME_OUT failures."
+---

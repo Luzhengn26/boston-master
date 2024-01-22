@@ -1,0 +1,16 @@
+---
+title: "Smart Free Trial phase 1 evaluation"
+author: "Mihai Hopirtean"
+region: "EU"
+date: "2021-11-08"
+summary: "This analysis was performed in order to extract insights on how the Smart Free Trial has performed in its first iteration and what could be the focus of the first iterations. Two A/B tests are evaluated and several customer engagement metrics are also in focus. Data shows that the free trial has increased the upgrade rate among the eligible users, and that there may be room for further success by improving the UX and technical setup."
+tags: "memberships, upgrades, smart free trial, trial, SFT, A/B test, experimentation"
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+  pdf_document:
+    toc: yes
+link: "https://docs.google.com/presentation/d/1haoMJ4VmahErimK9qLS2RtQocolnEI4oGeJ21cWtYEs/edit?usp=sharing"
+
+---

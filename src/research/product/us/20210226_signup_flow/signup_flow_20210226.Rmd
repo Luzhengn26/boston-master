@@ -1,0 +1,110 @@
+---
+title: "Signup flow analysis - high-level assessment"
+author: "Dani Mermelstein"
+date: "2021-02-26"
+region: "US"
+summary: "There are currently 10 screens in the signup flow (pre-KYC). We use front-end tracking to determine when a user loads a screen and/or moves from one step to the other. Analysis was done with over a 14-day period as a simple overview. Numbers therefore shouldn’t be read as gospel, but are directionally accurate. Funding conversion rates are as low as they are due to insufficient lead time but should also be directionally accurate as a comparison between different onboarding platforms. Majority of the dropoff in the signup flow happens in the first couple screens. Android dominates the signup and KYC process, but iOS users close the funding and activity gap later (later activity data not presented here). We see serious drops from Signup Complete (ie email_comfirmation screen) to KYC Complete and again to FT MAU. Additional followup investigation into screen design and UX needs to be done on the dropoff points."
+tags: "signup flow, screen analysis, ux, research"
+link: 
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(data.table)
+library(tidyr)
+library(ggplot2)
+library(knitr)
+library(scales)
+
+options(scipen=999)
+
+# load the data
+load(paste0("data/signup_flow_data.RData"))
+
+# data prep
+
+flow_long <- gather(flow[,.(signup_start = signup_start/signup_start,
+        personal_information = personal_information/signup_start,
+        phone_number = phone_number/signup_start,
+        address = address/signup_start,
+        address_confirmation = address_confirmation/signup_start,
+        social_security_number = social_security_number/signup_start,
+        additional_information = additional_information/signup_start,
+        create_password = create_password/signup_start,
+        create_account = create_account/signup_start,
+        email_confirmation = email_confirmation/signup_start,
+        kycc = kycc/signup_start,
+        ft_mau = ft_mau/signup_start), by=.(signup_device)], page, rate, signup_start:ft_mau)
+
+
+flow_long$page <- factor(flow_long$page, levels = unique(flow_long$page))
+```
+
+# Summary
+
+There are currently 10 screens in the signup flow (pre-KYC). We use front-end tracking to determine when a user loads a screen and/or moves from one step to the other. Analysis was done with over a 14-day period as a simple overview. Numbers therefore shouldn't be read as gospel, but are directionally accurate. Funding conversion rates are as low as they are due to insufficient lead time but should also be directionally accurate as a comparison between different onboarding platforms.
+
+
+# TL;DR
+
+ - Majority of the dropoff in the signup flow happens in the first couple screens
+ - Android dominates the signup and KYC process, but iOS users close the funding and activity gap later (later activity data not presented here)
+ - We see serious drops from Signup Complete (ie `email_comfirmation` screen) to KYC Complete and again to FT MAU
+ - Additional followup investigation into screen design and UX needs to be done on the dropoff points
+
+## Overview
+
+Percentages are stacked for the whole group and should be read as "Percent of users who reached Y screen/milestone started signup on X device"
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+kable(flow[,.(signup_device=signup_device,
+        signup_start=signup_start,
+        kycc=kycc,
+        ft_mau=ft_mau,
+        signup_pct=percent(signup_start/sum(signup_start)),
+        kycc_pct=percent(kycc/sum(kycc)),
+        ft_mau_pct=percent(ft_mau/sum(ft_mau)))][order(-signup_start),])
+
+
+# paste(round(rate*100), '%')
+```
+
+## Completion rates over signup_start {.tabset .tabset-fade}
+
+### Android
+
+```{r, echo=FALSE, message=FALSE}
+
+ggplot(flow_long[flow_long$signup_device == 'android',], aes(x=page, y=rate)) +
+  geom_bar(stat='identity') +
+  geom_text(aes(label = paste(round(rate*100), '%')), vjust=-0.5)+
+  theme(axis.text.x = element_text(angle = 45))
+
+```
+
+### iOS
+
+```{r, echo=FALSE, message=FALSE}
+
+ggplot(flow_long[flow_long$signup_device == 'ios',], aes(x=page, y=rate)) +
+  geom_bar(stat='identity') +
+  geom_text(aes(label = paste(round(rate*100), '%')), vjust=-0.5)+
+  theme(axis.text.x = element_text(angle = 45))
+
+```
+
+### Web
+
+```{r, echo=FALSE, message=FALSE}
+
+ggplot(flow_long[flow_long$signup_device == 'web',], aes(x=page, y=rate)) +
+  geom_bar(stat='identity') +
+  geom_text(aes(label = paste(round(rate*100), '%')), vjust=-0.5)+
+  theme(axis.text.x = element_text(angle = 45))
+
+```

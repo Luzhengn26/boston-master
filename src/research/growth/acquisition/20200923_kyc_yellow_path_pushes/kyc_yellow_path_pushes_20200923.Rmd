@@ -1,0 +1,273 @@
+---
+title: "Email notifications for SSN and ID uploads in KYC Yellow Path"
+author: "Dani Mermelstein"
+date: "2020-12-11"
+region: "US"
+summary: "These were two tests that ran simultaneously in the KYC flow - the general hypothesis was if we sent users who had abandonded the flow at two different points we could raise KYC completion rates. The first dropoff point was at SSN submission, and the second was at Document Verification (for users in KYC Yellow Flow). Users at the SSN step who received the email were 23% more likely to submit their SSN than users who didn’t get the email. However, users who received the SSN email were NOT more likely to complete KYC. A working hypothesis is users who abandon the flow at this step are more likely to end up in Yellow/Red Flow and won’t complete that step because they are already less motivated. Users at the Document Verification step who received the email were 29% more likely to submit their documents than users who didn’t get the email. Users who received the ID email were 71% more likely to complete KYC than users who didnt. This is potentially because if a user comes back and completes this step they’re more prepared to complete it than users who try to complete in the moment. This could indicate a positive impact if we make changes earlier in the flow preparing users to submit additional documents if necessary."
+link:
+tags: "ab test, kyc, yellow path, yellow flow, onboarding, marketing, acquire"
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(kableExtra)
+library(bayesAB)
+library(ggplot2)
+library(scales)
+# load the data
+load(paste0("data/user_data.RData"))
+# # need this up here to use in the Results section
+bayes_users <- users
+
+# select lag limit
+days <- 3
+
+# flag users who have made the appropriate action within the timeframe and are within the test parameters (didn't make the action before they received the email)
+bayes_users$ssn_flag <- (bayes_users$first_ssn_submitted - bayes_users$first_date_sent)/60/60 # converts to hours
+bayes_users$ssn_flag <- ifelse(bayes_users$ssn_flag <= days*24 & (bayes_users$first_ssn_submitted >= bayes_users$first_date_sent) , 1, 0)
+bayes_users[is.na(bayes_users$ssn_flag)]$ssn_flag <- 0
+
+bayes_users$document_flag <- (bayes_users$first_document_submitted - bayes_users$first_date_sent)/60/60
+bayes_users$document_flag <- ifelse(bayes_users$document_flag <= days*24 & bayes_users$first_document_submitted >= bayes_users$first_date_sent, 1, 0)
+bayes_users[is.na(bayes_users$document_flag)]$document_flag <- 0
+
+bayes_users$kyc_flag <- (bayes_users$kyc_first_completed - bayes_users$first_date_sent)/60/60
+bayes_users$kyc_flag <- ifelse(bayes_users$kyc_flag <= days*24 & bayes_users$kyc_first_completed >= bayes_users$first_date_sent, 1, 0)
+bayes_users[is.na(bayes_users$kyc_flag)]$kyc_flag <- 0
+
+# limit to users who have had enough time for the day lag to pass
+bayes_users <- bayes_users[Sys.Date() - as.Date(first_date_sent) >= days,]
+
+# flag the variants
+bayes_users$variant <- ''
+bayes_users[email %in% c('CRM_JRN_KYCC_SSN_PKYC_Y_2hours', 
+                         'CRM_JRN_KYCC_SSN_PKYC_Y_24hours', 
+                         '20201009_CRM_JRN_KYCC_ssn_PKYC_Y_Batch-Send', 
+                         'CRM_JRN_KYCC_SSN_PKYC_N-SEND'),]$variant <- 'treatment_ssn'
+
+bayes_users[email %in% c('CRM_JRN_KYCC_id-verify_PKYC_N', 
+                         '20201009_CRM_JRN_KYCC_id-verify_PKYC_Batch-Send', 
+                         'CRM_JRN_KYCC_id-verify_PKYC_N-SEND'),]$variant <- 'treatment_id'
+
+
+bayes_users[email %in% c('Control_SSN'),]$variant <- 'control_ssn'
+bayes_users[email %in% c('Control_ID'),]$variant <- 'control_id'
+
+```
+
+# Overview
+
+These were two tests that ran simultaneously in the KYC flow - the general hypothesis was if we sent users who had abandonded the flow at two different points we could raise KYC completion rates. The first dropoff point was at SSN submission, and the second was at Document Verification (for users in KYC Yellow Flow).
+
+## TLDR
+
+ - Users at the SSN step who received the email were **23% more likely to submit their SSN** than users who didn't get the email
+   - *However, users who received the SSN email were NOT more likely to complete KYC*. A working hypothesis is users who abandon the flow at this step are more likely to end up in Yellow/Red Flow and won't complete that step because they are already less motivated
+ - Users at the Document Verification step who received the email were **29% more likely to submit their documents** than users who didn't get the email
+   - **Users who received the ID email were 71% more likely to complete KYC than users who didnt.** This is potentially because if a user comes back and completes this step they're more prepared to complete it than users who try to complete in the moment. This could indicate a positive impact if we make changes earlier in the flow preparing users to submit additional documents if necessary
+
+## Test Setup
+
+Users who had completed steps leading right up to either SSN or Document submission but had not completed the target action within 2 hours were sent an email asking them to come back and complete the next step. If a user completed the step within 3 days that counted as a successful outcome.
+
+**Note**
+It is possible for users to be in both the SSN and ID Submission tests. We are not controlling for the impact of being in both tests vs only one test.
+
+# Analysis Output  {.tabset .tabset-fade .tabset-pills} 
+
+## SSN Emails {.tabset .tabset-fade .tabset-pills} 
+
+```{r, echo=FALSE, message=FALSE}
+ggplot(bayes_users[variant %in% c('control_ssn','treatment_ssn'),], aes(x=as.Date(first_date_sent), fill=variant)) +
+  geom_bar(stat="bin") +
+  labs(title="Users Assigned per Day",
+       x ="Date", 
+       y = "Users")
+```
+
+### SSN Metrics
+
+```{r, echo=FALSE}
+# get outcome vectors
+ssn_control <- as.integer(bayes_users[variant=='control_ssn',]$ssn_flag)
+ssn_treatment <- as.integer(bayes_users[variant=='treatment_ssn',]$ssn_flag)
+# control for sample size differences
+# ssn_treatment <- sample(ssn_treatment, size=length(ssn_control))
+AB1 <- bayesTest(ssn_treatment, ssn_control, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+kable(data.frame("Variants"=c("ssn_control","ssn_treatment"), 
+           "Users"=c(length(ssn_control), length(ssn_treatment)), 
+           "Outcomes"=c(sum(ssn_control), sum(ssn_treatment)),
+           "Rate"=c(sum(ssn_control)/length(ssn_control), sum(ssn_treatment)/length(ssn_treatment)))) %>%
+  kable_styling(full_width = F)
+
+# likelihood of improvement
+loi <- summary(AB1)$probability
+# confidence interval
+ci <- summary(AB1)$interval$Probability
+# determine whether the results are final or if test needs to run longer
+print(ifelse((loi$Probability < 0.1 | loi$Probability > 0.9)&(0 < ci[[1]] | 0 > ci[[2]]), 'Test Complete', 'Keep Test Running'))
+```
+
+**90% confidence interval:**
+```{r, echo=FALSE, message=FALSE}
+print(ci)
+```
+
+**Estimated lift:**
+```{r, echo=FALSE, message=FALSE}
+print(percent(mean(c(ci))))
+```
+
+
+#### Charts:
+```{r, echo=FALSE}
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("ssn_treatment","ssn_control"))
+images$posteriors$Probability + ggtitle("Outcome Distribution - SSN group, SSN")
+images$samples$Probability + ggtitle("Likelihood of Improvement - SSN group, SSN")
+```
+
+### KYC Metrics
+
+```{r, echo=FALSE}
+# get outcome vectors
+ssn_control <- as.integer(bayes_users[variant=='control_ssn',]$kyc_flag)
+ssn_treatment <- as.integer(bayes_users[variant=='treatment_ssn',]$kyc_flag)
+# control for sample size differences
+# ssn_treatment <- sample(ssn_treatment, size=length(ssn_control))
+AB1 <- bayesTest(ssn_treatment, ssn_control, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+kable(data.frame("Variants"=c("ssn_control","ssn_treatment"), 
+           "Users"=c(length(ssn_control), length(ssn_treatment)), 
+           "Outcomes"=c(sum(ssn_control), sum(ssn_treatment)),
+           "Rate"=c(sum(ssn_control)/length(ssn_control), sum(ssn_treatment)/length(ssn_treatment)))) %>%
+  kable_styling(full_width = F)
+
+# likelihood of improvement
+loi <- summary(AB1)$probability
+# confidence interval
+ci <- summary(AB1)$interval$Probability
+# determine whether the results are final or if test needs to run longer
+print(ifelse((loi$Probability < 0.1 | loi$Probability > 0.9)&(0 < ci[[1]] | 0 > ci[[2]]), 'Test Complete', 'Keep Test Running'))
+```
+
+**90% confidence interval:**
+```{r, echo=FALSE, message=FALSE}
+print(ci)
+```
+
+**Estimated lift:**
+```{r, echo=FALSE, message=FALSE}
+print(percent(mean(c(ci))))
+```
+
+
+#### Charts
+```{r, echo=FALSE}
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("ssn_treatment","ssn_control"))
+images$posteriors$Probability + ggtitle("Outcome Distribution - SSN group, KYC")
+images$samples$Probability + ggtitle("Likelihood of Improvement - SSN group, KYC")
+```
+
+## Document Emails {.tabset .tabset-fade .tabset-pills} 
+
+```{r, echo=FALSE, message=FALSE}
+ggplot(bayes_users[variant %in% c('control_id','treatment_id'),], aes(x=as.Date(first_date_sent), fill=variant)) +
+  geom_bar(stat="bin") +
+  labs(title="Users Assigned per Day",
+       x ="Date", 
+       y = "Users")
+```
+
+### Document Metrics
+```{r, echo=FALSE}
+# get outcome vectors
+document_control <- as.integer(bayes_users[variant=='control_id',]$document_flag)
+document_treatment <- as.integer(bayes_users[variant=='treatment_id',]$document_flag)
+# control for sample size differences
+AB1 <- bayesTest(document_treatment, document_control, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+kable(data.frame("Variants"=c("document_control","document_treatment"), 
+           "Users"=c(length(document_control), length(document_treatment)), 
+           "Outcomes"=c(sum(document_control), sum(document_treatment)),
+           "Rate"=c(sum(document_control)/length(document_control), sum(document_treatment)/length(document_treatment)))) %>%
+  kable_styling(full_width = F)
+
+# likelihood of improvement
+loi <- summary(AB1)$probability
+# confidence interval
+ci <- summary(AB1)$interval$Probability
+# determine whether the results are final or if test needs to run longer
+print(ifelse((loi$Probability < 0.1 | loi$Probability > 0.9)&(0 < ci[[1]] | 0 > ci[[2]]), 'Test Complete', 'Keep Test Running'))
+```
+
+**90% confidence interval:**
+```{r, echo=FALSE, message=FALSE}
+print(ci)
+```
+
+**Estimated lift:**
+```{r, echo=FALSE, message=FALSE}
+print(percent(mean(c(ci))))
+```
+
+
+#### Charts:
+```{r, echo=FALSE}
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("document_treatment","document_control"))
+images$posteriors$Probability + ggtitle("Outcome Distribution - ID group, ID")
+images$samples$Probability + ggtitle("Likelihood of Improvement - ID group, ID")
+```
+
+### KYC Metrics
+```{r, echo=FALSE}
+# get outcome vectors
+document_control <- as.integer(bayes_users[variant=='control_id',]$kyc_flag)
+document_treatment <- as.integer(bayes_users[variant=='treatment_id',]$kyc_flag)
+# control for sample size differences
+AB1 <- bayesTest(document_treatment, document_control, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+kable(data.frame("Variants"=c("document_control","document_treatment"), 
+           "Users"=c(length(document_control), length(document_treatment)), 
+           "Outcomes"=c(sum(document_control), sum(document_treatment)),
+           "Rate"=c(sum(document_control)/length(document_control), sum(document_treatment)/length(document_treatment)))) %>%
+  kable_styling(full_width = F)
+
+# likelihood of improvement
+loi <- summary(AB1)$probability
+# confidence interval
+ci <- summary(AB1)$interval$Probability
+# determine whether the results are final or if test needs to run longer
+print(ifelse((loi$Probability < 0.1 | loi$Probability > 0.9)&(0 < ci[[1]] | 0 > ci[[2]]), 'Test Complete', 'Keep Test Running'))
+```
+
+**90% confidence interval:**
+```{r, echo=FALSE, message=FALSE}
+print(ci)
+```
+
+**Estimated lift:**
+```{r, echo=FALSE, message=FALSE}
+print(percent(mean(c(ci))))
+```
+
+
+#### Charts:
+```{r, echo=FALSE}
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("document_treatment","document_control"))
+images$posteriors$Probability + ggtitle("Outcome Distribution - ID group, ID")
+images$samples$Probability + ggtitle("Likelihood of Improvement - ID group, ID")
+```

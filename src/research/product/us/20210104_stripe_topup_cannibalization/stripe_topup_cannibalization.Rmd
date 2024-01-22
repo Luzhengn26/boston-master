@@ -1,0 +1,327 @@
+---
+title: "Did Stripe Recurring Topup Cannibalize Other Funding"
+author: "Dani Mermelstein"
+date: "2021-01-04"
+region: "US"
+tags: "pre/post test, incremental funding, funding amounts, stripe, recurring topup, transactions"
+link: 
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyverse)
+library(bayesAB)
+library(ggplot2)
+
+# load the data
+load(paste0("data/stripe_data.RData"))
+
+# https://stackoverflow.com/questions/4787332/how-to-remove-outliers-from-a-dataset
+# here we're going to remove the top 2% of outliers
+remove_outliers <- function(x, na.rm = TRUE, ...) {
+  qnt <- quantile(x, probs=c(0, .98), na.rm = na.rm, ...)
+  H <- 1.5 * IQR(x, na.rm = na.rm)
+  y <- x
+  y[x < (qnt[1] - H)] <- 0
+  y[x > (qnt[2] + H)] <- 0
+  y
+}
+
+```
+
+# TL;DR
+
+
+## Takeaways and Recommendation
+
+**THIS WAS NOT AN A/B TEST**. All outputs should be taken with a grain of salt (see the [Caveats section](#caveats)).
+
+
+## Caveats
+
+All analysis here was done as a pre/post analysis. The lapse rate analysis was underpowered because not enough time has passed since the fee change. Whenever we do a pre/post analysis we risk being influenced by a variety of external factors, including but not limited to:
+
+ - changes in market sentiment
+ - differences between cohorts
+ - changes to the unemployment rate (unfortunately a major factor this year)
+ - changes in fraudulent user behavior (we filtered out all confirmed fraud cases, but we might not have caught all of it)
+ - marketing/acquisition efforts that happened at different periods
+ - etc...
+
+# Analysis {.tabset .tabset-fade}
+
+```{r, echo=FALSE, message=FALSE}
+# transactions[type %in% c("ACH","CHECK","DIR_DEP","OCT","TopUp","SP_ACH","MoneyBeam","Card"),]
+transactions$amount_per_user <- transactions$txn_amount/transactions$users
+
+funding_types <- c("ACH","CHECK","DIR_DEP","OCT","TopUp","SP_ACH","MoneyBeam","Card")
+
+# normality test
+normality_rs <- c()
+for (kind in funding_types){
+  output <- shapiro.test(transactions[type==kind & txn_week < as.Date("2020-07-20"),]$amount_per_user)
+  normality_rs <- c(normality_rs, output$p.value)
+}
+
+# if values are above 0.05 then distribution is likely to be normal
+kable(data.frame(funding_types, normality_rs)) %>%
+  kable_styling(full_width = F)
+
+
+ggplot(transactions[type %in% funding_types,], aes(x=txn_week, y=amount_per_user, group=type))+
+  geom_line(aes(linetype=type, color=type))
+
+ggplot(transactions[type %in% funding_types,], aes(x=txn_week, y=as.numeric(users), group=type))+
+  geom_line(aes(linetype=type, color=type))+
+  
+  
+
+ggplot(transactions[type %in% funding_types,], aes(x=txn_amount/users, fill=type))+
+  geom_density(alpha=.65)
+
+
+```
+
+<style>
+div.blue { background-color:#e6f0ff; border-radius: 5px;}
+</style>
+<div class = "blue">
+**These results `r ifelse(abs(1-summary(AB1)$probability$Probability)<5 & !(summary(AB1)$interval$Probability[1] < 0 & 0 < summary(AB1)$interval$Probability[2]), "are", "are NOT")` significant**
+</div>
+
+```{r, echo=FALSE, message=FALSE}
+
+kable(users[, .(min_kyc=min(kyc_first_completed),
+          max_kyc=max(kyc_first_completed)), by=.(category)]) %>%
+  kable_styling(full_width = F)
+
+kable(data.frame("Variants"=c("pre_launch","post_launch"), 
+           "Users"=c(length(control), length(treatment)), 
+           "Outcomes"=c(sum(control), sum(treatment)),
+           "Funding Rate"=c(sum(control)/length(control), sum(treatment)/length(treatment)))) %>%
+  kable_styling(full_width = F)
+```
+
+### 90% Confidence Interval:
+
+```{r, echo=FALSE, message=FALSE}
+summary(AB1)$interval$Probability
+
+```
+
+```{r, echo=FALSE, message=FALSE}
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("post_launch","pre_launch"))
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+```
+
+## Stripe Radar Risk Scores
+
+```{r, echo=FALSE, message=FALSE}
+transaction_risk <- user_transactions[topup_type=='recurring' & num>0 & !is.na(stripe_radar_risk_score) & stripe_radar_risk_score != 'null',]
+transaction_risk$stripe_radar_risk_score <- as.integer(transaction_risk$stripe_radar_risk_score)
+```
+
+for all recurring topup txns between `r as.Date(min(transaction_risk$completed_tstamp))` and `r as.Date(max(transaction_risk$completed_tstamp))`
+
+```{r, echo=FALSE, message=FALSE}
+
+# test for first vs recurring txns
+# risk_score_results <-  wilcox.test(transaction_risk[topup_type=='first',]$stripe_radar_risk_score, 
+#             transaction_risk[topup_type=='recurring',]$stripe_radar_risk_score, 
+#             alternative=c("two.sided"), 
+#             conf.level=.9, 
+#             correct=TRUE, 
+#             paired = FALSE)
+
+# test for pre vs post price increase risk
+risk_score_results <-  wilcox.test(transaction_risk[category=='pre',]$stripe_radar_risk_score, 
+            transaction_risk[category=='post',]$stripe_radar_risk_score, 
+            alternative=c("two.sided"), 
+            conf.level=.9, 
+            correct=TRUE, 
+            paired = FALSE)
+```
+
+<style>
+div.blue { background-color:#e6f0ff; border-radius: 5px;}
+</style>
+<div class = "blue">
+Differences in average risk scores for recurring topups now vs before the fee change `r ifelse(risk_score_results$p.value < 0.05, "are", "are NOT")` statistically significant
+</div>
+
+```{r, echo=FALSE, message=FALSE}
+
+# average risk scores
+kable(transaction_risk[complete.cases(transaction_risk$stripe_radar_risk_score),][, .(avg_risk_score = mean(stripe_radar_risk_score), users=length(unique(user_id))),by = .(category)]) %>%
+  kable_styling(full_width = F)
+
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(transaction_risk, aes(x=stripe_radar_risk_score, fill=category)) +
+  geom_density(alpha=.65)+
+  labs(title = "Distribution of Stripe Radar Risk Scores")
+
+```
+
+## Funding Amounts {.tabset .tabset-fade .tabset-pills}
+
+Data is within `r interval` days of KYC Complete for a `r cohort` day cohort
+
+```{r, echo=FALSE, message=FALSE}
+kable(users[, .(min_kyc=min(kyc_first_completed),
+          max_kyc=max(kyc_first_completed)), by=.(category)]) %>%
+  kable_styling(full_width = F)
+```
+
+### Overall Funding
+
+```{r, echo=FALSE, message=FALSE}
+# use log to smooth out the amounts because users tend to peg their deposits at certain amounts (and/or we set limits on topup funding amounts)
+users$log_amount <- log(users$amount)
+overall_funding_amount_results <- wilcox.test(remove_outliers(users[category=='pre' & first_txn==1,]$log_amount), 
+            remove_outliers(users[category=='post' & first_txn==1,]$log_amount), 
+            alternative=c("two.sided"), 
+            conf.level=.9, 
+            correct=TRUE, 
+            paired = FALSE)
+
+```
+
+<style>
+div.blue { background-color:#e6f0ff; border-radius: 5px;}
+</style>
+<div class = "blue">
+Differences in total funding amounts per user from before to after the fee change `r ifelse(overall_funding_amount_results$p.value < 0.05, "appear to be", "do NOT appear to be")` statistically significant
+</div>
+
+ 
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+kable(users[first_txn==1, .(avg_total_amount_per_user = mean(amount), users=.N),by = .(category)][order(category),] ) %>%
+  kable_styling(full_width = F)
+
+ggplot(users[amount>0 & first_txn==1,], aes(x=amount, fill=category)) +
+  geom_density(alpha=.65)+
+  labs(title = "Distribution of 14-day overall deposits")+
+  xlim(0,2000)
+```
+ 
+### Topup Users Only
+
+```{r, echo=FALSE, message=FALSE}
+topup_funding_amount_results <- wilcox.test(users[category=='pre' & !is.na(first_topup),]$log_amount, 
+            users[category=='post' & !is.na(first_topup),]$log_amount, 
+            alternative=c("two.sided"), 
+            conf.level=.9, 
+            correct=TRUE, 
+            paired = FALSE)
+
+```
+
+<style>
+div.blue { background-color:#e6f0ff; border-radius: 5px;}
+</style>
+<div class = "blue">
+Differences in total funding amounts per user from before to after the fee change `r ifelse(topup_funding_amount_results$p.value < 0.05, "appear to be", "do NOT appear to be")` statistically significant
+</div>
+
+<!-- estimated overall funding lift: `r percent(users[category=='post' & !is.na(first_topup), .(amount = sum(amount))]$amount/users[category=='pre' & !is.na(first_topup), .(amount = sum(amount))]$amount - 1)` -->
+ 
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+# average amount per user via topup
+kable(users[!is.na(first_topup), .(avg_total_topup_amount_per_user = mean(amount), users=.N),by = .(category)][order(category),]) %>%
+  kable_styling(full_width = F)
+
+ggplot(users[amount>0 & !is.na(first_topup),], aes(x=amount, fill=category)) +
+  geom_density(alpha=.65)+
+  labs(title = "Distribution of 14-day topup deposits")+
+  xlim(0,1000)
+
+```
+
+
+## Lapse Rates
+
+Looking at 8-week lapse rates for a `r lapse_cohort`-week cohort of users pre/post the fee change on October 23
+
+```{r, echo=FALSE, message=FALSE}
+
+# flag users who have made a topup transaction in their first 8 weeks
+mau_topup$topup_flag <- ifelse(mau_topup$topup_user <= mau_topup$eight_weeks, 1, 0)
+mau_topup[is.na(mau_topup$topup_flag),]$topup_flag <- 0
+
+# aggregate 
+mau_topup_groups <- mau_topup[,.(users=.N), by=.(mau_group,category)][order(mau_group,category),] 
+mau_topup_groups <- merge(mau_topup_groups, mau_topup_groups[,.(total=sum(users)), by=.(category)], all.x=TRUE, by="category")
+mau_topup_groups$rate <- mau_topup_groups$users/mau_topup_groups$total
+
+# translate to boolean for the rate analysis
+mau_topup$outcome <- ifelse(mau_topup$mau_group=='unbroken_mau',1,0)
+
+# get outcome vectors
+pre_recurring <- as.integer(mau_topup[category=='pre',]$outcome)
+post_recurring <- as.integer(mau_topup[category=='post',]$outcome)
+
+# mau_topup[!is.na(mau_topup$first_txn)]$first_txn <- 1
+# mau_topup[is.na(mau_topup$first_txn)]$first_txn <- 0
+# mau_topup$first_txn <- as.integer(mau_topup$first_txn)
+
+# look at overall numbers
+pre_recurring <- as.integer(pre_recurring)
+post_recurring <- as.integer(post_recurring)
+
+AB1 <- bayesTest(post_recurring, pre_recurring, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+```
+
+<style>
+div.blue { background-color:#e6f0ff; border-radius: 5px;}
+</style>
+<div class = "blue">
+**These results `r ifelse(abs(1-summary(AB1)$probability$Probability)<5 & !(summary(AB1)$interval$Probability[1] < 0 & 0 < summary(AB1)$interval$Probability[2]), "are", "are NOT")` significant**
+</div>
+
+<!-- estimated lift: `r percent(mean(c(summary(AB1)$interval$Probability)))` -->
+
+```{r, echo=FALSE, message=FALSE}
+
+
+kable(mau_topup_groups)%>%
+  kable_styling(full_width = FALSE)
+
+kable(data.frame("Variants"=c("pre_launch","post_launch"), 
+           "Users"=c(length(pre_recurring), length(post_recurring)), 
+           "Outcomes"=c(sum(pre_recurring), sum(post_recurring)),
+           "Unbroken MAU Rate"=c(sum(pre_recurring)/length(pre_recurring), sum(post_recurring)/length(post_recurring)))) %>%
+  kable_styling(full_width = F)
+```
+
+### 90% Confidence Interval:
+
+```{r, echo=FALSE, message=FALSE}
+summary(AB1)$interval$Probability
+
+```
+
+```{r, echo=FALSE, message=FALSE}
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("post_launch","pre_launch"))
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+
+```
+
+

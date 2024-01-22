@@ -1,0 +1,14 @@
+---
+title: "Optimizely's Correction for Multiple Testing Stats Explained"
+author: "Wendy Vu"
+region: "EU"
+date: "2022-11-29"
+summary: "In this presentation, we explain the statistics related to Optimizely's multiple testing and the intuition behind false discovery rates."
+tags: " optimizely, multiple testing, false discovery rate, experimentation, ab testing"
+link: "https://docs.google.com/presentation/d/1Lw4h7vt-GVYL05oXAkP6ii7iy6kbJh-UDVUmHSBOFMQ/edit?usp=sharing"
+  
+
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```

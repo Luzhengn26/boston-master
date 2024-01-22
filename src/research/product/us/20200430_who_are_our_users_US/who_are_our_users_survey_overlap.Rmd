@@ -1,0 +1,1045 @@
+---
+title: "Who Are Our Users? Survey Cluster Users"
+author: "Dani Mermelstein"
+date: "4/30/2020"
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyverse)
+library(ggplot2)
+
+# load the data
+load(paste0("data/survey_users.RData"))
+
+# set the datasets we're working on
+demo_df <- survey_users_demo[!is.na(cluster)]
+activity_df <- survey_users_activity[!is.na(cluster)]
+funding_df <- survey_users_funding[!is.na(cluster)]
+spending_df <- survey_users_spending[!is.na(cluster)]
+
+
+
+```
+
+# Survey Users
+
+## Demographics
+
+How many users are in each MAU group?
+
+```{r, echo=FALSE, message = FALSE}
+demo_df[, .(users=.N), by=.(cluster)]
+```
+
+How do these users fall into the 90 Day MAU groups?
+```{r, echo=FALSE, message = FALSE}
+
+kable(spread(demo_df[, .(users=.N), by=.(cluster,mau_group)], mau_group, users))%>%
+  kable_styling(full_width = F)
+
+# latest first funding event
+max(demo_df$first_txn)
+
+# how many users made a funding txn in 2020?
+1 - length(unique(funding_df[which(as.Date(completed_tstamp) >= as.Date('2020-01-01')),]$user_id)) / length(demo_df$user_id)
+
+
+# how many made a spending txn in 2020?
+1 - length(unique(spending_df[which(as.Date(completed_tstamp) >= as.Date('2020-01-01')),]$user_id)) / length(demo_df$user_id)
+
+# how many made their first txn after October?
+length(unique(demo_df[which(as.Date(first_txn) >= as.Date('2019-10-01')),]$user_id)) / length(demo_df$user_id)
+```
+### Age distribution
+
+ - Average Age - Confident Explorer: `r round(mean(demo_df[which(cluster == 'Confident Explorer'),]$age))`
+ - Median Age - Confident Explorer: `r round(median(demo_df[which(cluster == 'Confident Explorer'),]$age))`
+ - Average Age - Free and unengaged: `r round(mean(demo_df[which(cluster == 'Free and unengaged'),]$age))`
+ - Median Age - Free and unengaged: `r round(median(demo_df[which(cluster == 'Free and unengaged'),]$age))`
+ - Average Age - Overspending worrier: `r round(mean(demo_df[which(cluster == 'Overspending worrier'),]$age))`
+ - Median Age - Overspending worrier: `r round(median(demo_df[which(cluster == 'Overspending worrier'),]$age))`
+ - Average Age - Cautious support seeker: `r round(mean(demo_df[which(cluster == 'Cautious support seeker'),]$age))`
+ - Median Age - Cautious support seeker: `r round(median(demo_df[which(cluster == 'Cautious support seeker'),]$age))`
+ - Average Age - Secure and steady: `r round(mean(demo_df[which(cluster == 'Secure and steady'),]$age))`
+ - Median Age - Secure and steady: `r round(median(demo_df[which(cluster == 'Secure and steady'),]$age))`
+
+```{r, echo=FALSE, message = FALSE}
+ggplot(demo_df, aes(x=age))+
+  geom_histogram()+
+  xlim(0,75)+
+  labs(title="Age of our Users: Survey Cluster Users",
+       x ="Age", 
+       y = "User Count")+
+  facet_wrap(~cluster)
+
+```
+
+### Occupations
+```{r, echo=FALSE, message = FALSE}
+occupation_pct <- demo_df[, .(users = .N), by=.(occupation, cluster)]
+occupation_pct <- merge(occupation_pct, demo_df[, .(total_users = .N), by=.(cluster)], all.x = TRUE, by="cluster")
+occupation_pct$pct <- occupation_pct$users/occupation_pct$total_users
+```
+<!-- The top 5 categories (excluding OTHER) are `r percent(sum(occupation_pct[which(occupation!='OTHER'),][order(-pct),][1:5]$pct))` of all MAU -->
+
+```{r, echo=FALSE, message = FALSE, fig.width=10, fig.height=7}
+ggplot(occupation_pct, aes(x=reorder(occupation, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="User Occupation: Survey Cluster Users",
+       x ="Occupation", 
+       y = "Pct of Users")+
+  facet_wrap(~cluster)
+
+```
+
+### Top 10 Zip Codes
+
+There are no zip codes with more than 100 users
+
+```{r, echo=FALSE, message = FALSE}
+
+states <- read.csv('~/src/boston/research/product/deep_dive/who_are_our_users_20200430_US/data/nst-est2019-alldata.csv', stringsAsFactors = FALSE)
+states <- as.data.table(states)
+states <- merge(states, read.csv('~/src/boston/research/product/deep_dive/who_are_our_users_20200430_US/state_abrev.csv', stringsAsFactors = FALSE), by.x = "NAME", by.y="State")
+states <- states[,c("NAME","REGION","POPESTIMATE2019","Abbreviation")]
+states$total_pop <- states[,.(sum(total_pop=sum(POPESTIMATE2019)))]
+states$pct <- states$POPESTIMATE2019/states$total_pop
+
+demo_state <- demo_df[, .(users=.N), by=.(state)]
+demo_state$total_users <- demo_state[,.(total_users=sum(users))]
+demo_state$user_pct <- demo_state$users/demo_state$total_users
+demo_state <- merge(demo_state, states, by.x="state", by.y="Abbreviation")
+demo_state$index <- demo_state$user_pct/demo_state$pct -1
+demo_state <- demo_state[,c("state","NAME","users","user_pct","pct","index")][order(-index),]
+demo_state$user_pct <- round(demo_state$user_pct,4)
+demo_state$pct <- round(demo_state$pct,4)
+demo_state$index <- round(demo_state$index,4)
+# demo_df[, .(users=.N), by=.(state)][order(-users),][1:10]
+# merge(demo_df[, .(users=.N), by=.(state)][order(-users),][1:10], states, by.x="state", by.y="Abbreviation")
+```
+
+Top/bottom states by over/under index
+
+```{r, echo=FALSE, message = FALSE}
+# top states by over/under index
+kable(demo_state[1:10])%>%
+  kable_styling(full_width = F)
+
+kable(demo_state[order(index),][1:10][order(-index),])%>%
+  kable_styling(full_width = F)
+
+```
+
+Top/bottom states by user count
+```{r, echo=FALSE, message = FALSE}
+# top states by user count
+kable(demo_state[order(-users),][1:10])%>%
+  kable_styling(full_width = F)
+
+kable(demo_state[order(users),][1:10][order(-users),])%>%
+  kable_styling(full_width = F)
+
+ggplot(demo_df[, .(users=.N), by=.(zip_code)][order(-users),], aes(x=users))+
+  geom_histogram()+
+  # xlim(-200,500)+
+  labs(title="Number of Users per Zip Code: Anytime MAU",
+       x ="Users", 
+       y = "Zip Codes")
+
+```
+
+Density analysis
+
+```{r, echo=FALSE, message = FALSE}
+# suburbs definition: https://www.citylab.com/life/2019/06/suburbs-definition-census-data-way-of-life/591343/
+# urban and rural definitions: https://www2.census.gov/geo/pdfs/reference/GARM/Ch12GARM.pdf
+# zip code population density source: https://blog.splitwise.com/2014/01/06/free-us-population-density-and-unemployment-rate-by-zip-code/
+# methodology (not used here) to proportionally overlay zip codes with ZTCA data: http://gis.washington.edu/phurvitz/zip_or_zcta/index.html
+density <- read.csv('~/src/boston/research/product/deep_dive/who_are_our_users_20200430_US/data/Zipcode-ZCTA-Population-Density-And-Area-Unsorted.csv', stringsAsFactors = FALSE)
+density <- as.data.table(density)
+# urban density >= 5000-8000 people/sq mile
+# suburban density >= 890-4000 people/sq mile
+# rural density < 890 people/sq mile
+
+# check what % of the population is urban
+sum(density[which(Density.Per.Sq.Mile >= 5000),]$X2010.Population)/sum(density$X2010.Population)
+# fix data type
+demo_df$zip_code <- as.integer(demo_df$zip_code)
+
+density_df <- merge(demo_df, density[,c("Zip.ZCTA","Density.Per.Sq.Mile")], by.x="zip_code", by.y = "Zip.ZCTA", all.x=TRUE)
+
+# length(density_df[is.na(Density.Per.Sq.Mile),]$user_id)
+# length(density_df[!is.na(Density.Per.Sq.Mile),]$user_id)
+density_df$urbanicity <- ifelse(density_df$Density.Per.Sq.Mile >= 5000, 'urban', 
+       ifelse(density_df$Density.Per.Sq.Mile >= 3000, 'inner_suburbs', 
+              ifelse(density_df$Density.Per.Sq.Mile >= 890, 'outer_suburbs', 
+                     ifelse(density_df$Density.Per.Sq.Mile >= 100, 'urban_fringe', 'rural'))))
+
+density_df$urbanicity_rank <- cut(density_df$Density.Per.Sq.Mile,
+                                  breaks=c(0,100,890,3000,5000,999999),
+                                  right=FALSE,
+                                  labels=c(5,4,3,2,1))
+
+
+density_summary <- density_df[!is.na(urbanicity),][,.(users=.N), by=.(urbanicity, urbanicity_rank)][order(-urbanicity_rank),]
+density_summary$total_users <- density_summary[,.(total_users=sum(users))]
+density_summary$pct_users <- density_summary$users/density_summary$total_users
+
+kable(density_summary[,c("urbanicity","urbanicity_rank","pct_users")])%>%
+  kable_styling(full_width = F)
+
+
+# write a bunch of CSVs
+write.csv(density_df[!is.na(urbanicity) & urbanicity=='urban',][,.(users=.N), by=.(urbanicity, urbanicity_rank, zip_code)][order(-users),][1:10], '~/urban_zips.csv')
+
+write.csv(density_df[!is.na(urbanicity) & urbanicity=='inner_suburbs',][,.(users=.N), by=.(urbanicity, urbanicity_rank, zip_code)][order(-users),][1:10], '~/inner_suburban_zips.csv')
+
+write.csv(density_df[!is.na(urbanicity) & urbanicity=='outer_suburbs',][,.(users=.N), by=.(urbanicity, urbanicity_rank, zip_code)][order(-users),][1:10], '~/outer_suburban_zips.csv')
+
+write.csv(density_df[!is.na(urbanicity) & urbanicity=='urban_fringe',][,.(users=.N), by=.(urbanicity, urbanicity_rank, zip_code)][order(-users),][1:10], '~/urban_fringe_zips.csv')
+
+write.csv(density_df[!is.na(urbanicity) & urbanicity=='rural',][,.(users=.N), by=.(urbanicity, urbanicity_rank, zip_code)][order(-users),][1:10], '~/rural_zips.csv')
+
+
+```
+
+
+## Account Funding Insights
+
+### Average Monthly Balance
+
+For months where users made transactions, what was their average monthly balance?
+Excludes microdeposits and internal txns
+
+```{r, echo=FALSE, message = FALSE}
+# get monthly balance by user, then avg balance across those months per user
+ggplot(funding_df[which(is_internal_txn == FALSE),][, .(balance = sum(amount_cents)), by=.(user_id, month, cluster)][, .(avg_balance = mean(balance)/100), by=.(user_id, cluster)], aes(x=avg_balance))+
+  geom_histogram()+
+  xlim(-200,500)+
+  labs(title="Average Monthly Balance: Survey Cluster Users",
+       x ="Average Monthly Balance, Dollars", 
+       y = "User Count")+
+  facet_wrap(~cluster)
+
+kable(funding_df[which(is_internal_txn == FALSE),][, .(balance = sum(amount_cents)), by=.(user_id, month, cluster)][, .(avg_balance = mean(balance)/100), by=.(user_id, cluster)][,.(avg_balance = mean(avg_balance)),by=.(cluster)])%>%
+  kable_styling(full_width = F)
+```
+
+### Funding Mechanisms/Types {.tabset .tabset-fade}
+
+#### FT Funding
+
+```{r, echo=FALSE, message = FALSE}
+funding <- funding_df[which(is_first_time_mau == TRUE),][, .(users = .N), by=.(type, cluster)]
+funding <- merge(funding, funding_df[which(is_first_time_mau == TRUE),][, .(total_users = .N), by=.(cluster)], all.x=TRUE, by="cluster")
+funding$pct <- funding$users/funding$total_users
+
+ggplot(funding, aes(x=reorder(type, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="First Time Funding: Survey Cluster Users",
+       x ="Method", 
+       y = "Pct Users")+
+  facet_wrap(~cluster)
+
+```
+
+#### Subsequent Funding
+
+```{r, echo=FALSE, message = FALSE}
+funding <- funding_df[which(is_first_time_mau == FALSE & direction == 'Incoming' & is_internal_txn == FALSE),][, .(users = .N), by=.(type,cluster)]
+funding <- merge(funding, funding_df[which(is_first_time_mau == FALSE & direction == 'Incoming' & is_internal_txn == FALSE),][, .(total_users = .N), by=.(cluster)], all.x=TRUE, by="cluster")
+funding$pct <- funding$users/funding$total_users
+
+ggplot(funding, aes(x=reorder(type, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Repeat Funding: Survey Cluster Users",
+       x ="Method", 
+       y = "Pct Users")+
+  facet_wrap(~cluster)
+```
+
+#### Funding Sources
+
+```{r, echo=FALSE, message = FALSE}
+funding <- funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE),][, .(txns = .N), by=.(company, cluster)]
+funding<- merge(funding, funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE),][, .(total_txns = .N), by=.(cluster)], all.x=TRUE, by="cluster")
+funding$pct <- funding$txns/funding$total_txns
+
+# there's weirdness with some company names so we need to skip the first result
+ggplot(funding[!is.na(company) & cluster == 'Confident Explorer',][order(-pct)][c(2:11)], aes(x=reorder(company, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Funding Source: Survey Cluster Users - Confident Explorer",
+       x ="Source", 
+       y = "Pct of all Funding Txns")
+
+ggplot(funding[!is.na(company) & cluster == 'Free and unengaged',][order(-pct)][c(2:11)], aes(x=reorder(company, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Funding Source: Survey Cluster Users - Free and unengaged",
+       x ="Source", 
+       y = "Pct of all Funding Txns")
+
+ggplot(funding[!is.na(company) & cluster == 'Overspending worrier',][order(-pct)][c(2:11)], aes(x=reorder(company, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Funding Source: Survey Cluster Users - Overspending worrier",
+       x ="Source", 
+       y = "Pct of all Funding Txns")
+
+ggplot(funding[!is.na(company) & cluster == 'Cautious support seeker',][order(-pct)][c(1:4,6:11)], aes(x=reorder(company, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Funding Source: Survey Cluster Users - Cautious support seeker",
+       x ="Source", 
+       y = "Pct of all Funding Txns")
+
+ggplot(funding[!is.na(company) & cluster == 'Secure and steady',][order(-pct)][c(1:10)], aes(x=reorder(company, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Funding Source: Survey Cluster Users - Secure and steady",
+       x ="Source", 
+       y = "Pct of all Funding Txns")
+```
+
+### Direct Deposit Users {.tabset .tabset-fade}
+
+#### Income distributions
+
+```{r, echo=FALSE, message = FALSE}
+
+
+ggplot(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id, month,cluster)][,.(avg_num=round(mean(num))), by=.(user_id,cluster)], aes(x=avg_num))+
+  geom_histogram()+
+  # xlim(-200,500)+
+  labs(title="Average Number of Monthly Direct Deposits: Survey Cluster Users",
+       x ="Num of DD per Month", 
+       y = "User Count")+
+  facet_wrap(~cluster)
+
+
+ggplot(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents)/100,
+                                        num = .N),
+                                    by=.(user_id,month,cluster)][,.(amount=sum(amount),
+                                                         num = sum(num),
+                                                         months = .N,
+                                                         annual_income = sum(amount)/.N*12,
+                                                         alt_annual_income = sum(amount)/sum(num)*2*12),
+                                                         by=.(user_id, cluster)], aes(x=alt_annual_income))+
+  geom_histogram()+
+  xlim(-200,75000)+
+  labs(title="Projected Annual Income: Survey Cluster Users",
+       x ="Annual Income", 
+       y = "User Count")+
+  facet_wrap(~cluster)
+
+cluster_dd <- merge(funding_df[type=='DIR_DEP',][, .(deposits=.N), by=.(user_id,cluster)][,.(users_dd=.N),by=.(cluster)], demo_df[,.(users_total=.N),by=.(cluster)], by="cluster")
+cluster_dd$pct <- cluster_dd$users_dd/cluster_dd$users_total
+
+kable(cluster_dd)%>%
+  kable_styling(full_width = F)
+```
+
+```{r, echo=FALSE, message = FALSE}
+kable(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents)/100,
+                                        num = .N),
+                                    by=.(user_id,month, cluster)][,.(amount=sum(amount),
+                                                         num = sum(num),
+                                                         months = .N,
+                                                         annual_income = sum(amount)/.N*12,
+                                                         alt_annual_income = sum(amount)/sum(num)*2*12),
+                                                         by=.(user_id, cluster)][,.(avg_alt_annual_income = mean(alt_annual_income),
+                                                                           med_alt_annual_income = median(alt_annual_income),
+                                                                           avg_annual_income = mean(annual_income),
+                                                                           med_annual_income = median(annual_income)
+                                                                           ), by=.(cluster)])%>%
+  kable_styling(full_width = F)
+```
+
+#### Who are the Employers and how often do they pay employees?
+
+There are `r length(unique(funding_df[which(type=='DIR_DEP'),]$user_id))` users with direct deposit from `r length(unique(funding_df[which(type=='DIR_DEP'),]$company))` companies. 
+
+The top 10 companies account for ~`r percent(sum(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(users=.N), by=.(company)][order(-users),][1:10]$users)/sum(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(users=.N), by=.(company)]$users))` of all users
+
+```{r, echo=FALSE, message = FALSE}
+
+# sum(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(months=.N), by=.(company,user_id)][,.(users=.N), by=.(company)][order(-users),][1:10]$users)
+
+# get users per company
+ggplot(funding_df[type=='DIR_DEP' & cluster == 'Confident Explorer',][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(deposits=.N), by=.(company, user_id)][,.(users = .N), by=.(company)][order(-users),][c(1:10)], aes(x=reorder(company, users), y=users))+
+  geom_bar(stat = "identity")+
+  coord_flip()+
+  labs(title="Top 10 Employers: Survey Cluster Users - Confident Explorer",
+       x ="Companies", 
+       y = "User Count")
+
+ggplot(funding_df[type=='DIR_DEP' & cluster == 'Free and unengaged',][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(deposits=.N), by=.(company, user_id)][,.(users = .N), by=.(company)][order(-users),][c(1:10)], aes(x=reorder(company, users), y=users))+
+  geom_bar(stat = "identity")+
+  coord_flip()+
+  labs(title="Top 10 Employers: Survey Cluster Users - Free and unengaged",
+       x ="Companies", 
+       y = "User Count")
+
+ggplot(funding_df[type=='DIR_DEP' & cluster == 'Overspending worrier',][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(deposits=.N), by=.(company, user_id)][,.(users = .N), by=.(company)][order(-users),][c(1:10)], aes(x=reorder(company, users), y=users))+
+  geom_bar(stat = "identity")+
+  coord_flip()+
+  labs(title="Top 10 Employers: Survey Cluster Users - Overspending worrier",
+       x ="Companies", 
+       y = "User Count")
+
+ggplot(funding_df[type=='DIR_DEP' & cluster == 'Cautious support seeker',][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(deposits=.N), by=.(company, user_id)][,.(users = .N), by=.(company)][order(-users),][c(1:10)], aes(x=reorder(company, users), y=users))+
+  geom_bar(stat = "identity")+
+  coord_flip()+
+  labs(title="Top 10 Employers: Survey Cluster Users - Cautious support seeker",
+       x ="Companies", 
+       y = "User Count")
+
+ggplot(funding_df[type=='DIR_DEP' & cluster == 'Secure and steady',][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(deposits=.N), by=.(company, user_id)][,.(users = .N), by=.(company)][order(-users),][c(1:10)], aes(x=reorder(company, users), y=users))+
+  geom_bar(stat = "identity")+
+  coord_flip()+
+  labs(title="Top 10 Employers: Survey Cluster Users - Secure and steady",
+       x ="Companies", 
+       y = "User Count")
+
+
+```
+
+```{r, echo=FALSE, message = FALSE}
+# only one employer at a time
+ggplot(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(companies=.N), by=.(user_id,month)][,.(avg_companies=round(mean(companies))),by=.(user_id)], aes(x=avg_companies))+
+  geom_histogram()+
+  # xlim(-200,75000)+
+  labs(title="# of Companies paying a user per month: Survey Cluster Users",
+       x ="Companies", 
+       y = "User Count")
+
+# same as above but by the top 10 employers
+top_ten <- unique(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(months=.N), by=.(company,user_id)][,.(users=.N),by=.(company)][order(-users),][1:10]$company)
+
+kable(funding_df[which(type=='DIR_DEP' & company %in% c(top_ten)),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(avg_monthly_payments = mean(num), months=.N), by=.(company,user_id)][,.(avg_monthly_payments=mean(avg_monthly_payments),users=.N),by=.(company)][order(-users),])%>%
+  kable_styling(full_width = F)
+
+
+ggplot(funding_df[which(type=='DIR_DEP' & company %in% c(top_ten)),][, .(amount=sum(amount_cents), num = .N), by=.(user_id, month)][,.(avg_num=round(mean(num))), by=.(user_id)], aes(x=avg_num))+
+  geom_histogram()+
+  # xlim(-200,500)+
+  labs(title="Average Number of Monthly Direct Deposits: Survey Cluster Users, top 10 employers",
+       x ="Num of DD per Month", 
+       y = "User Count")
+```
+
+### Distribution of # and $ account funding txns per month
+
+ - Average # of transactions per month - Confident Explorer: `r mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Confident Explorer'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+ - Median # of transactions per month - Confident Explorer: `r median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Confident Explorer'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+  - Average # of transactions per month - Free and unengaged: `r mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Free and unengaged'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+ - Median # of transactions per month - Free and unengaged: `r median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Free and unengaged'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+  - Average # of transactions per month - Overspending worrier: `r mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Overspending worrier'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+ - Median # of transactions per month - Overspending worrier: `r median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Overspending worrier'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+  - Average # of transactions per month - Cautious support seeker: `r mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Cautious support seeker'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+ - Median # of transactions per month - Cautious support seeker: `r median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Cautious support seeker'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+ - Average # of transactions per month - Secure and steady: `r mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Secure and steady'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+ - Median # of transactions per month - Secure and steady: `r median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Secure and steady'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+
+
+
+
+ - Average amount - Confident Explorer:`r dollar(mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Confident Explorer'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ - Median amount - Confident Explorer: `r dollar(median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Confident Explorer'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ - Average amount - Free and unengaged:`r dollar(mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Free and unengaged'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ - Median amount - Free and unengaged: `r dollar(median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Free and unengaged'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+  - Average amount - Overspending worrier:`r dollar(mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Overspending worrier'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ - Median amount - Overspending worrier: `r dollar(median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Overspending worrier'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+  - Average amount - Cautious support seeker:`r dollar(mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Cautious support seeker'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ - Median amount - Cautious support seeker: `r dollar(median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Cautious support seeker'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ - Average amount - Secure and steady:`r dollar(mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Secure and steady'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ - Median amount - Secure and steady: `r dollar(median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & cluster =='Secure and steady'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ 
+ 
+ 
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE),][, .(txns = .N), by=.(user_id,month,cluster)][,.(txns=mean(txns)), by=.(user_id, cluster)], aes(x=txns))+
+  geom_histogram()+
+  xlim(0,30)+
+  labs(title="Avg # of Funding Transactions per Month per User: Survey Cluster Users",
+       x ="Txns", 
+       y = "User Count")+
+  facet_wrap(~cluster)
+
+
+ggplot(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE),][, .(amount = sum(amount_cents)/100), by=.(user_id,month, cluster)][,.(amount=mean(amount)), by=.(user_id,cluster)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0,5000)+
+  labs(title="Avg Total Incoming $ Amount per Month per User: Survey Cluster Users",
+       x ="Amount", 
+       y = "User Count")+
+  facet_wrap(~cluster)
+
+```
+
+## Spending Insights
+
+
+
+### Monthly transaction frequency {.tabset .tabset-fade}
+look at distributions
+
+#### Card txns
+number of txns per month
+
+ - Avg # of txns per user - Confident Explorer: `r mean(spending_df[which(type == 'Card'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - Confident Explorer: `r median(spending_df[which(type == 'Card' & cluster == 'Confident Explorer'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+  - Avg # of txns per user - Free and unengaged: `r mean(spending_df[which(type == 'Card' & cluster == 'Free and unengaged'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - Free and unengaged: `r median(spending_df[which(type == 'Card' & cluster == 'Free and unengaged'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+  - Avg # of txns per user - Overspending worrier: `r mean(spending_df[which(type == 'Card' & cluster == 'Overspending worrier'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - Overspending worrier: `r median(spending_df[which(type == 'Card' & cluster == 'Overspending worrier'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+  - Avg # of txns per user - Cautious support seeker: `r mean(spending_df[which(type == 'Card' & cluster == 'Cautious support seeker'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - Cautious support seeker: `r median(spending_df[which(type == 'Card' & cluster == 'Cautious support seeker'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+ - Avg # of txns per user - Secure and steady: `r mean(spending_df[which(type == 'Card' & cluster == 'Secure and steady'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - Secure and steady: `r median(spending_df[which(type == 'Card' & cluster == 'Secure and steady'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+ 
+ 
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type == 'Card'),][, .(txns = .N), by=.(user_id,month, cluster)][,.(txns = mean(txns)), by=.(user_id,cluster)], aes(x=txns))+
+  geom_histogram()+
+  xlim(0,100)+
+  labs(title="Avg # of Card Transactions per Month per User: Survey Cluster Users",
+       x ="Txns", 
+       y = "User Count")+
+  facet_wrap(~cluster)
+
+```
+
+#### Non-Card txns
+
+number of txns per month
+
+ - Avg # of txns per user - Confident Explorer: `r mean(spending_df[which(type != 'Card'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - Confident Explorer: `r median(spending_df[which(type != 'Card' & cluster == 'Confident Explorer'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+  - Avg # of txns per user - Free and unengaged: `r mean(spending_df[which(type != 'Card' & cluster == 'Free and unengaged'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - Free and unengaged: `r median(spending_df[which(type != 'Card' & cluster == 'Free and unengaged'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+  - Avg # of txns per user - Overspending worrier: `r mean(spending_df[which(type != 'Card' & cluster == 'Overspending worrier'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - Overspending worrier: `r median(spending_df[which(type != 'Card' & cluster == 'Overspending worrier'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+  - Avg # of txns per user - Cautious support seeker: `r mean(spending_df[which(type != 'Card' & cluster == 'Cautious support seeker'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - Cautious support seeker: `r median(spending_df[which(type != 'Card' & cluster == 'Cautious support seeker'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+ - Avg # of txns per user - Secure and steady: `r mean(spending_df[which(type != 'Card' & cluster == 'Secure and steady'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - Secure and steady: `r median(spending_df[which(type != 'Card' & cluster == 'Secure and steady'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+ 
+ 
+ 
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type != 'Card'),][, .(txns = .N), by=.(user_id,month, cluster)][,.(txns = mean(txns)), by=.(user_id, cluster)], aes(x=txns))+
+  geom_histogram()+
+  xlim(0,100)+
+  labs(title="Avg # of Non-Card Transactions per Month per User: Survey Cluster Users",
+       x ="Txns", 
+       y = "User Count")+
+  facet_wrap(~cluster)
+
+```
+
+### Monthly transaction amounts {.tabset .tabset-fade}
+
+#### Card txns
+
+ - Avg monthly user spend - Confident Explorer: `r dollar(mean(spending_df[which(type == 'Card' & cluster=='Confident Explorer'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly user spend - Confident Explorer: `r dollar(median(spending_df[which(type == 'Card' & cluster=='Confident Explorer'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly user spend - Free and unengaged: `r dollar(mean(spending_df[which(type == 'Card' & cluster=='Free and unengaged'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly user spend - Free and unengaged: `r dollar(median(spending_df[which(type == 'Card' & cluster=='Free and unengaged'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly user spend - Overspending worrier: `r dollar(mean(spending_df[which(type == 'Card' & cluster=='Overspending worrier'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly user spend - Overspending worrier: `r dollar(median(spending_df[which(type == 'Card' & cluster=='Overspending worrier'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly user spend - Cautious support seeker: `r dollar(mean(spending_df[which(type == 'Card' & cluster=='Cautious support seeker'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly user spend - Cautious support seeker: `r dollar(median(spending_df[which(type == 'Card' & cluster=='Cautious support seeker'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly user spend - Secure and steady: `r dollar(mean(spending_df[which(type == 'Card' & cluster=='Secure and steady'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly user spend - Secure and steady: `r dollar(median(spending_df[which(type == 'Card' & cluster=='Secure and steady'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ 
+ 
+
+ - average txn amount - Confident Explorer: `r dollar(mean(spending_df[which(type == 'Card' & cluster=='Confident Explorer'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - Confident Explorer: `r dollar(median(spending_df[which(type == 'Card' & cluster=='Confident Explorer'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+  - average txn amount - Free and unengaged: `r dollar(mean(spending_df[which(type == 'Card' & cluster=='Free and unengaged'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - Free and unengaged: `r dollar(median(spending_df[which(type == 'Card' & cluster=='Free and unengaged'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+  - average txn amount - Overspending worrier: `r dollar(mean(spending_df[which(type == 'Card' & cluster=='Overspending worrier'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - Overspending worrier: `r dollar(median(spending_df[which(type == 'Card' & cluster=='Overspending worrier'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+  - average txn amount - Cautious support seeker: `r dollar(mean(spending_df[which(type == 'Card' & cluster=='Cautious support seeker'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - Cautious support seeker: `r dollar(median(spending_df[which(type == 'Card' & cluster=='Cautious support seeker'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - average txn amount - Secure and steady: `r dollar(mean(spending_df[which(type == 'Card' & cluster=='Secure and steady'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - Secure and steady: `r dollar(median(spending_df[which(type == 'Card' & cluster=='Secure and steady'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ 
+ 
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type == 'Card'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month,cluster)][,.(amount = mean(amount)), by=.(user_id,cluster)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0,2000)+
+  labs(title="Avg $ Amount of Card Spend per Month per User: Survey Cluster Users",
+       x ="amount", 
+       y = "User Count")+
+  facet_wrap(~cluster)
+
+ggplot(spending_df[which(type == 'Card'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month, cluster)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id,cluster)], aes(x=txn_amount))+
+  geom_histogram()+
+  xlim(0,100)+
+  labs(title="Avg $ Amount per Card Transaction: Survey Cluster Users",
+       x ="amount", 
+       y = "Count")+
+  facet_wrap(~cluster)
+
+
+```
+
+#### Non-Card txns
+
+ - Avg monthly user spend - Confident Explorer: `r dollar(mean(spending_df[which(type != 'Card' & cluster=='Confident Explorer'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly user spend - Confident Explorer: `r dollar(median(spending_df[which(type != 'Card' & cluster=='Confident Explorer'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly user spend - Free and unengaged: `r dollar(mean(spending_df[which(type != 'Card' & cluster=='Free and unengaged'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly user spend - Free and unengaged: `r dollar(median(spending_df[which(type != 'Card' & cluster=='Free and unengaged'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly user spend - Overspending worrier: `r dollar(mean(spending_df[which(type != 'Card' & cluster=='Overspending worrier'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly user spend - Overspending worrier: `r dollar(median(spending_df[which(type != 'Card' & cluster=='Overspending worrier'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly user spend - Cautious support seeker: `r dollar(mean(spending_df[which(type != 'Card' & cluster=='Cautious support seeker'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly user spend - Cautious support seeker: `r dollar(median(spending_df[which(type != 'Card' & cluster=='Cautious support seeker'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly user spend - Secure and steady: `r dollar(mean(spending_df[which(type != 'Card' & cluster=='Secure and steady'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly user spend - Secure and steady: `r dollar(median(spending_df[which(type != 'Card' & cluster=='Secure and steady'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ 
+ 
+
+ - average txn amount - Confident Explorer: `r dollar(mean(spending_df[which(type != 'Card' & cluster=='Confident Explorer'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - Confident Explorer: `r dollar(median(spending_df[which(type != 'Card' & cluster=='Confident Explorer'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+  - average txn amount - Free and unengaged: `r dollar(mean(spending_df[which(type != 'Card' & cluster=='Free and unengaged'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - Free and unengaged: `r dollar(median(spending_df[which(type != 'Card' & cluster=='Free and unengaged'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+  - average txn amount - Overspending worrier: `r dollar(mean(spending_df[which(type != 'Card' & cluster=='Overspending worrier'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - Overspending worrier: `r dollar(median(spending_df[which(type != 'Card' & cluster=='Overspending worrier'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+  - average txn amount - Cautious support seeker: `r dollar(mean(spending_df[which(type != 'Card' & cluster=='Cautious support seeker'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - Cautious support seeker: `r dollar(median(spending_df[which(type != 'Card' & cluster=='Cautious support seeker'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - average txn amount - Secure and steady: `r dollar(mean(spending_df[which(type != 'Card' & cluster=='Secure and steady'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - Secure and steady: `r dollar(median(spending_df[which(type != 'Card' & cluster=='Secure and steady'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ 
+ 
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type != 'Card'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month,cluster)][,.(amount = mean(amount)), by=.(user_id,cluster)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0,3000)+
+  labs(title="Avg $ Amount of Non-Card Spend per Month per User: Survey Cluster Users",
+       x ="amount", 
+       y = "User Count")+
+  facet_wrap(~cluster)
+
+
+ggplot(spending_df[which(type != 'Card'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month,cluster)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id,cluster)], aes(x=txn_amount))+
+  geom_histogram()+
+  xlim(0,300)+
+  labs(title="Avg $ Amount per Non-Card Transaction: Survey Cluster Users",
+       x ="amount", 
+       y = "Count")+
+  facet_wrap(~cluster)
+
+```
+
+### Domestic vs International Card Txns {.tabset .tabset-fade}
+Number and $ volume
+
+#### Amounts
+
+ - Avg monthly spend - domestic, Confident Explorer: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Confident Explorer'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - domestic, Confident Explorer: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Confident Explorer'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend - domestic, Free and unengaged: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Free and unengaged'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - domestic, Free and unengaged: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Free and unengaged'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend - domestic, Overspending worrier: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Overspending worrier'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - domestic, Overspending worrier: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Overspending worrier'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend - domestic, Cautious support seeker: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Cautious support seeker'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - domestic, Cautious support seeker: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Cautious support seeker'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend - domestic, Secure and steady: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Secure and steady'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - domestic, Secure and steady: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Secure and steady'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ 
+  
+  
+ - Avg monthly spend - international, Confident Explorer: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & cluster=='Confident Explorer'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - international, Confident Explorer: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & cluster=='Confident Explorer'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend - international, Free and unengaged: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & cluster=='Free and unengaged'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - international, Free and unengaged: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & cluster=='Free and unengaged'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend - international, Overspending worrier: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & cluster=='Overspending worrier'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - international, Overspending worrier: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & cluster=='Overspending worrier'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend - international, Cautious support seeker: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & cluster=='Cautious support seeker'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - international, Cautious support seeker: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & cluster=='Cautious support seeker'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend - international, Secure and steady: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & cluster=='Secure and steady'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - international, Secure and steady: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & cluster=='Secure and steady'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ 
+  
+  
+ - Avg txn amount - domestic, Confident Explorer: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Confident Explorer'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - domestic, Confident Explorer: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Confident Explorer'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Avg txn amount - domestic, Free and unengaged: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Free and unengaged'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - domestic, Free and unengaged: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Free and unengaged'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Avg txn amount - domestic, Overspending worrier: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Overspending worrier'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - domestic, Overspending worrier: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Overspending worrier'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Avg txn amount - domestic, Cautious support seeker: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Cautious support seeker'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - domestic, Cautious support seeker: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Cautious support seeker'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Avg txn amount - domestic, Secure and steady: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Secure and steady'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - domestic, Secure and steady: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & cluster=='Secure and steady'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+  
+  
+ - Avg txn amount - international, Confident Explorer: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & cluster=='Confident Explorer'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - international, Confident Explorer: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & cluster=='Confident Explorer'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Avg txn amount - international, Free and unengaged: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & cluster=='Free and unengaged'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - international, Free and unengaged: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & cluster=='Free and unengaged'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Avg txn amount - international, Overspending worrier: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & cluster=='Overspending worrier'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - international, Overspending worrier: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & cluster=='Overspending worrier'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Avg txn amount - international, Cautious support seeker: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & cluster=='Cautious support seeker'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - international, Cautious support seeker: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & cluster=='Cautious support seeker'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Avg txn amount - international, Secure and steady: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & cluster=='Secure and steady'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - international, Secure and steady: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & cluster=='Secure and steady'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ 
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type == 'Card' & location=='domestic'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month,cluster)][,.(amount = mean(amount)), by=.(user_id,cluster)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0,3000)+
+  labs(title="Avg $ Amount of Card Spend per Month per User: Survey Cluster Users - domestic txns",
+       x ="amount", 
+       y = "User Count")+
+  facet_wrap(~cluster)
+
+ggplot(spending_df[which(type == 'Card' & location=='international'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month,cluster)][,.(amount = mean(amount)), by=.(user_id,cluster)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0,3000)+
+  labs(title="Avg $ Amount of Card Spend per Month per User: Survey Cluster Users - international txns",
+       x ="amount", 
+       y = "User Count")+
+  facet_wrap(~cluster)
+
+
+ggplot(spending_df[which(type == 'Card' & location=='domestic'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month,cluster)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id,cluster)], aes(x=txn_amount))+
+  geom_histogram()+
+  xlim(0,200)+
+  labs(title="Avg $ Amount per Card Transaction:  Survey Cluster Users - domestic txns",
+       x ="amount", 
+       y = "Count")+
+  facet_wrap(~cluster)
+
+
+ggplot(spending_df[which(type == 'Card' & location=='international'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month,cluster)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id,cluster)], aes(x=txn_amount))+
+  geom_histogram()+
+  xlim(0,200)+
+  labs(title="Avg $ Amount per Card Transaction:  Survey Cluster Users - international txns",
+       x ="amount", 
+       y = "Count")+
+  facet_wrap(~cluster)
+```
+
+#### Number of txns
+
+ - Avg monthly txns - domestic, Confident Explorer: `r mean(spending_df[which(type == 'Card' & location == 'domestic' & cluster=='Confident Explorer'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median txns - domestic, Confident Explorer: `r median(spending_df[which(type == 'Card' & location == 'domestic' & cluster=='Confident Explorer'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Avg monthly txns - domestic, Free and unengaged: `r mean(spending_df[which(type == 'Card' & location == 'domestic' & cluster=='Free and unengaged'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median txns - domestic, Free and unengaged: `r median(spending_df[which(type == 'Card' & location == 'domestic' & cluster=='Free and unengaged'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Avg monthly txns - domestic, Overspending worrier: `r mean(spending_df[which(type == 'Card' & location == 'domestic' & cluster=='Overspending worrier'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median txns - domestic, Overspending worrier: `r median(spending_df[which(type == 'Card' & location == 'domestic' & cluster=='Overspending worrier'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Avg monthly txns - domestic, Cautious support seeker: `r mean(spending_df[which(type == 'Card' & location == 'domestic' & cluster=='Cautious support seeker'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median txns - domestic, Cautious support seeker: `r median(spending_df[which(type == 'Card' & location == 'domestic' & cluster=='Cautious support seeker'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Avg monthly txns - domestic, Secure and steady: `r mean(spending_df[which(type == 'Card' & location == 'domestic' & cluster=='Secure and steady'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median txns - domestic, Secure and steady: `r median(spending_df[which(type == 'Card' & location == 'domestic' & cluster=='Secure and steady'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ 
+ 
+ - Avg monthly txns - international, Confident Explorer: `r mean(spending_df[which(type == 'Card' & location == 'international' & cluster=='Confident Explorer'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median txns - international, Confident Explorer: `r median(spending_df[which(type == 'Card' & location == 'international' & cluster=='Confident Explorer'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Avg monthly txns - international, Free and unengaged: `r mean(spending_df[which(type == 'Card' & location == 'international' & cluster=='Free and unengaged'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median txns - international, Free and unengaged: `r median(spending_df[which(type == 'Card' & location == 'international' & cluster=='Free and unengaged'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Avg monthly txns - international, Overspending worrier: `r mean(spending_df[which(type == 'Card' & location == 'international' & cluster=='Overspending worrier'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median txns - international, Overspending worrier: `r median(spending_df[which(type == 'Card' & location == 'international' & cluster=='Overspending worrier'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Avg monthly txns - international, Cautious support seeker: `r mean(spending_df[which(type == 'Card' & location == 'international' & cluster=='Cautious support seeker'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median txns - international, Cautious support seeker: `r median(spending_df[which(type == 'Card' & location == 'international' & cluster=='Cautious support seeker'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Avg monthly txns - international, Secure and steady: `r mean(spending_df[which(type == 'Card' & location == 'international' & cluster=='Secure and steady'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median txns - international, Secure and steady: `r median(spending_df[which(type == 'Card' & location == 'international' & cluster=='Secure and steady'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ 
+
+```{r, echo=FALSE, message = FALSE}
+ggplot(spending_df[which(type == 'Card' & location == 'domestic'),][, .(txns = .N), by=.(user_id,month,cluster)][,.(txns = mean(txns)), by=.(user_id,cluster)], aes(x=txns))+
+  geom_histogram()+
+  xlim(0,100)+
+  labs(title="Avg # of Card Transactions per Month per User: Survey Cluster Users - domestic txns",
+       x ="Txns", 
+       y = "User Count")+
+  facet_wrap(~cluster)
+
+ggplot(spending_df[which(type == 'Card' & location == 'international'),][, .(txns = .N), by=.(user_id,month,cluster)][,.(txns = mean(txns)), by=.(user_id,cluster)], aes(x=txns))+
+  geom_histogram()+
+  xlim(0,100)+
+  labs(title="Avg # of Card Transactions per Month per User: Survey Cluster Users - international txns",
+       x ="Txns", 
+       y = "User Count")+
+  facet_wrap(~cluster)
+```
+
+### Merchant Types {.tabset .tabset-fade}
+
+#### Top merchant categories
+
+```{r, echo=FALSE, message = FALSE}
+merchants <- spending_df[,.(txns=.N), by=.(merchant_category,cluster)]
+merchants <- merge(merchants, spending_df[,.(total_txns=.N), by=.(cluster)], all.x=TRUE, by="cluster")
+merchants$pct <- merchants$txns/merchants$total_txns
+```
+
+Top 10 categories make up `r percent(sum(merchants[which(merchant_category!= 'no_cat'), .(merchant_category, txns, pct)][1:10]$pct))` of all transactions.
+
+```{r, echo=FALSE, message = FALSE}
+ggplot(merchants[which(merchant_category!= 'no_cat' & cluster == 'Confident Explorer'), .(merchant_category, txns, pct)][1:10], aes(x=reorder(merchant_category, txns), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchant Categories: Survey Cluster Users - Confident Explorer",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+ggplot(merchants[which(merchant_category!= 'no_cat' & cluster == 'Free and unengaged'), .(merchant_category, txns, pct)][1:10], aes(x=reorder(merchant_category, txns), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchant Categories: Survey Cluster Users - Free and unengaged",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+ggplot(merchants[which(merchant_category!= 'no_cat' & cluster == 'Overspending worrier'), .(merchant_category, txns, pct)][1:10], aes(x=reorder(merchant_category, txns), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchant Categories: Survey Cluster Users - Overspending worrier",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+ggplot(merchants[which(merchant_category!= 'no_cat' & cluster == 'Cautious support seeker'), .(merchant_category, txns, pct)][1:10], aes(x=reorder(merchant_category, txns), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchant Categories: Survey Cluster Users - Cautious support seeker",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+ggplot(merchants[which(merchant_category!= 'no_cat' & cluster == 'Secure and steady'), .(merchant_category, txns, pct)][1:10], aes(x=reorder(merchant_category, txns), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchant Categories: Survey Cluster Users - Secure and steady",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+
+
+```
+
+
+#### Top merchant names
+
+```{r, echo=FALSE, message = FALSE}
+
+merchants <- spending_df[,.(txns=.N), by=.(merchant_name, cluster)]
+merchants <- merge(merchants, spending_df[,.(total_txns=.N), by=.(cluster)], all.x=TRUE, by="cluster")
+merchants$pct <- merchants$txns/merchants$total_txns
+
+ggplot(merchants[which(!is.na(merchant_name) & cluster=='Confident Explorer'), .(merchant_name, txns, pct)][order(-txns),][1:10], aes(x=reorder(merchant_name, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchants: Survey Cluster Users - Confident Explorer",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+ggplot(merchants[which(!is.na(merchant_name) & cluster=='Free and unengaged'), .(merchant_name, txns, pct)][order(-txns),][1:10], aes(x=reorder(merchant_name, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchants: Survey Cluster Users - Free and unengaged",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+ggplot(merchants[which(!is.na(merchant_name) & cluster=='Overspending worrier'), .(merchant_name, txns, pct)][order(-txns),][1:10], aes(x=reorder(merchant_name, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchants: Survey Cluster Users - Overspending worrier",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+ggplot(merchants[which(!is.na(merchant_name) & cluster=='Cautious support seeker'), .(merchant_name, txns, pct)][order(-txns),][1:10], aes(x=reorder(merchant_name, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchants: Survey Cluster Users - Cautious support seeker",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+ggplot(merchants[which(!is.na(merchant_name) & cluster=='Secure and steady'), .(merchant_name, txns, pct)][order(-txns),][1:10], aes(x=reorder(merchant_name, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchants: Survey Cluster Users - Secure and steady",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+```
+
+
+## Key Feature Insights
+
+### ATM usage {.tabset .tabset-fade}
+
+
+
+#### Domestic
+
+`r percent(length(unique(spending_df[which(type=='ATM' & location=='domestic'),]$user_id))/length(unique(demo_df$user_id)))` of all users in this group made a domestic ATM withdrawal at some point
+
+ - Avg withdrawals per month - Confident Explorer: `r mean(spending_df[which(type=='ATM' & location=='domestic' & cluster=='Confident Explorer'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median withdrawals per month - Confident Explorer: `r median(spending_df[which(type=='ATM' & location=='domestic' & cluster=='Confident Explorer'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Avg withdrawals per month - Free and unengaged: `r mean(spending_df[which(type=='ATM' & location=='domestic' & cluster=='Free and unengaged'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median withdrawals per month - Free and unengaged: `r median(spending_df[which(type=='ATM' & location=='domestic' & cluster=='Free and unengaged'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Avg withdrawals per month - Overspending worrier: `r mean(spending_df[which(type=='ATM' & location=='domestic' & cluster=='Overspending worrier'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median withdrawals per month - Overspending worrier: `r median(spending_df[which(type=='ATM' & location=='domestic' & cluster=='Overspending worrier'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Avg withdrawals per month - Secure and steady: `r mean(spending_df[which(type=='ATM' & location=='domestic' & cluster=='Secure and steady'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median withdrawals per month - Secure and steady: `r median(spending_df[which(type=='ATM' & location=='domestic' & cluster=='Secure and steady'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ 
+ 
+
+ - Avg amount per withdrawal - Confident Explorer: `r dollar(mean(spending_df[which(type=='ATM' & location=='domestic' & cluster=='Confident Explorer'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - Confident Explorer: `r dollar(median(spending_df[which(type=='ATM' & location=='domestic' & cluster=='Confident Explorer'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Avg amount per withdrawal - Free and unengaged: `r dollar(mean(spending_df[which(type=='ATM' & location=='domestic' & cluster=='Free and unengaged'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - Free and unengaged: `r dollar(median(spending_df[which(type=='ATM' & location=='domestic' & cluster=='Free and unengaged'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Avg amount per withdrawal - Overspending worrier: `r dollar(mean(spending_df[which(type=='ATM' & location=='domestic' & cluster=='Overspending worrier'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - Overspending worrier: `r dollar(median(spending_df[which(type=='ATM' & location=='domestic' & cluster=='Overspending worrier'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Avg amount per withdrawal - Cautious support seeker: `r dollar(mean(spending_df[which(type=='ATM' & location=='domestic' & cluster=='Cautious support seeker'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - Cautious support seeker: `r dollar(median(spending_df[which(type=='ATM' & location=='domestic' & cluster=='Cautious support seeker'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Avg amount per withdrawal - Secure and steady: `r dollar(mean(spending_df[which(type=='ATM' & location=='domestic' & cluster=='Secure and steady'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - Secure and steady: `r dollar(median(spending_df[which(type=='ATM' & location=='domestic' & cluster=='Secure and steady'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ 
+ 
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type=='ATM' & location=='domestic'), .(num=.N), by=.(user_id,month, cluster)][, .(avg_num=mean(num)), by=.(user_id, cluster)], aes(x=avg_num))+
+  geom_histogram()+
+  xlim(0,20)+
+  labs(title="Average Number of ATM withdrawals per month: Survey Cluster Users - domestic",
+       x ="ATM withdrawals per Month", 
+       y = "User Count")+
+  facet_wrap(~cluster)
+
+ggplot(spending_df[which(type=='ATM' & location=='domestic'), .(amount = mean(amount_cents)/100*-1), by=.(user_id, cluster)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0, 1500)+
+  labs(title="Average Amount per ATM withdrawal: Survey Cluster Users - domestic",
+       x ="Avg Withdrawal Amount", 
+       y = "Count")+
+  facet_wrap(~cluster)
+
+
+```
+
+
+#### International
+
+`r percent(length(unique(spending_df[which(type=='ATM' & location=='international'),]$user_id))/length(unique(demo_df$user_id)))` of all users in this group made an international ATM withdrawal at some point
+
+ - Avg withdrawals per month - Confident Explorer: `r mean(spending_df[which(type=='ATM' & location=='international' & cluster=='Confident Explorer'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median withdrawals per month - Confident Explorer: `r median(spending_df[which(type=='ATM' & location=='international' & cluster=='Confident Explorer'), .(num=.N), by=.(user_id,month)][, .(avg_num=median(num)), by=.(user_id)]$avg_num)`
+ - Avg withdrawals per month - Free and unengaged: `r mean(spending_df[which(type=='ATM' & location=='international' & cluster=='Free and unengaged'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median withdrawals per month - Free and unengaged: `r median(spending_df[which(type=='ATM' & location=='international' & cluster=='Free and unengaged'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Avg withdrawals per month - Overspending worrier: `r mean(spending_df[which(type=='ATM' & location=='international' & cluster=='Overspending worrier'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median withdrawals per month - Overspending worrier: `r median(spending_df[which(type=='ATM' & location=='international' & cluster=='Overspending worrier'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Avg withdrawals per month - Cautious support seeker: `r mean(spending_df[which(type=='ATM' & location=='international' & cluster=='Cautious support seeker'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median withdrawals per month - Cautious support seeker: `r median(spending_df[which(type=='ATM' & location=='international' & cluster=='Cautious support seeker'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Avg withdrawals per month - Secure and steady: `r mean(spending_df[which(type=='ATM' & location=='international' & cluster=='Secure and steady'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median withdrawals per month - Secure and steady: `r median(spending_df[which(type=='ATM' & location=='international' & cluster=='Secure and steady'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ 
+
+ - Avg amount per withdrawal - Confident Explorer: `r dollar(mean(spending_df[which(type=='ATM' & location=='international' & cluster=='Confident Explorer'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - Confident Explorer: `r dollar(median(spending_df[which(type=='ATM' & location=='international' & cluster=='Confident Explorer'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Avg amount per withdrawal - Free and unengaged: `r dollar(mean(spending_df[which(type=='ATM' & location=='international' & cluster=='Free and unengaged'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - Free and unengaged: `r dollar(median(spending_df[which(type=='ATM' & location=='international' & cluster=='Free and unengaged'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Avg amount per withdrawal - Overspending worrier: `r dollar(mean(spending_df[which(type=='ATM' & location=='international' & cluster=='Overspending worrier'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - Overspending worrier: `r dollar(median(spending_df[which(type=='ATM' & location=='international' & cluster=='Overspending worrier'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Avg amount per withdrawal - Cautious support seeker: `r dollar(mean(spending_df[which(type=='ATM' & location=='international' & cluster=='Cautious support seeker'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - Cautious support seeker: `r dollar(median(spending_df[which(type=='ATM' & location=='international' & cluster=='Cautious support seeker'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Avg amount per withdrawal - Secure and steady: `r dollar(mean(spending_df[which(type=='ATM' & location=='international' & cluster=='Secure and steady'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - Secure and steady: `r dollar(median(spending_df[which(type=='ATM' & location=='international' & cluster=='Secure and steady'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ 
+ 
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type=='ATM' & location=='international'), .(num=.N), by=.(user_id,month,cluster)][, .(avg_num=mean(num)), by=.(user_id,cluster)], aes(x=avg_num))+
+  geom_histogram()+
+  xlim(0,20)+
+  labs(title="Average Number of ATM withdrawals per month: Survey Cluster Users - international",
+       x ="ATM withdrawals per Month", 
+       y = "User Count")+
+  facet_wrap(~cluster)
+
+
+ggplot(spending_df[which(type=='ATM' & location=='international'), .(amount = mean(amount_cents)/100*-1), by=.(user_id,cluster)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0, 1500)+
+  labs(title="Average Amount per ATM withdrawal: Survey Cluster Users - international",
+       x ="Avg Withdrawal Amount", 
+       y = "Count")+
+  facet_wrap(~cluster)
+
+```
+
+### Spaces Usage
+Number of Spaces txns per month. What does this tell us?
+
+`r percent(length(unique(funding_df[which(type=='Spaces'),]$user_id))/length(unique(demo_df$user_id)))` of all users made a Spaces txn (ever)
+
+```{r, echo=FALSE, message = FALSE}
+
+# avg # of transactions into Spaces
+
+ggplot(funding_df[which(type=='Spaces' & direction=='Incoming'),][, .(num=.N), by=.(user_id, month,cluster)][, .(avg_txns=mean(num)), by=.(user_id,cluster)], aes(x=avg_txns))+
+  geom_histogram()+
+  xlim(0, 50)+
+  labs(title="Average # of monthly transactions INTO Spaces: Survey Cluster Users",
+       x ="Avg # of Txns", 
+       y = "User Count")+
+  facet_wrap(~cluster)
+
+# avg transaction size when it's going into Spaces
+
+ggplot(funding_df[which(type=='Spaces' & direction=='Incoming'),][, .(avg_amount=mean(amount_cents)/100), by=.(user_id,cluster)], aes(x=avg_amount))+
+  geom_histogram()+
+  xlim(0, 500)+
+  labs(title="Average transaction amount INTO Spaces: Survey Cluster Users",
+       x ="Amount", 
+       y = "Count")+
+  facet_wrap(~cluster)
+
+```
+
+

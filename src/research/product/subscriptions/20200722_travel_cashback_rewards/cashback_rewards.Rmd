@@ -1,0 +1,14 @@
+---
+title: "Can we afford to offer cash back on travel spend as a Premium Benefit?"
+author: "Wendy Vu"
+date: "2020-07-22"
+region: "EU"
+summary: "This analysis counts the number of months a user completed at least 1 foreign txns outside of their home country tnc and outstide of the EEA as an estimate of frequency of traveling."
+link: "https://docs.google.com/spreadsheets/d/10y7iUclOhfSb8GBJAh8t8hihZHM30xxc-e6oke2nytQ/edit?usp=sharing"
+tags: "travel, cash back, interchange, memberships, transactions, card payments, rewards"
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+

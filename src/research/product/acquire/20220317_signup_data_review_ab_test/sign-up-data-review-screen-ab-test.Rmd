@@ -1,0 +1,10 @@
+---
+title: "Sign Up Data Review Screen: A/B Test"
+author: "Joao Fernandes"
+region: "EU"
+date: "2022-03-17"
+link: "https://docs.google.com/presentation/d/16K124SPtFJNnGD4u8F0h4pT9MOd0cxdbjZMPrBwDubI/edit#slide=id.gb0a5380750_0_369"
+tags: "acquire, sign up, kyc, ab test, conversion, cs contact, customer support, safety first"
+research_type: "Data Deep Dives"
+summary: "One of the most frequent causes for CS contacts during sign-up is incorrect data. We tested whether adding a screen where users can review their data before committing to account creation would reduce CS contacts and improve KYC CR. We analyze the 3 week time window from 16th February 2022 until 10th March 2022. The data review screen improved SUi > KYCc conversion rate marginally. Upper funnel was subject to extra friction, resulting in slightly reduced performance, but this was compensated by slightly improved KYC. A reduction in Safety First back office tickets was also observed, although the sample size collected was small. We support the implementation of the new feature, although we do not expect improvements in conversion rates."
+---

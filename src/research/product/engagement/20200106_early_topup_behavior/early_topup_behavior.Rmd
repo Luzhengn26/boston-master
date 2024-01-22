@@ -1,0 +1,14 @@
+---
+title: "Does Early Top-up Behavior Predict Long-term Financial Activity?"
+author: "Wendy Vu"
+date: "2020-01-06"
+region: "EU"
+link: "https://docs.google.com/presentation/d/1fwg36GFHTdmyP0LqJLstTFE5YZ-NyAwdfv1LOFbENFs/edit?usp=sharing"
+tags: "early behavior, first 35 days, top-up, deposit, enable, transactions"
+summary: "In this research we found that the number of top-ups and external transactions within the first 35 days have the strongest effect on predicting long term financial activity, followed by second top-up amount / sum of all top-ups and then first top-up amount. Although there is a correlation between time from kycc to first topup for all financially active users (not limited to users who topped up within 35 days), we did not find an effect of time from kycc to first topup for users that topped up within the first 35 days of kycc. In general, the majority of users top-up 2 times within the first 35 days from kycc and surprisingly, the second topup amount tends to be more than the first topup and have a larger effect on predicting long-term financial activity. Among users that topup up only once during the first 35 days, their first top-up tends to be much larger than users that top-up twice. The results suggest that users that top-up at >= 2 times within the first 35 days might be testing out our product before investing more money, while users that topped up only once might be more trusting or more likely to be primary account holders (i.e SAU). Further analysis will be necessary to test this hypothesis."
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+

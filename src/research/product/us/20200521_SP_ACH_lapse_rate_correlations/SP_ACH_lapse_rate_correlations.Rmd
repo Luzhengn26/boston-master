@@ -1,0 +1,115 @@
+---
+title: "Does ACH Account Linking influence the lapse rate"
+author: "Dani Mermelstein"
+date: "2020-05-21"
+region: "US"
+summary: "Yes there is a correlation. Here we look at whether there is a correlational relationship between Stripe/Plaid ACH Account Linking and lapse rate in a user’s first 8 weeks with N26. KR3 in the US is “Improve Customer Retention”, and ideally we would understand how a new product launch contributes to that objective. Causal impact is only feasible with an A/B test, but we can still gauge a potential relationship between funding behavior and lapse rate. We looked at MAUs who signed up after launching the product on March 01, 2020, and filtered to transactions they made in their first 8 weeks. We then categorized users into the following groups based on whether they lapsed and reactivated."
+link: "https://docs.google.com/presentation/d/16YJoMHX_b7A9lTDZ_34uzsVAtPr-6VNO_5FnTNbIvMY/edit#slide=id.g878732626a_0_13"
+tags: "ACH account linking, mau, lapse rate, reactivation"
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(kableExtra)
+library(bayesAB)
+library(ggplot2)
+
+# load the data
+load(paste0("data/sp_ach_data.RData"))
+
+# need this up here to use in the Results section
+# flag users who have made an SP_ACH transaction in their first 8 weeks
+mau_ach$ach_flag <- ifelse(mau_ach$ach_user <= mau_ach$eight_weeks, 1, 0)
+mau_ach[is.na(mau_ach$ach_flag),]$ach_flag <- 0
+
+# aggregate 
+ach_groups <- mau_ach[,.(cnt=.N), by=.(mau_group,ach_flag)][order(ach_flag,mau_group),] 
+ach_groups <- merge(ach_groups, ach_groups[,.(total=sum(cnt)), by=.(ach_flag)], all.x=TRUE, by="ach_flag")
+ach_groups$rate <- ach_groups$cnt/ach_groups$total
+
+test_output <- prop.test(as.matrix(ach_groups[mau_group=='full_lapse',c("cnt","total")]))
+
+```
+
+# Context and definitions
+Here we look at whether there is a correlational relationship between Stripe/Plaid ACH Account Linking. KR3 in the US is "Improve Customer Retention", and ideally we would understand how a new product launch contributes to that objective. Causal impact is only feasible with an A/B test, but we can still gauge a potential relationship between funding behavior and lapse rate.
+
+We looked at MAUs who signed up after launching the product on March 01, 2020, and filtered to transactions those users made in their first 8 weeks. We then categorized users into the following groups based on whether they lapsed and reactivated:
+
+ - **full_lapse**: User became MAU, lapsed, did not reactivate, and ended the 8-week period as a lapsed user
+ - **reactivated**: User became MAU, lapsed, and reactivated. These users may or may not have ended the 8-week period as MAU
+ - **unbroken_mau**: User became MAU and did not lapse in their first 8 weeks
+
+# High-level behavior
+
+It would appear that users who have made a transaction via our ACH Account Linking feature have a lower `full_lapse` rate and a higher `unbroken_mau` rate:
+
+```{r, echo=FALSE}
+
+kable(ach_groups)%>%
+  kable_styling(full_width = FALSE)
+
+```
+
+# Results
+
+There `r ifelse(test_output$p.value <= 0.05, "does", "does not")` appear to be a meaningful relationship between use of the ACH Account Linking feature to fund and whether a user lapses in their first 8 weeks at N26. We have to caution that this analysis does NOT determine a causal relationship, as there could be additional factors driving the output we see here.
+
+# Statistical significance of the relationship  {.tabset .tabset-fade .tabset-pills} 
+
+## Bayesian Stats
+
+NOTE: for this test we neededed to make the size of our two groups equal, so the below numbers in the "Users" and "Outcomes" columns are a random sample of the users available for this analysis:
+
+```{r, echo=FALSE}
+
+# set outcome
+bayes_ach <- mau_ach
+bayes_ach$outcome <- ifelse(mau_ach$mau_group=='unbroken_mau',1,0)
+
+# get outcome vectors
+no_ach <- as.integer(bayes_ach[ach_flag==0,]$outcome)
+yes_ach <- as.integer(bayes_ach[ach_flag==1,]$outcome)
+
+# control for sample size differences
+no_ach <- sample(no_ach, size=length(yes_ach))
+
+AB1 <- bayesTest(yes_ach, no_ach, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+kable(data.frame("Variants"=c("no_ach","yes_ach"), 
+           "Users"=c(length(no_ach), length(yes_ach)), 
+           "Outcomes"=c(sum(no_ach), sum(yes_ach)),
+           "Rate"=c(sum(no_ach)/length(no_ach), sum(yes_ach)/length(yes_ach)))) %>%
+  kable_styling(full_width = F)
+
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("yes_ach","no_ach"))
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+
+```
+
+### 90% Confidence Interval:
+
+```{r, echo=FALSE}
+summary(AB1)$interval$Probability
+
+```
+
+## Traditional Stats
+
+Here we use an Equality of Proportions test to see if the difference in the rates is statistically significant
+
+Is it significant? **`r ifelse(test_output$p.value <= 0.05, "Yes", "No")`**
+
+```{r, echo=FALSE}
+
+test_output
+
+```

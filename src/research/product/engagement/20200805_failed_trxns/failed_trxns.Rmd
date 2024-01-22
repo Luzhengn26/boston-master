@@ -1,0 +1,329 @@
+---
+title: "Why do transactions fail?"
+author: "Wendy Vu"
+region: "EU"
+date: "2020-08-05"
+summary: "Insufficient funds is the top reason for failed Transactions. Failed Card Transactions occur more frequently (~15%) than Direct Debits and peaked during the Lock-down in April 2020. ~40-50% of users have at least 1 failed card transaction per month, while fewer users have failed Direct Debits (~20%). Users with failed card transactions have on avg 4 failed transactions per month (median = 2), while user with failed direct debits have on avg 1 failed transaction (median = 1)."
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+  pdf_document:
+    toc: yes
+link: "https://docs.google.com/presentation/d/1BlSEc2HGTCRhxOylcXDteZl3XKuU-4vOC_VFyGZw_pQ/edit?usp=sharing"
+tags: "failed transactions, engage, card, direct debits, direct transfers"
+  
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+
+save(ar_reasons,
+     dr_reasons,
+     reversal_months,
+     reversal_users,
+     file = file.path("failed_txns_20200805.RData"))
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/failed_txns_20200805.RData"))
+ar <- as.data.frame(ar_reasons)
+dr <- as.data.frame(dr_reasons)
+rm<- as.data.frame(reversal_months)
+ru <- as.data.frame(reversal_users)
+
+#df$user_certified <- as.Date(df$user_certified)
+dim(ar)
+str(ar)
+head(ar)
+
+ar %>% summarise_all(n_distinct)
+
+```
+
+
+```{r}
+library('reshape2')
+library('reshape')
+library('tidyr')
+library('ggplot2')
+# what are the reasons for failed transactions and relative occurrence
+
+#AR
+ggplot(ar, 
+       aes(x=rejection_reason, 
+           y = ar_cnt/1000,
+           fill=rejection_reason,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("No. Transactions x 1000 (last 30 days)") + xlab("Transaction Failure Reason") +
+  ggtitle("Card Transaction Failure Reasons") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 12,face="bold"),
+    #legend.key.size = unit(1, "cm"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    axis.ticks.x=element_blank(),
+    axis.text.x=element_blank(),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Reasons", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+# DR
+ggplot(dr, 
+       aes(x=reason, 
+           y = dr_cnt/1000,
+           fill=reason,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("No. Transactions x 1000 (last 30 days)") + xlab("Transaction Failure Reason") +
+  ggtitle("Direct Debit Failure Reasons") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 12,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    axis.ticks.x=element_blank(),
+    axis.text.x=element_blank(),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Reasons", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+```
+
+```{r}
+
+# What is the frequency of faild transactions?
+
+
+rm_piv <- as.data.frame( 
+  rm[,c(1,6:7)] %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("per"), # column name starts with string
+      names_to = "txn_type", # new column name of column names after pivot
+      values_to = "percent", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+ggplot(rm_piv, 
+       aes(x=as.factor(month), 
+           y = percent,
+           fill=txn_type,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% Failed Transactions") + xlab("Month") +
+  ggtitle("Percent of Failed Transactions") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 12,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Trxn Type", 
+                    labels = c("Card","Direct Debit")
+                    )
+
+
+```
+
+```{r}
+
+# How many users have failed transactions on a monthly basis?
+
+ggplot(ru, 
+       aes(x=as.factor(month), 
+           y = percent_rev_users,
+           fill=type,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% of User w/ Failed Transactions") + xlab("Month") +
+  ggtitle("Percent of Users with Failed Transactions") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 12,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Trxn Type", 
+                    labels = c("Card","Direct Debit")
+                    )
+
+```
+
+```{r}
+
+# Among the users with failed transactions, what is the avg number of faild transactions per month?
+
+ggplot(ru, 
+       aes(x=as.factor(month), 
+           y = avg_rev_nonzero_users,
+           fill=type,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("Avg No. Failed Transactions per User") + xlab("Month") +
+  ggtitle("Avg Number of failed transactions per user who has a failed transaction") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 12,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Trxn Type", 
+                    labels = c("Card","Direct Debit")
+                    )
+
+```
+
+```{r}
+
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

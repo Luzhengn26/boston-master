@@ -1,0 +1,343 @@
+head(txn)
+df <- read.csv('/Users/wendyvu/Documents/PCA_txns/final_pca_table_201912091740_cohort2018.csv',header=T)
+df_membership = df[,c(1,60)]
+df[,4:59][is.na(df[,4:59])] <- 0
+df = df[df[,5]!=0,]
+names(df)
+df = df[!colnames(df) %in% c('weeks_fau','micro_v2_a','apppay','goopay','misc','misc_avg_euro','primary_cnt','savings_cnt','avg_balance_savings','micro_v2_a','apppay','goopay','misc','misc_avg_euro','savings_cnt','avg_balance_savings') ]
+names(df)
+df['weeks_wau'] = df['weeks_wau']/df['total_weeks']
+df['weeks_sau'] = df['weeks_sau']/df['total_weeks']
+df['total_weeks'] <- NULL
+names(df)
+total.smart <- as.data.frame(rowSums(smart))
+head(total.smart)
+smart <- cbind(smart,total.smart)
+head(smart)
+names(smart)
+smart[smart[,23]==0,]
+dim(smart[smart[,23]==0,])
+total.txn <- as.data.frame(rowSums(txn))
+dim(smart[total[,23]==0,])
+dim(total.txn[total.txn[,23]==0,])
+txn <- cbind(txn,total.txn)
+dim(txn[txn[,23]==0,])
+head(txn)
+dim(txn[txn[,9]==0,])
+txn[txn[,9]==0,]
+idx.txn <- rownames(txn[txn[,9]==0,])
+head(idx.txn)
+df[rownames(df) %in% idx.txn,]
+idx.txn <- rownames(smart[smart[,9]==0,])
+df[rownames(df) %in% idx.txn,]
+idx.txn <- rownames(smart[smart[,23]==0,])
+df[rownames(df) %in% idx.txn,]
+idx.txn <- rownames(smart[smart[,23]==0,])
+df[rownames(df) %in% idx.txn,]
+names(df)
+txn <- df[,c(27:34,46,47)]
+total.txn <- as.data.frame(rowSums(txn))
+txn <- cbind(txn,total.txn)
+idx.txn <- rownames(smart[smart[,11]==0,])
+length(idx.txn)
+idx.txn <- rownames(txn[txn[,11]==0,])
+length(idx.txn)
+head(txn)
+balance <- df[,c(35:42,44:45,48:49)]
+head(balancwe)
+head(balance)
+balance <- df[,c(35:43,44:45,48:49)]
+head(balance)
+bal.spaces <- df[,c(35:43,44:45,48:49)]
+table(balance$spaces_cnt)
+names(df)
+wau.sau <- df[,3:4]
+df1 <- cbind(wau.sau, smart,txn, bal.spaces)
+head(df1)
+names(df1)
+idx.rm <- rownames((df1[df1[,25]==0,]) | (df1[df1[,36]==0,]))
+idx.rm <- rownames(df1[(df1[,25]==0) | (df1[df1[,36]==0,]),])
+length(idx.rm)
+df1[rownames(df1) %in% idx.rm]
+df1[rownames(df1) %in% idx.rm,]
+names(df1)
+head(df1[rownames(df1) %in% idx.rm,])
+smart <- df[,7:26]
+total.smart <- as.data.frame(rowSums(smart))
+test <- smart/total.smart
+names(smart)
+smart <- df[,1:20]/total.smart
+smart <- smart[,1:20]/total.smart
+total.smart <- as.data.frame(rowSums(smart))
+smart <- smart[,1:20]/smart[,21]
+names(smart)
+smart <- df[,7:26]
+total.smart <- as.data.frame(rowSums(smart))
+smart <- cbind(smart,total.smart)
+smart <- smart[,1:20]/smart[,21]
+head(smart)
+smart <- df[,7:26]
+total.smart <- as.data.frame(rowSums(smart))
+smart <- cbind(smart,total.smart)
+head(smart)
+smart <- smart[,1:20]/smart[,21]
+4/83
+head(smart)
+2/60
+head(txn)
+names(txn)
+txn <- txn[,1:10]/txn[,11]
+head(txn)
+15/132
+bal.spaces <- df[,c(35:43,44:45,48:49)]
+wau.sau <- df[,3:4]
+df1 <- cbind(wau.sau, smart,txn, bal.spaces)
+dim(df1)
+df1[is.na(df1),]
+dim(df1[is.na(df1),])
+df1 <- merge(wau.sau, smart,txn, bal.spaces, by='row.names')
+df1 <- merge(wau.sau, smart,txn, bal.spaces, by='row.names',all=TRUE)
+dim(wau.sau)
+dim(smart)
+dim(txn)
+dim(bal.spaces)
+head(bal.spaces)
+head(txn)
+txn[is.na(txn),]
+dim(txn[is.na(txn),])
+dim(smart[is.na(smart),])
+head(smart)
+tail(smart)
+head(total.txn)
+head(total.txn==0)
+head(total.txn[total.txn==0,])
+dim(total.txn[total.txn==0,])
+total.txn[total.txn==0,]
+length(total.txn[total.txn==0,])
+txn
+rownames(txn[is.na(txn),]) -> idx
+df[rownames(df) %in% idx,]
+smart <- df[,7:26]
+total.smart <- as.data.frame(rowSums(smart))
+smart <- cbind(smart,total.smart)
+txn <- df[,c(27:34,46,47)]
+total.txn <- as.data.frame(rowSums(txn))
+txn <- cbind(txn,total.txn)
+dim(txn)
+dim(smart)
+dim(bal.spaces)
+dim(wau.sau)
+df1 <- cbind(wau.sau, smart,txn, bal.spaces)
+dim(df1)
+dim(df1[is.na(df1)])
+dim(df1[is.na(df1),])
+names(df1)
+df1 <- df1[,3:22]/df1[,23]
+head(df1)
+df1 <- df1[,df1[,3:22]/df1[,23]]
+smart <- smart[,1:20]/smart[,21]
+txn <- txn[,1:10]/txn[,11]
+dim(smart[is.na(smart),])
+dim(txn[is.na(txn),])
+df1 <- cbind.data.frame(wau.sau, smart,txn, bal.spaces)
+dim(df1)
+names(df1)
+dim(df1[is.na(df1),])
+dim(df1[!is.na(df1),])
+dim(df1[is.na(df1),])
+head(df1)
+res.pca <- PCA(df1, graph=FALSE,ncp=14)
+df1 <- na.omit(df1)
+dim(df1)
+df1 <- na.omit(df1)
+res.pca <- PCA(df1, graph=FALSE,ncp=14)
+eig.val <- get_eigenvalue(res.pca)
+eig.val
+fviz_eig(res.pca, addlabels = T, ylim=c(0,70))
+var <- get_pca_var(res.pca)
+library("corrplot")
+corrplot(var$cos2, is.corr=FALSE)
+fviz_pca_var(res.pca, col.var = "black",repel=T, axes=c(1,2))
+fviz_pca_var(res.pca, col.var = "black",repel=T, axes=c(2,3))
+fviz_pca_var(res.pca, col.var = grp, repel=T, axes=c(1,2),
+fviz_pca_var(res.pca, col.var = grp, repel=T, axes=c(1,2),#
+             palette = c("#0073C2FF", "#EFC000FF", "#868686FF"),#
+             legend.title = "Cluster")
+)
+fviz_pca_var(res.pca, col.var = grp, repel=T, axes=c(1,2),#
+             palette = c("#0073C2FF", "#EFC000FF", "#868686FF"),#
+             legend.title = "Cluster")
+set.seed(123)#
+res.km <- kmeans(var$coord, centers = 3, nstart = 25)#
+grp <- as.factor(res.km$cluster)#
+# Color variables by groups#
+fviz_pca_var(res.pca, col.var = grp, repel=T, axes=c(1,2),#
+             palette = c("#0073C2FF", "#EFC000FF", "#868686FF"),#
+             legend.title = "Cluster")
+set.seed(123)#
+res.km <- kmeans(var$coord, centers = 4, nstart = 25)#
+grp <- as.factor(res.km$cluster)#
+# Color variables by groups#
+fviz_pca_var(res.pca, col.var = grp, repel=T, axes=c(1,2),#
+             palette = c("#0073C2FF", "#EFC000FF", "#868686FF"),#
+             legend.title = "Cluster")
+set.seed(123)#
+res.km <- kmeans(var$coord, centers = 3, nstart = 25)#
+grp <- as.factor(res.km$cluster)#
+# Color variables by groups#
+fviz_pca_var(res.pca, col.var = grp, repel=T, axes=c(1,2),#
+             palette = c("#0073C2FF", "#EFC000FF", "#868686FF"),#
+             legend.title = "Cluster")
+set.seed(123)#
+res.km <- kmeans(var$coord, centers = 4, nstart = 25)#
+grp <- as.factor(res.km$cluster)#
+# Color variables by groups#
+fviz_pca_var(res.pca, col.var = grp, repel=T, axes=c(1,2),#
+             palette = c("#0073C2FF", "#EFC000FF", "#868686FF"),#
+             legend.title = "Cluster")
+corrplot(var$cos2, is.corr=FALSE)
+res.km <- kmeans(var$coord, centers = 4, nstart = 25)
+res.km
+res.km$cluster
+grp <- as.factor(res.km$cluster)
+fviz_pca_var(res.pca, col.var = grp, repel=T, axes=c(1,2),#
+             palette = c("#0073C2FF", "#EFC000FF", "#868686FF",'black'),#
+             legend.title = "Cluster")
+corrplot(var$cos2, is.corr=FALSE)
+res.km <- kmeans(var$coord, centers = 4, nstart = 25)
+grp <- as.factor(res.km$cluster)
+fviz_pca_var(res.pca, col.var = grp, repel=T, axes=c(1,3),#
+             palette = c("#0073C2FF", "#EFC000FF", "#868686FF",'black'),#
+             legend.title = "Cluster")
+res.km <- kmeans(var$coord, centers = 4, nstart = 25)
+grp <- as.factor(res.km$cluster)
+fviz_pca_var(res.pca, col.var = grp, repel=T, axes=c(2,3),
+fviz_pca_var(res.pca, col.var = grp, repel=T, axes=c(2,3),#
+             palette = c("#0073C2FF", "#EFC000FF", "#868686FF",'black'),#
+             legend.title = "Cluster")
+df.scaled = scale(df1, center=TRUE, scale=TRUE)
+res.cor <- cor(df.scaled)
+library(Hmisc)#
+rcorr.mat <- rcorr(df.scaled)#
+res.cor <- rcorr.mat$r#
+pval.cor <- rcorr.mat$p
+res2 <- rcorr(as.matrix(dfout.rm))
+library("lattice")#
+library(RColorBrewer)#
+coul <- colorRampPalette(brewer.pal(8, "PiYG"))(25)#
+levelplot(res.cor,scales=list(x=list(rot=90)),col.regions = coul)#
+#
+corrplot(res.cor, type="upper", order="hclust", #
+         tl.col="black", tl.srt=45,diag=FALSE,addCoef.col="black")
+tl.col="black", tl.srt=45,diag=FALSE)
+corrplot(res.cor, type="upper", order="hclust", #
+         tl.col="black", tl.srt=45,diag=FALSE)
+fviz_pca_var(res.pca, col.var = "cos2", axes=c(1,2),#
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), #
+             repel = TRUE # Avoid text overlapping#
+             )
+fviz_pca_var(res.pca, col.var = "cos2", axes=c(2,3),#
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), #
+             repel = TRUE # Avoid text overlapping#
+             )
+fviz_pca_var(res.pca, col.var = "cos2", axes=c(1,2),#
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), #
+             repel = TRUE # Avoid text overlapping#
+             )
+65+17+88+9+48+748
+65+17+48
+130/975
+257+55+360+45+179+3915
+275+55+179
+509/4811
+21+2+6+2+17+241+17+1+11+451+3+1661
+21+2+6+2+11+5
+47/2433
+user_groups <- c("typical_n26","low_activity","nonsau_savers")
+percent_premium <- c(11,13,2)
+data.frame(user_groups, percent_premium)
+member <- data.frame(user_groups, percent_premium)
+ggplot(membership, aes(x=user_groups,y=percent_premium)) + #
+  geom_bar(position = "dodge",stat="identity") +#
+  geom_text(aes(label=age),position = position_dodge(width = .9),    # move to center of bars#
+            vjust = -0.5,    # nudge above top of bar#
+            size = 3)
+library("ggplot2")
+ggplot(membership, aes(x=user_groups,y=percent_premium)) + #
+  geom_bar(position = "dodge",stat="identity") +#
+  geom_text(aes(label=age),position = position_dodge(width = .9),    # move to center of bars#
+            vjust = -0.5,    # nudge above top of bar#
+            size = 3)
+ggplot(member, aes(x=user_groups,y=percent_premium)) + #
+  geom_bar(position = "dodge",stat="identity") +#
+  geom_text(aes(label=age),position = position_dodge(width = .9),    # move to center of bars#
+            vjust = -0.5,    # nudge above top of bar#
+            size = 3)
+ggplot(member, aes(x=user_groups,y=percent_premium)) + #
+  geom_bar(position = "dodge",stat="identity") +#
+  geom_text(aes(label=user_groups),position = position_dodge(width = .9),    # move to center of bars#
+            vjust = -0.5,    # nudge above top of bar#
+            size = 3)
+ggplot(member, aes(x=user_groups,y=percent_premium,fill=user_groups)) + #
+  geom_bar(position = "dodge",stat="identity") +#
+  geom_text(aes(label=user_groups),position = position_dodge(width = .9),    # move to center of bars#
+            vjust = -0.5,    # nudge above top of bar#
+            size = 3)
+percent_premium <- c(2,13,11)
+user_groups <- c("typical_n26","low_activity","nonsau_savers")
+member <- data.frame(user_groups, percent_premium)
+ggplot(member, aes(x=user_groups,y=percent_premium,fill=user_groups)) + #
+  geom_bar(position = "dodge",stat="identity") +#
+  geom_text(aes(label=user_groups),position = position_dodge(width = .9),    # move to center of bars#
+            vjust = -0.5,    # nudge above top of bar#
+            size = 3)
+member
+user_groups <- c("typical_n26","low_activity","nonsau_savers")
+percent_premium <- c(11,2,13)
+member <- data.frame(user_groups, percent_premium)
+ggplot(member, aes(x=user_groups,y=percent_premium,fill=user_groups)) + #
+  geom_bar(position = "dodge",stat="identity") +#
+  geom_text(aes(label=user_groups),position = position_dodge(width = .9),    # move to center of bars#
+            vjust = -0.5,    # nudge above top of bar#
+            size = 3)
+user_groups <- c("Typical N26","Low Activity","Non-SAU Savers")
+member <- data.frame(user_groups, percent_premium)
+ggplot(member, aes(x=user_groups,y=percent_premium,fill=user_groups)) + #
+  geom_bar(position = "dodge",stat="identity") +#
+  geom_text(aes(label=user_groups),position = position_dodge(width = .9),    # move to center of bars#
+            vjust = -0.5,    # nudge above top of bar#
+            size = 3)
+84+3+19+7+296
+84+3+7
+94/296
+user_groups <- c("Typical N26","Low Activity","Non-SAU Savers","Travelers")
+percent_premium <- c(11,2,13,30)
+member <- data.frame(user_groups, percent_premium)
+ggplot(member, aes(x=user_groups,y=percent_premium,fill=user_groups)) + #
+  geom_bar(position = "dodge",stat="identity") +#
+  geom_text(aes(label=user_groups),position = position_dodge(width = .9),    # move to center of bars#
+            vjust = -0.5,    # nudge above top of bar#
+            size = 3)
+1 + 8
+1/8
+45+18+120+56+28+809
+45+18+28
+91/1076
+user_groups <- c("Typical N26","Low Activity","Non-SAU Savers","Travelers","SAU Non-Savers","SAU Savers")
+percent_premium <- c(11,2,13,30,8,12)
+member <- data.frame(user_groups, percent_premium)
+ggplot(member, aes(x=user_groups,y=percent_premium,fill=user_groups)) + #
+  geom_bar(position = "dodge",stat="identity") +#
+  geom_text(aes(label=user_groups),position = position_dodge(width = .9),    # move to center of bars#
+            vjust = -0.5,    # nudge above top of bar#
+            size = 3)
+setwd('/Users/wendyvu/Documents/')
+df <- read.csv('txn_202001132126.csv',header=T,na.strings=c(""))
+head(df)
+summary(df)
+df <- read.csv('txn_202001132126.csv',header=T,na.strings=c(""))
+summary(df)
+head(df)
+setwd('/Users/wendyvu/Documents/Engage_Analysis/Spaces_FreemiumModel/')
+library(n26)
+library(data.table)

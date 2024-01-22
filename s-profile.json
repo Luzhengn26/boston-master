@@ -1,0 +1,37 @@
+{
+  "type": "microservice",
+  "ownership": {
+    "domain": "Data",
+    "segment": "Data Analytics",
+    "group": "Analytics Engineering",
+    "team": "Analytics Engineering",
+    "engineeringManager": "robin.frick@n26.com",
+    "productManager": "robin.frick@n26.com"
+  },
+  "contact": {
+    "communicationChannel": "https://chat.google.com/room/AAAASbi56Ak?cls=7",
+    "email": "analytics.engineers@n26.com"
+  },
+  "productSecurityProgram": {
+    "securityEngineer": "narendra.shinde@n26.com",
+    "securityChampion": "none"
+  },
+  "compliance": {
+    "dataClassification": [
+      "Deprecated in favour of 'informationClusters'.  Here to pass validation checks until they are updated"
+    ],
+    "bianId": "BDV-MAE",
+    "informationClusters": [
+      "3rd-party-public",
+      "business-comms-3rd-party",
+      "business-financial",
+      "business-internal-department",
+      "business-public",
+      "business-strategy-secrets",
+      "customer-financial",
+      "customer-non-sensitive",
+      "employee-personal"
+    ]
+  },
+  "status": "active"
+}

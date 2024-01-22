@@ -1,0 +1,2495 @@
+---
+title: "Early User Clusters: Understanding user behavior in the first 35-days of Ft-MAU"
+author: "Wendy Vu"
+region: "EU"
+date: "2020-06-16"
+summary: "This research looks at the following questions: How can we use data to cluster our users? What are the main behavioral groups in the First 35 days of Top-up? A deep dive on understanding each user cluster (high and low activity early clusters) as well as a look at user journeys and customer intentions is provided."
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    theme: cosmo
+    toc: yes
+link: "https://docs.google.com/presentation/d/1lLOP1JsVTasj2hTf6Mseu0BHg0NZslY1lq-pyPN8kZk/edit?usp=sharing"
+tags: "early user behavior, segmentation, engage, transactions, early cluster, financial behavior, retention, pnl, cost, revenue, spend"
+ 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Summary 
+
+This analysis focuses on clustering early user transactional behavior within the first 35 days of KYC completed and first time MAU by using the same cohort from our previous [mature user clustering analysis](https://docs.google.com/presentation/d/13Diykdi_HBRrUf_rTiLXcH29OzuSQmRbJO32XQJSnkM/edit#slide=id.g76cb8b17e3_0_485) to start exploring user journey and ask the following questions:
+  I. What kind of user groups can we identify early in the journey of N26 users?
+  II. Is customer behavior in the early stages of app adoption similar to their overall financial behavior in the future?
+  III. Do we see patterns of users changing their behavior and switch between groups?
+  IV. Do users have initial intentions for using our product?
+
+Data:
+-20K users were randomly sampled from KYCc cohort from September/October 2018
+-The clustering analysis was focused on txns completed within the first 35 days of Ft-MAU
+
+SQL queries and clustering output files can be found [here](https://drive.google.com/drive/folders/1tszxFwjFh3ETbsoQY0yWov8vu4yops2x?usp=sharing)
+
+NOTE: For a more detailed discription/discussion of the models and clustering analysis please reference the mature clustering analysis [R-markdown file in Boston Github Repository](https://github.com/n26/boston/tree/master/research/product/deep_dive/Hierarchical_Kmean_Clustering).
+
+
+```{r}
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+
+# load the data
+df <- load(paste0("cluster_35days_June162020.RData"))
+dfc <- as.data.frame(cluster_35dayct_query)
+
+```
+
+```{r}
+# CLUSTERING USERS: TXNS OF THE FIRST 35 DAYS OF FT MAU/FIRST TOP
+
+# Calculate frequency of users for each feature
+
+dff <- dfc[,c(10:27,30:51,54:65)]
+dff[is.na(dff)] <- 0 # replace NA's with 0 
+
+# FREQUENCY OF USERS FOR EACH FEATURE
+library("ggplot2")
+d = NULL
+for (i in 1:dim(dff)[2]){
+  feat = dff[,1:length(dff[1,])]
+  sum = sum((feat[,i]) & (!is.na(feat[,i])) != 0)
+  total = dim(feat)[1]
+  percent = sum/total
+  feature = colnames(feat)[i]
+  #print(percent)
+  d = rbind(d, data.frame(percent,feature))
+}
+
+d.sort <- d[order(d$percent,decreasing=TRUE),]
+
+
+# All defaults
+ggplot(d, aes(x=reorder(feature, -percent), y=percent, fill=feature, label=scales::percent(percent)))+
+  geom_bar(stat="identity", width=0.5) + ylab('Percent of Non-Zero Counts') + 
+  xlab('Features') + 
+  theme(axis.text.x = element_text(angle = 45, size=7, face='bold'), legend.position='none') +
+  geom_text(position = position_dodge(width = .9),    # move to center of bars
+            vjust = -0.5,    # nudge above top of bar
+            size = 1) +
+  scale_y_continuous(labels = scales::percent)
+
+# REMOVE low frequency features < 1%
+rm.feat <- d[d[,1] <0.01,] 
+df_fin <- dff[,!colnames(dff) %in% rm.feat[,2]]
+#df_fin$months_sau <- NULL
+#dim(df_fin)
+
+
+```
+# Results
+
+Very few users complete transferwise transaction within the first 35-days of Ft-MAU (< 1%) and stripe top-up did in 2018. We removed these transactions from the clustering analysis. 
+
+
+```{r}
+# CLEANING AND NORMALIZING DATA
+names(df_fin)
+
+# normalize COUNT DATA by ROW SUM --> to get relative importance of trxn count data for each user
+df_cnt_row <- df_fin
+
+# Make count data relative proportions by dividing by total transaction count for each user
+names(df_cnt_row[,c(3:22)]) # txn count
+df_cnt_row[,c(3:22)] <- df_cnt_row[,c(3:22)]/rowSums(df_cnt_row[,c(3:22)])
+df_cnt_row[is.na(df_cnt_row)] <- 0 
+
+### Transforming skewed data
+
+# log transform total volume/balance for each transaction type
+names(df_cnt_row[,c(1:2,23:45)])
+
+df_cnt_row[(df_cnt_row[,43]) < 0,] <- 0 # negative balances with 0 before log transform
+df_cnt_row[(df_cnt_row[,45]) < 0,] <- 0
+
+df_cnt_row[,c(1:2,23:45)] <- df_cnt_row[,c(1:2,23:45)] + 1 # add 1 to all data point bc there are 0's
+df_cnt_row[,c(1:2,23:45)] <- log(df_cnt_row[,c(1:2,23:45)]) 
+
+
+```
+
+```{r}
+# PRINCIPLE COMPONENTS ANALYSIS (PCA): FEATURE DIMENSIONALITY REDUCTION 
+
+library("FactoMineR")
+library("factoextra")
+
+res.pca <- PCA(df_cnt_row, graph=FALSE,ncp=50, scale.unit=T)
+eig.val <- get_eigenvalue(res.pca)
+#head(eig.val,20)
+
+# variance explained by each dimension/component
+# ~40% of variance is explained by the first 3 components
+fviz_eig(res.pca, addlabels = T, ylim=c(0,70))
+var <- get_pca_var(res.pca)
+
+# PCA correlation plot of features relative to the dimensions
+library("corrplot")
+corrplot(var$cos2, is.corr=FALSE,tl.cex=0.80)
+
+library(scatterplot3d)
+pc <- res.pca$ind$coord
+scatterplot3d(pc[,1:3], pch=3, color="blue")
+plot(eig.val[,3], xlab='Dimensions',ylab='Cumulative Variance',pch=19)
+
+# Supplementary plots: PCA Biplots and Correlation matrix of features to understand the relationship between features
+
+# Biplot of of variables and individuals 
+# biplot for dim 1 and 2
+fviz_pca_biplot(res.pca, repel = T,geom.ind = "point", axes=c(1,2),
+                col.var = 'black', # Variables color
+                col.ind = 'grey'  # Individuals color         
+)
+
+# PAIRWISE CORRELATION PLOT OF FEATURES: A NICE SUPPLEMENT FOR THE BIPLOTS AND PCA FEAUTRE CORRELATION PLOT
+
+# compute correlation matrix and rm NA's
+
+df.scaled = scale(df_cnt_row, center=TRUE, scale=TRUE)
+res.cor <- cor(df.scaled)
+
+library('corrplot')
+corrplot(res.cor, type="upper", order="hclust", 
+         tl.col="black", 
+         tl.srt=45,
+         diag=FALSE,
+         tl.cex=1,
+         #addCoef.col="black"
+         )
+
+```
+# RESULTS
+
+We implemented a Principle Componenets Analysis (PCA) to reduce the dimensionality of the data and avoid overfitting. We can captured 87% of the variance in the data with the first 16 PC's, while PC 17-45 does not seem to capture any meaningful variation among the features so we can drop them. We'll use 16 PC's as input data for clustering.
+
+The PCA Biplots and Correlation matrix of features are supplementary figures to help understand the relationships between features (i.e. positive/negative correlations)
+
+
+```{r}
+# CLUSTERING PC 1-16: DETERMINE THE OPTIMAL NUMBER OF CLUSTERS USING 'WITHIN SUM OF SQUARES (WSS) ELBOW METHOD' and SILHOUETTE PLOTS
+
+pc <- res.pca$ind$coord
+
+# KMEANS CLUSTERING
+library(factoextra)
+comp <- pc[,1:16]
+
+# ELBOW METHOD
+# K-means clustering
+# Determine the correct number of clusters via weighted within sum of squares
+gc() # Garbage collect
+wss <- (nrow(comp)-1)*sum(apply(comp,2,var))
+for (i in 2:50) wss[i] <- sum(kmeans(comp, centers=i, nstart=25, iter.max=1000,algorithm="MacQueen")$withinss)
+plot(1:50, wss, type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares", main="K-means: Identify optimal number of clusters",xaxt="n")
+axis(1, at=1:50, labels=c(1:50))
+
+
+```
+# Results
+
+The elbow method suggest that the optimal number of clusters range from 9 to possibly 11 clusters which we will need to investigate further by generating the silhouette plots to look at the quality of the clusters within this range.
+
+
+```{r}
+
+# SILHOUETTE PLOTS VIA HIERARCHICAL KMEANS HYBRID CLUSTERING ANALYSIS FOR K = 9-11 CLUSTERS
+# Note that the cluster numbers are assigned randomly and will be different each time you rerun the clustering analysis so you will have look at the data to determine the cluster behaviors and its corresponding cluster number. 
+
+
+#k=9
+res.hc <- eclust(comp, "hclust", k = 9,
+                 method = "ward.D2", graph = FALSE) 
+grp <- res.hc$cluster
+# Compute cluster centers
+clus.centers <- aggregate(comp, list(grp), mean)
+# Remove the first column
+clus.centers <- clus.centers[, -1]
+# Kmeans clustering using hieracrchical clustering defined cluster-centers
+km.res2_9 <- eclust(comp, "kmeans", k = clus.centers, graph = FALSE)
+fviz_silhouette(km.res2_9)
+
+#k=10
+res.hc <- eclust(comp, "hclust", k = 10,
+                 method = "ward.D2", graph = FALSE) 
+grp <- res.hc$cluster
+# Compute cluster centers
+clus.centers <- aggregate(comp, list(grp), mean)
+# Remove the first column
+clus.centers <- clus.centers[, -1]
+# Kmeans clustering using hieracrchical clustering defined cluster-centers
+km.res2_10 <- eclust(comp, "kmeans", k = clus.centers, graph = FALSE)
+fviz_silhouette(km.res2_10)
+
+#k=11
+res.hc <- eclust(comp, "hclust", k = 11,
+                 method = "ward.D2", graph = FALSE) 
+grp <- res.hc$cluster
+# Compute cluster centers
+clus.centers <- aggregate(comp, list(grp), mean)
+# Remove the first column
+clus.centers <- clus.centers[, -1]
+# Kmeans clustering using hieracrchical clustering defined cluster-centers
+km.res2_11 <- eclust(comp, "kmeans", k = clus.centers, graph = FALSE)
+fviz_silhouette(km.res2_11)
+
+
+```
+# Results
+
+We determined the K = 10 is the optimal number of clusters, which was based on the Elbow Method and Silhouette scores as well as assessing how the clusters were divided and whether additional clusters provided meaningful clusters. 
+
+```{r}
+# Saving clustering results in CSV file 
+
+# K = 10 clusters
+#names(km.res2_10)
+#hk.df <- data.frame(km.res2_10$cluster)
+#colnames(hk.df) <- c("cluster")
+
+#merged.df <- transform(merge(dfc,hk.df,by=0), row.names=Row.names, Row.names=NULL)
+#merged.df[,12:160][is.na(merged.df[,12:160])] <- 0
+#merged.df[,162]<-as.factor(merged.df[,162]) #cluster column
+#write.csv(merged.df,file='Cluster_First35days_results.csv')
+
+```
+
+```{r}
+
+# EVALUATING CLUSTER RESULTS FROM K CLUSTERS from saved clustering results and additional sql queries for extended deep-dive analysis
+# Assessing mean values of all features used in the clustering analysis across clusters to understand what features are defining the 10 clusters
+
+# Data/code for all figures generated in the Early User Cluster slide deck are described below with corresponding SLIDE Numbers
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+library(RColorBrewer)
+library(ggplot2)
+
+########### barplots for mean values of clusters
+
+#display.brewer.all()
+color <- brewer.pal(12,"Set3")
+
+merged.df <- read.csv("/Users/wendyvu/Documents/early_user_cluster/Cluster_First35days_results.csv")
+df <- load(paste0("/Users/wendyvu/Documents/Cluster_SeptOct2018Cohort_first35days_Deepdive_20200901.RData"))
+
+```
+
+```{r}
+# SLIDES 9-14: EXTRACTING KEY FEATURES THAT DEFINE USER CLUSTERS
+
+# reorder factor levels
+k10 <- c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10")
+merged.df$cluster <- factor(merged.df$cluster, levels = k10)
+
+# Cluster activity bands
+features <- merged.df[,c("total_act_txns","act_txns_days","cluster")]
+features <- reshape2::melt(features,id=c('cluster'))
+features[, 3][is.na(features[, 3])] <- 0
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+# reorder factor levels
+k10 <- c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10")
+mean_df10$cluster <- factor(mean_df10$cluster, levels = k10)
+ggplot(mean_df10, aes(x=as.factor(cluster), y=value,fill=as.factor(cluster))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=0) + theme(legend.position = "none",axis.text=element_text(size=16,face="bold")) +
+  facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=color,
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+# EARLY SPACES POWER USERS 
+features <- merged.df[,c("n_spaces_ct",
+                         #"n_spaces_dt",
+                         "spaces_ct_amt",
+                         #"spaces_dt_amt",
+                         "space_bal_avg", 
+                         "day35_bal", 
+                         #"spaces_viewed", 
+                         "pt_amt",
+                         "n_pt",
+                         "cluster"),]
+features <- reshape2::melt(features,id=c('cluster'))
+features[, 3][is.na(features[, 3])] <- 0
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+# reorder factor levels
+k10 <- c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10")
+mean_df10$cluster <- factor(mean_df10$cluster, levels = k10)
+
+
+ggplot(mean_df10, aes(x=as.factor(cluster), y=value,fill=as.factor(cluster))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=0) + theme(legend.position = "none",axis.text=element_text(size=16,face="bold")) +
+  facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=color,
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+# EARLY INTERNATIONAL/EURO TRAVELERS
+features <- merged.df[,c("n_dom",
+                         "dom_sum", 
+                         "n_inter","inter_sum",
+                         #"n_inter_atm","inter_atm_sum",
+                         "n_intra","intra_sum",
+                         #"n_intra_atm","intra_atm_sum","taxicabs_sum","local_transport_sum",
+                         "cluster")]
+features <- reshape2::melt(features,id=c('cluster'))
+features[, 3][is.na(features[, 3])] <- 0
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+# reorder factor levels
+k10 <- c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10")
+mean_df10$cluster <- factor(mean_df10$cluster, levels = k10)
+
+ggplot(mean_df10, aes(x=as.factor(cluster), y=value,fill=as.factor(cluster))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25) + theme(legend.position = "none",axis.text=element_text(size=16,face="bold")) +
+  facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=color,
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+features <- merged.df[,c("n_dom",
+                         "n_inter",
+                         "n_intra",
+                         "taxicabs_sum",
+                         "local_transport_sum",
+                         "hotel_lodge_sum",
+                         "cluster")]
+features <- reshape2::melt(features,id=c('cluster'))
+features[, 3][is.na(features[, 3])] <- 0
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+# reorder factor levels
+k10 <- c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10")
+mean_df10$cluster <- factor(mean_df10$cluster, levels = k10)
+
+ggplot(mean_df10, aes(x=as.factor(cluster), y=value,fill=as.factor(cluster))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25) + theme(legend.position = "none",axis.text=element_text(size=16,face="bold")) +
+  facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=color,
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+
+# EARLY CASH26'ERS
+features <- merged.df[,c("n_cash26",
+                         "cash26_amt",
+                         #"n_ecomm",
+                         "ecomm_amt",
+                         #"n_dt",
+                         "dt_amt", 
+                         "cluster")]
+features <- reshape2::melt(features,id=c('cluster'))
+features[, 3][is.na(features[, 3])] <- 0
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+# reorder factor levels
+k10 <- c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10")
+mean_df10$cluster <- factor(mean_df10$cluster, levels = k10)
+ggplot(mean_df10, aes(x=as.factor(cluster), y=value,fill=as.factor(cluster))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25) + theme(legend.position = "none",axis.text=element_text(size=16,face="bold")) +
+  facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=color,
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+
+# E5/E6 EARLY DOMESTIC/MOBILE SPENDERS
+features <- merged.df[,c("n_dom",
+                         "n_intra",
+                         "n_inter",
+                         "n_cardpresent",
+                         "n_mobile",
+                         #"mobile_amt","grocery_market_sum, household_sum","gas_service_sum,utilities_sum","gambling_gaming_sum",
+                         "cluster")]
+features <- reshape2::melt(features,id=c('cluster'))
+features[, 3][is.na(features[, 3])] <- 0
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+# reorder factor levels
+k10 <- c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10")
+mean_df10$cluster <- factor(mean_df10$cluster, levels = k10)
+ggplot(mean_df10, aes(x=as.factor(cluster), y=value,fill=as.factor(cluster))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25) + theme(legend.position = "none",axis.text=element_text(size=16,face="bold")) +
+  facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=color,
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+# E7 EARLY ONLINE SPENDERS
+features <- merged.df[,c("n_ecomm",
+                         "n_cardpresent",
+                         "n_atm",
+                         "ecomm_amt",
+                         "cardpresent_amt",
+                         "atm_amt",
+                         #"n_mobile",
+                         #"mobile_amt","grocery_market_sum, household_sum","gas_service_sum,utilities_sum","gambling_gaming_sum",
+                         "cluster")]
+features <- reshape2::melt(features,id=c('cluster'))
+features[, 3][is.na(features[, 3])] <- 0
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+# reorder factor levels
+k10 <- c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10")
+mean_df10$cluster <- factor(mean_df10$cluster, levels = k10)
+
+
+ggplot(filter(mean_df10,cluster %in% c("E7","E8","E9","E10")), aes(x=as.factor(cluster), y=value,fill=as.factor(cluster))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25) + theme(legend.position = "none",axis.text=element_text(size=16,face="bold")) +
+  facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=color,
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+
+# E8 EARLY BARELY ACTIVE USERS
+features <- merged.df[,c("day35_bal",
+                         "ct_amt", 
+                         #"n_ecomm","ecomm_amt","n_dom","dom_sum","n_atm", "atm_sum","dt_amt", 
+                         "cluster")]
+
+features <- reshape2::melt(features,id=c('cluster'))
+features[, 3][is.na(features[, 3])] <- 0
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+# reorder factor levels
+k10 <- c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10")
+mean_df10$cluster <- factor(mean_df10$cluster, levels = k10)
+
+library(ggpattern)
+ggplot(filter(mean_df10,cluster %in% c("E7","E8","E9","E10")), aes(x=as.factor(cluster), y=value,fill=as.factor(cluster), #alpha = 0.75
+                      )) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25) + theme(legend.position = "none",axis.text=element_text(size=16,face="bold")) +
+  facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=color,
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+# E9 EARLY CASH SPENDERS
+features <- merged.df[,c("atm_sum",
+                         "ct_amt", 
+                         "day35_bal",
+                         #"n_ecomm","ecomm_amt","n_dom","dom_sum","n_atm", "atm_sum","dt_amt", 
+                         "cluster")]
+
+features <- reshape2::melt(features,id=c('cluster'))
+features[, 3][is.na(features[, 3])] <- 0
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+# reorder factor levels
+k10 <- c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10")
+mean_df10$cluster <- factor(mean_df10$cluster, levels = k10)
+
+library(ggpattern)
+ggplot(filter(mean_df10,cluster %in% c("E7","E8","E9","E10")), aes(x=as.factor(cluster), y=value,fill=as.factor(cluster), #alpha = 0.75
+                      )) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25) + theme(legend.position = "none",axis.text=element_text(size=16,face="bold")) +
+  facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=color,
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+# E10 EARLY HOLDING ACCOUNT
+
+features <- merged.df[,c("atm_amt",
+                         "pt_amt",
+                         "n_pt",
+                         "dt_amt",
+                         "day35_bal","cluster")]
+
+features <- reshape2::melt(features,id=c('cluster'))
+features[, 3][is.na(features[, 3])] <- 0
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+# reorder factor levels
+k10 <- c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10")
+mean_df10$cluster <- factor(mean_df10$cluster, levels = k10)
+
+library(ggpattern)
+ggplot(filter(mean_df10,cluster %in% c("E7","E8","E9","E10")), aes(x=as.factor(cluster), y=value,fill=as.factor(cluster), #alpha = 0.75
+                      )) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25) + theme(legend.position = "none",axis.text=element_text(size=16,face="bold")) +
+  facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=color,
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+
+# E7-10
+features <- merged.df[,c(
+                         "ecomm_amt",
+                         "cardpresent_amt",
+                         "atm_amt",
+                         "n_pt",
+                         "ct_amt",
+                         "dt_amt",
+                         "day35_bal",
+                         "cluster")]
+
+features <- reshape2::melt(features,id=c('cluster'))
+features[, 3][is.na(features[, 3])] <- 0
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+# reorder factor levels
+k10 <- c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10")
+mean_df10$cluster <- factor(mean_df10$cluster, levels = k10)
+
+#library(ggpattern)
+ggplot(mean_df10, aes(x=as.factor(cluster), y=value,fill=as.factor(cluster), #alpha = 0.75
+                      )) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25) + theme(legend.position = "none",axis.text=element_text(size=16,face="bold")) +
+  facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=color,
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+
+# All relevant features 
+features <- merged.df[,c(#"n_spaces_ct",
+                         #"n_spaces_dt",
+                         #"spaces_ct_amt",
+                         "n_int_total",
+                         #"int_total_amt",
+                         #"spaces_dt_amt",
+                         "space_bal_avg", 
+                         "day35_bal", 
+                         #"n_ct",
+                         "ct_amt",
+                         #"spaces_viewed",
+                         "inter_sum","intra_sum",
+                         "cash26_amt",
+                         "pt_amt",
+                         "n_pt",
+                         "dom_sum",#"dom_sum",
+                          "n_mobile",
+                         #"n_ft",
+                         "ft_amt",
+                         #"n_ecomm", 
+                         #"ecomm_amt", 
+                         "dt_amt",
+                         #"n_cash26",
+                         "cluster"),]
+features <- reshape2::melt(features,id=c('cluster'))
+features[, 3][is.na(features[, 3])] <- 0
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+# reorder factor levels
+k10 <- c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10")
+mean_df10$cluster <- factor(mean_df10$cluster, levels = k10)
+
+
+ggplot(mean_df10,
+       #filter(mean_df10,cluster %in% c("E1","E2","E3","E4","E5","E6")),
+       aes(x=as.factor(cluster), y=value,fill=as.factor(cluster))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=0) + theme(legend.position = "none",axis.text=element_text(size=15,face="bold")) +
+  facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=color,
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+# Spaces and Travelers
+features <- merged.df[,c(#"n_spaces_ct",
+                         #"n_spaces_dt",
+                         #"spaces_ct_amt",
+                         "n_int_total",
+                         #"n_total",
+                         #"int_total_amt",
+                         #"spaces_dt_amt",
+                         "space_bal_avg", 
+                         "day35_bal", 
+                         #"n_ct",
+                         "ct_amt",
+                         #"spaces_viewed",
+                         "inter_sum","intra_sum",
+                         "dom_sum",#"dom_sum",
+                         #"cash26_amt",
+                         "pt_amt",
+                         "n_pt",
+                         "dt_amt",
+                         #"n_mobile",
+                         #"n_ft",
+                         #"ft_amt",
+                         #"n_ecomm", 
+                         #"ecomm_amt", 
+                         #"n_cash26",
+                         "cluster"),]
+features <- reshape2::melt(features,id=c('cluster'))
+features[, 3][is.na(features[, 3])] <- 0
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+# reorder factor levels
+k10 <- c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10")
+mean_df10$cluster <- factor(mean_df10$cluster, levels = k10)
+
+
+ggplot(mean_df10,
+       #filter(mean_df10,cluster %in% c("E1","E2","E3","E4","E5","E6")),
+       aes(x=as.factor(cluster), y=value,fill=as.factor(cluster))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=0) + theme(legend.position = "none",axis.text=element_text(size=15,face="bold")) +
+  facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=color,
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+# Cash26'ers and Domestic/Mobile Spenders
+# Spaces and Travelers
+features <- merged.df[,c(#"n_spaces_ct",
+                         #"n_spaces_dt",
+                         #"spaces_ct_amt",
+                         #"n_int_total",
+                         #"n_total",
+                         #"int_total_amt",
+                         #"spaces_dt_amt",
+                         #"space_bal_avg", 
+                         #"spaces_viewed",
+                         #"inter_sum","intra_sum",
+                         "cash26_amt",
+                         "dom_sum",#"dom_sum",
+                         "n_mobile",
+                         "pt_amt",
+                         "n_pt",
+                         "dt_amt",
+                         
+                         #"n_ft",
+                         "ft_amt",
+                         "n_ecomm",
+                         "ecomm_amt", 
+                         "day35_bal", 
+                         #"n_ct",
+                         "ct_amt",
+                         #"n_cash26",
+                         "cluster"),]
+features <- reshape2::melt(features,id=c('cluster'))
+features[, 3][is.na(features[, 3])] <- 0
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+# reorder factor levels
+k10 <- c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10")
+mean_df10$cluster <- factor(mean_df10$cluster, levels = k10)
+
+
+ggplot(mean_df10,
+       #filter(mean_df10,cluster %in% c("E1","E2","E3","E4","E5","E6")),
+       aes(x=as.factor(cluster), y=value,fill=as.factor(cluster))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=0) + theme(legend.position = "none",axis.text=element_text(size=15,face="bold")) +
+  facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=color,
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+
+```
+
+```{r}
+# DEEP DIVE: RELEVANT SUPPLEMENTARY FEATURES NOT USED IN CLUSTERING ANALYSIS
+# FIGURES DESCRIBE CHARACTERISTICS OF CLUSTERS BASED ON MARKET, FIRST PRODUCT MEMBERSHIP TIERS, AND EXPAT INFORMATION
+# SLIDE NUMBERS FROM EARLY USER CLUSTERS SLIDE DECK ASSOCIATED WITH FIGURES ARE NOTED HERE
+
+# MARKET
+library(reshape)
+library(reshape2)
+library(dplyr)
+library(stringr)
+
+#MARKET SLIDE 15
+market <- as.data.frame(cast(melt(table(merged.df[,c(4,164)])), market~cluster))
+market$V1 <- NULL
+mark <- market$market
+market$market <- NULL
+market <- as.data.frame(t(market))
+ALL <- colSums(market[,1:7])
+market <- rbind(market,ALL=ALL)
+colnames(market) <- mark
+market[,c(1:7)] <- market[,c(1:7)]/rowSums(market[,c(1:7)])*100
+market$cluster <- rownames(market)
+mark.df <- gather(market,key,value, -cluster)
+
+mark.df <- data.frame(lapply(mark.df, trimws), stringsAsFactors = FALSE)
+
+mark.df$market <- factor(mark.df[,2], levels = c('DEU','AUT','FRA','RoE','ESP','ITA','GBR'))
+mark.df$value <- as.numeric(mark.df$value)
+mark.df$cluster <- as.factor(mark.df$cluster)
+mark.df$cluster <- factor(mark.df[,1],levels=c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10","ALL"))
+
+color1 <- brewer.pal(8,"Set2")
+
+ggplot(mark.df, aes(fill=market,y=value,x=as.factor(cluster))) +
+  geom_bar(position="stack", stat="identity") + xlab("Early User Clusters") + ylab("% Users") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 20,face="bold"),
+    axis.text=element_text(size=18,face="bold"), legend.key.size = unit(1.5, "cm"),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) +  guides(colour = guide_legend(override.aes = list(size=20))) + 
+  scale_fill_manual(values=color1,
+                    name = "Market")
+
+
+#SLIDE 46: MARKET (flip) Distribution of clusters across markets
+market <- as.data.frame(cast(melt(table(merged.df[,c(164,4)])), cluster~market))
+market$V1 <- NULL
+mark <- market$cluster
+market$cluster <- NULL
+market <- as.data.frame(t(market))
+ALL <- colSums(market[,1:10])
+market <- rbind(market,ALL=ALL)
+colnames(market) <- mark
+market[,c(1:10)] <- market[,c(1:10)]/rowSums(market[,c(1:10)])*100
+market$market <- rownames(market)
+mark.df <- gather(market,key,value, -market)
+
+mark.df <- data.frame(lapply(mark.df, trimws), stringsAsFactors = FALSE)
+
+mark.df$market <- factor(mark.df[,1], levels = c('DEU','AUT','FRA','RoE','ESP','ITA','GBR',"ALL"))
+mark.df$value <- as.numeric(mark.df$value)
+mark.df$key <- as.factor(mark.df$key)
+mark.df$key <- factor(mark.df[,2],levels=c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10"))
+
+color1 <- brewer.pal(12,"Set3")
+
+ggplot(mark.df, aes(fill=key,y=value,x=as.factor(market))) +
+  geom_bar(position="stack", stat="identity") + xlab("Market") + ylab("% Users") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 20,face="bold"),
+    axis.text=element_text(size=16,face="bold"), legend.key.size = unit(1.5, "cm"),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) +  guides(colour = guide_legend(override.aes = list(size=20))) + 
+  scale_fill_manual(values=color1,
+                    name='Early Clusters')
+
+# SLIDE 18: LAST CLICK MARKETING CHANNELS 
+merged.df <- merged.df %>% 
+  mutate( 
+    last_click_source = case_when(
+      last_click_source %in% c('email_friend_referral','friend_referral') ~ 'friend_referral',
+      last_click_source %in% c('direct','organic_search','app_store','site_ref','organic_social','unknown','OTHER','lost_souls','crm','internal','brand_influencer') ~ 'organic',
+      is.na(last_click_source) ~ 'non_attributed', 
+      last_click_source %in% c('partnership','ambassador') ~ 'partnerships',
+      TRUE ~ as.character(last_click_source)
+    )
+    )
+
+click <- as.data.frame(cast(melt(table(merged.df[,c(7,164)])), last_click_source~cluster))
+
+cl <- click$last_click_source
+click$last_click_source <- NULL
+click <- as.data.frame(t(click))
+ALL <- colSums(click[,1:length(click[1,])])
+click <- rbind(click,ALL=ALL)
+colnames(click) <- cl
+click[,1:length(click[1,])] <- click[,1:length(click[1,])]/rowSums(click[,c(1:length(click[1,]))])*100
+click$cluster <- rownames(click)
+click.df <- gather(click,key,value, -cluster)
+
+click.df$cluster <- as.factor(click.df$cluster)
+click.df$cluster <- factor(click.df[,1],levels=c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10","ALL"))
+
+# colors
+library(RColorBrewer)
+n <- 17
+qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+#pie(rep(1,n), col=sample(col_vector, n))
+
+
+ggplot(click.df, aes(fill=key,y=value,x=as.factor(cluster))) +
+  geom_bar(position="stack", stat="identity") + xlab("Clusters: Marketing Channel") + ylab("% Users") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 14,face="bold"),
+    axis.text=element_text(size=16,face="bold"), legend.key.size = unit(0.75, "cm"),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) +  guides(colour = guide_legend(override.aes = list(size=20))) + 
+  scale_fill_manual(values=col_vector,
+                    name = 'Marketing Channel')
+
+# SLIDE 15: SIGNUP NON-STANDARD MEMBERSHIP TIERS
+# SIGNUP NON STANDARD MEMBERSHIP
+pr <- as.data.frame(premium)
+
+color1 <- brewer.pal(12,"Set2")
+pr$cluster <- factor(pr$cluster,levels=c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10"))
+pr$product_id <- factor(pr$product_id,levels=c("You","Metal","Flex"))
+
+ggplot(pr, aes(x=as.factor(cluster), y=perc_users,fill=as.factor(product_id))) + 
+  geom_bar(position="stack",stat="identity", #width=0.5
+           ) + 
+  #geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=0) +
+  ylab("% Users") +
+  ggtitle("Signup Membership Products") +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 15,face='bold'),
+    axis.title.y = element_text(size=15,face='bold'),
+    legend.key.size = unit(1.75, "cm"),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 20, 
+        #color = "red", 
+        face = "bold"
+        ),
+    #strip.text.y = element_text(
+     #   size = 12, color = "red", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(product_id ~ ., #scales = "free_y") + 
+  scale_fill_manual(values=color1,
+                    name = "Non-Standard Tier", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+
+# SLIDE 15: EXPAT
+expat <- cast(melt(table(merged.df[,c(5,164)])), cluster ~is_expat)
+colnames(expat) <- c("cluster","Native","Expat")
+expat['percent'] <- round(expat[,3]/(expat[,2]+expat[,3]),2)
+#expat$cluster <- factor(expat[,1],levels=c(5,2,4,1,6,9,3,7,8,10))
+#expat$cluster_new <- factor(expat[,1],levels=c(7,1,3,9,5,6,4,8,2,10))
+color <- brewer.pal(12,"Set3")
+ggplot(expat, aes(y=percent,x=as.factor(cluster),fill=as.factor(cluster))) +
+  geom_bar(position="dodge", stat="identity") + xlab("Clusters - Percent Expat") + ylab("% Users") +
+  geom_text(aes(label=round(percent*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  scale_y_continuous(labels=scales::percent) +
+  theme(
+    #legend.title = element_text(color = "black", size = 16),
+    #legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold"),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color) #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+# SLIDE 18: FRAUDSTERS
+df <- cast(melt(table(merged.df[,c(168,164)])), cluster ~is_fraudster)
+colnames(df) <- c("cluster","standard","premium")
+df['percent'] <- round(df[,3]/(df[,2]+df[,3]),2)
+
+ggplot(df, aes(y=percent,x=as.factor(cluster),fill=as.factor(cluster))) +
+  geom_bar(position="dodge", stat="identity") + xlab("Clusters - Percent Fraudsters") + ylab("% Users") +
+  scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(percent*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  theme(
+    #legend.title = element_text(color = "black", size = 16),
+    #legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold"),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color) #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+
+
+```
+
+
+# USER JOURNEY: A LOOK AT CUSTOMER INTENTIONS AND WHERE WHO THEY BECOME IN THE FUTURE
+# BRINGING TOGETHER EARLY AND MATURE USER CLUSTERS TO UNDERSTAND BEHAVIORAL CHANGES ACROSS THE LIFECYCLE OF OUR USERS
+
+
+```{r}
+#SLIDE 21: Where do Early Clusters end up? Do customers change their behaviour over their lifecycle?
+#SLIDE 22:  Where do Early Clusters end up? Do customers change their behaviour over their lifecycle? (II)
+
+df <- as.data.frame(cast(melt(table(merged.df[,c(163,164)])), mature_cluster~cluster))
+
+grp <- df$mature_cluster
+df$mature_cluster <- NULL
+df <- as.data.frame(t(df))
+#ALL <- colSums(df[,1:7])
+#df <- rbind(df,ALL=ALL)
+colnames(df) <- grp
+df[,c(1:10)] <- df[,c(1:10)]/rowSums(df[,c(1:10)])*100
+df$cluster_new <- rownames(df)
+df.df <- gather(df,key,value, -cluster_new)
+
+
+df.df$j_group <- paste(df.df$cluster_new,df.df$key,sep="_")
+e <- c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10")
+m <- as.factor(c("1","2","3","4","5","6","7","8","9","10"))
+df.df$key <- as.factor(df.df$key)
+df.df$cluster_new = factor(df.df$cluster_new,levels=e)
+df.df$key = factor(df.df$key,levels=m)
+
+test <- df.df %>% 
+  mutate(
+    line_type = case_when(
+      j_group %in% c("E1_2","E2_4",
+                     "E3_5","E4_6",
+                     "E8_9","E10_8") ~ 'B',
+      TRUE ~ 'A'
+    ),
+    alpha_value = case_when(
+      j_group %in% c("E1_2","E2_4","E3_5","E4_6","E8_9","E10_8") ~ 1,
+      TRUE ~ 0.5
+    )
+  )
+
+
+ggplot(test, aes(fill=key,y=value,x=as.factor(cluster_new),
+                 #linetype = line_type,
+                 #alpha = alpha_value
+                 )) +
+  geom_bar(position="stack", stat="identity",lwd=0.5) + xlab("Early Clusters") + ylab("% Users") +
+  scale_alpha(range=c(0.5,1)) + 
+  theme(
+    legend.title = element_text(color = "black", size = 18, face = "bold"),
+    legend.text = element_text(color = "black", size = 20,face="bold"),
+    axis.text=element_text(size=18,face="bold"), legend.key.size = unit(1.75, "cm"),
+        axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+  ) +  guides(colour = guide_legend(override.aes = list(size=20)), 
+              alpha=FALSE, linetype=FALSE
+              ) + 
+    #guides(alpha=FALSE, linetype=FALSE,fill=guide_legend(reverse=TRUE)) +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Mature User Clusters")
+
+ggplot(test, aes(fill=key,y=value,x=as.factor(cluster_new),
+                 linetype = line_type,
+                 alpha = alpha_value
+                 )) +
+  geom_bar(position="stack", stat="identity",lwd=0.5) + xlab("Early Clusters") + ylab("% Users") +
+  scale_alpha(range=c(0.5,1)) + 
+  theme(
+    legend.title = element_text(color = "black", size = 18, face = "bold"),
+    legend.text = element_text(color = "black", size = 20,face="bold"),
+    axis.text=element_text(size=18,face="bold"), legend.key.size = unit(1.75, "cm"),
+        axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+  ) +  guides(colour = guide_legend(override.aes = list(size=20)), 
+              alpha=FALSE, linetype=FALSE
+              ) + 
+    #guides(alpha=FALSE, linetype=FALSE,fill=guide_legend(reverse=TRUE)) +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Mature User Clusters")
+
+
+```
+
+```{r}
+
+# SLIDE 23-24: A closer look at Early Domestic Spenders’: How does their behaviour change and segment over time? Can we predict their journey?
+
+# What does the Retention patterns look like for E5 early domestic spender that end up becoming mature users in the future?
+er <- as.data.frame(e5_retention)
+
+library(RColorBrewer)
+color <- brewer.pal(12,"Set3")
+
+k10 <- c("1","2","3","4","5","6","Mlow")
+er$mature_cat <- factor(er$mature_cat, levels = k10)
+
+# E5 --> PRIMARY/SECONDARY/MLOW ACTIVITY RETENTION
+ggplot(filter(er,period <= 12,mature_cat %in% c("1","3","Mlow")),
+       aes(x=as.factor(period), 
+           #y = avg_n_txn,
+           y = perc_act_users,
+           group=as.factor(mature_cat),
+           color=as.factor(mature_cat)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users Retained") + xlab("Period since Ft-MAU") +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("Early Domestic Spender Retention split by Mature Clusters") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=14,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 14,face='bold'),
+    axis.title.y = element_text(size=14,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    #strip.text.y = element_text(
+    #    size = 12, color = "red", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_wrap(~early_cat,
+   #          nrow = 2) +
+  scale_color_manual(values = c("#48AC98", #"#E5C3C7",
+                                "#CB7C7A",
+                                #"#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678",
+                                #"#F5D5B9","#737373","#CCCCCC","#D3D3D3",
+                               "#999999","#8DA290","#CAA7BD"),
+                    name = "Mature Clusters", 
+                    labels = c("1","3","Mature\nLow Activity")
+                    )
+
+# E5 --> PRIMARY/SECONDARY/MLOW ACTIVITY TRANSACTIONS
+ggplot(filter(er,period <= 12,mature_cat %in% c("1","3","Mlow")),
+       aes(x=as.factor(period), 
+           #y = avg_n_txn,
+           y = med_act_txns,
+           group=as.factor(mature_cat),
+           color=as.factor(mature_cat)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Avg # Transactions") + xlab("Period since Ft-MAU") +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("Early Domestic Spender Retention split by Mature Clusters") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=14,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 14,face='bold'),
+    axis.title.y = element_text(size=14,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    #strip.text.y = element_text(
+    #    size = 12, color = "red", face = "bold.italic"),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_wrap(~early_cat,
+   #          nrow = 2) +
+  scale_color_manual(values = c("#48AC98", #"#E5C3C7",
+                                "#CB7C7A",
+                                #"#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678",
+                                #"#F5D5B9","#737373","#CCCCCC","#D3D3D3",
+                               "#999999","#8DA290","#CAA7BD"),
+                    name = "Mature Clusters", 
+                    labels = c("1","3","Mature\nLow Activity")
+                    )
+
+# E5 --> PRIMARY/SECONDARY/MLOW ACTIVITY DT / DD
+ed <- as.data.frame(e5_dt_dd_salary)
+
+k10 <- c("1","2","3","4","5","6","Mlow")
+ed$mature_cat <- factor(ed$mature_cat, levels = k10)
+
+ed_piv <- as.data.frame( 
+  ed %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("avg"), # column name starts with string
+      names_to = "type", # new column name of column names after pivot
+      values_to = "value", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+
+# AMOUNT
+ss_labels <- c(avg_amt_dt = "Avg DT Amt", avg_amt_dd = "Avg DD Amt")
+
+ggplot(filter(ed_piv,period <= 12,mature_cat %in% c("1","3","Mlow"), type %in% c('avg_amt_dt','avg_amt_dd')),
+       aes(x=as.factor(period), 
+           #y = avg_n_txn,
+           y = value,
+           group=as.factor(mature_cat),
+           color=as.factor(mature_cat)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Value") + xlab("Period since Ft-MAU") +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("Early Domestic Spender DT/DD Avg Spend by Mature Clusters") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=14,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 14,face='bold'),
+    axis.title.y = element_text(size=14,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(type ~ ., scales = "free_y", labeller = labeller(type = ss_labels)) + 
+  scale_color_manual(values = c("#48AC98", #"#E5C3C7",
+                                "#CB7C7A",
+                                #"#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678",
+                                #"#F5D5B9","#737373","#CCCCCC","#D3D3D3",
+                               "#999999","#8DA290","#CAA7BD"),
+                    name = "Mature Clusters", 
+                    labels = c("Primary Account","Secondary Spenders","Mature\nLow Activity")
+                    )
+
+# Salary users 
+
+ggplot(filter(ed,period <= 12,mature_cat %in% c("1","3","Mlow")),
+       aes(x=as.factor(period), 
+           #y = avg_n_txn,
+           y = perc_salary,
+           group=as.factor(mature_cat),
+           color=as.factor(mature_cat)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Salaried Users") + xlab("Period since Ft-MAU") +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("% Salaried User within Early Domestic Spenders cluster split by Mature Clusters") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=14,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 14,face='bold'),
+    axis.title.y = element_text(size=14,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 12, color = "black", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(type ~ ., #scales = "free_y"
+   #          ) + 
+  scale_color_manual(values = c("#48AC98", #"#E5C3C7",
+                                "#CB7C7A",
+                                #"#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678",
+                                #"#F5D5B9","#737373","#CCCCCC","#D3D3D3",
+                               "#999999","#8DA290","#CAA7BD"),
+                    name = "Mature Clusters", 
+                    labels = c("1","3","Mature\nLow Activity")
+                    )
+
+
+# What does the SPENDING patterns look like for E5 early domestic spender that end up becoming mature users in the future?
+es <- as.data.frame(e5_spend)
+
+k10 <- c("1","2","3","4","5","6","Mlow")
+es$mature_cat <- factor(es$mature_cat, levels = k10)
+es_piv <- as.data.frame( 
+  filter(es,mature_cat %in% c("1","3","Mlow")) %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("avg"), # column name starts with string
+      names_to = "type", # new column name of column names after pivot
+      values_to = "value", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+ss_labels <- c(avg_grocery_amt = "Avg Grocery Amt", avg_house_amt = "Avg Houshold Amt")
+    
+ggplot(filter(es_piv,period <= 12, type %in% c("avg_grocery_amt","avg_house_amt")),
+       aes(x=as.factor(period), 
+           #y = avg_n_txn,
+           y = value,
+           group=as.factor(mature_cat),
+           color=as.factor(mature_cat)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Value") + xlab("Period since Ft-MAU") +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("Early Domestic Spender No. DT/DD split by Mature Clusters") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=14,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 14,face='bold'),
+    axis.title.y = element_text(size=14,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(type ~ ., scales = "free_y", labeller = labeller(type = ss_labels)) + 
+  scale_color_manual(values = c("#48AC98", #"#E5C3C7",
+                                "#CB7C7A",
+                                #"#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678",
+                                #"#F5D5B9","#737373","#CCCCCC","#D3D3D3",
+                               "#999999","#8DA290","#CAA7BD"),
+                    name = "Mature Clusters", 
+                    #labels = c("1","3","Mature\nLow Activity")
+                    )
+
+
+```
+```{r}
+# SLIDE 25: Mature Cluster perspective: How did mature clusters behave early in their journey?
+
+# aggregate low activity groups
+merged.df$cluster <- as.character(merged.df$cluster)
+df.agg <- merged.df %>%
+  mutate(
+    cluster_agg = case_when(
+      cluster %in% c("E7","E8","E9","E10") ~ "ELow",
+      TRUE ~ cluster
+    )
+  )
+
+
+df <- as.data.frame(cast(melt(table(df.agg[,c(170,163)])), cluster_agg~mature_cluster))
+
+grp <- df$cluster_agg
+df$cluster_agg <- NULL
+df <- as.data.frame(t(df))
+#ALL <- colSums(df[,1:7])
+#df <- rbind(df,ALL=ALL)
+colnames(df) <- grp
+df[,c(1:7)] <- df[,c(1:7)]/rowSums(df[,c(1:7)])*100
+df$cluster <- rownames(df)
+df.df <- gather(df,key,value, -cluster)
+
+df.df$cluster <- as.factor(df.df$cluster)
+df.df$cluster <- factor(df.df[,1],levels=c(1:10))
+
+values=c("#8DD3C7", "#FFFFB3", "#BEBADA", "#FB8072", "#80B1D3", "#FDB462", "#CCEBC5")
+
+ggplot(df.df, aes(fill=key,y=value,x=as.factor(cluster))) +
+  geom_bar(position="stack", stat="identity") + xlab("Mature Clusters") + ylab("% Users") +
+  theme(
+    legend.title = element_text(color = "black", size = 18, face = "bold"),
+    legend.text = element_text(color = "black", size = 20,face="bold"),
+    axis.text=element_text(size=18,face="bold"), legend.key.size = unit(1.75, "cm"),
+        axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+  ) +  guides(colour = guide_legend(override.aes = list(size=20))) + 
+  scale_fill_manual(values=values,
+                    name = "Early User Clusters")
+
+```
+
+```{r}
+# SLIDE 26: Mature Cluster perspective: How did mature Primary Account users behave early in their journey? Can we predict these journeys?
+
+df <- load(paste0("/Users/wendyvu/Documents/Cluster_SeptOct2018Cohort_first35days_Deepdive_20200901.RData"))
+
+# Time to first salary deposit
+ds <- as.data.frame(days_ft_salary)
+ds$total_users <- sum(ds$early_cluster_size)
+ds$perc_users <- round(ds$early_cluster_size/ds$total_users,2)
+
+ggplot(filter(ds,cluster_cat %in% c("E1","E5","ELow")), aes(x=as.factor(cluster_cat), y=avg_ct_months,fill=as.factor(cluster_cat))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(avg_ct_months)), position=position_dodge(width=0.9), vjust=0) + theme(legend.position = "none",axis.text=element_text(size=16,face="bold")) +
+  xlab("Early User Clusters") + ylab("Months from First Top-up") + 
+  ggtitle("Number of Months from Ft-MAU to First Salary for Mature Primary Account Users") +
+  theme_bw() +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=16,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  #facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=c("#8DD3C7", #"#FFFFB3", "#BEBADA", "#FB8072", 
+                             "#80B1D3", #"#FDB462",
+                             "#CCEBC5"),
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+# Avg External Transactions
+m1 <- as.data.frame(m1_txns)
+ggplot(filter(m1,periods <= 12, mature_cat == "1", cluster_cat %in% c("E1","E5","ELow")),
+       aes(x=as.factor(periods), 
+           #y = avg_n_txn,
+           y = avg_ext_txns,
+           group=as.factor(cluster_cat),
+           color=as.factor(cluster_cat)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Avg # Ext. Txns") + xlab("Period since Ft-MAU") +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("Mature Primary Account Users split by Early User clusters") +
+  theme_bw() +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=16,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(type ~ ., scales = "free_y", labeller = labeller(type = ss_labels)) + 
+  scale_color_manual(values=c("#8DD3C7", #"#FFFFB3", "#BEBADA", "#FB8072", 
+                             "#80B1D3", #"#FDB462",
+                             "#CCEBC5"),
+                    name = "Early Clusters", 
+                    #labels = c("1","3","Mature\nLow Activity")
+                    )
+
+# Avg Spaces Txns
+m1 <- as.data.frame(m1_txns)
+ggplot(filter(m1,periods <= 12, mature_cat == "1", cluster_cat %in% c("E1","E5","ELow")),
+       aes(x=as.factor(periods), 
+           #y = avg_n_txn,
+           y = avg_spaces_txns,
+           group=as.factor(cluster_cat),
+           color=as.factor(cluster_cat)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Avg # Spaces Txns") + xlab("Period since Ft-MAU") +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("Mature Primary Account Users split by Early User clusters") +
+  theme_bw() +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=16,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(type ~ ., scales = "free_y", labeller = labeller(type = ss_labels)) + 
+  scale_color_manual(values=c("#8DD3C7", #"#FFFFB3", "#BEBADA", "#FB8072", 
+                             "#80B1D3", #"#FDB462",
+                             "#CCEBC5"),
+                    name = "Early Clusters", 
+                    #labels = c("1","3","Mature\nLow Activity")
+                    )
+
+# RETENTION
+m1 <- as.data.frame(m1_txns)
+ggplot(filter(m1,periods <= 12, mature_cat == "1", cluster_cat %in% c("E1","E5","ELow")),
+       aes(x=as.factor(periods), 
+           #y = avg_n_txn,
+           y = perc_act_users,
+           group=as.factor(cluster_cat),
+           color=as.factor(cluster_cat)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users Retained") + xlab("Period since Ft-MAU") + #scale_y_continuous(limits = c(0.8, 100)) +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("Mature Primary Account Users split by Early User clusters") +
+  theme_bw() +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=16,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent,limits = c(0.85, 1)) +
+  #facet_grid(type ~ ., scales = "free_y", labeller = labeller(type = ss_labels)) + 
+  scale_color_manual(values=c("#8DD3C7", #"#FFFFB3", "#BEBADA", "#FB8072", 
+                             "#80B1D3", #"#FDB462",
+                             "#CCEBC5"),
+                    name = "Early Clusters", 
+                    #labels = c("1","3","Mature\nLow Activity")
+                    )
+
+# Median monthly deposits
+pd <- as.data.frame(primary_dep)
+
+ggplot(filter(pd,period <= 12, mature_cluster == "1", early_cat %in% c("E1","E5","elow")),
+       aes(x=as.factor(period), 
+           #y = avg_n_txn,
+           y = median_amount,
+           group=as.factor(early_cat),
+           color=as.factor(early_cat)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Median Total Monthly Deposit") + xlab("Period since Ft-MAU") +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("Mature Primary Account Users split by Early User clusters") +
+  theme_bw() +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=18,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(type ~ ., scales = "free_y", labeller = labeller(type = ss_labels)) + 
+  scale_color_manual(values=c("#8DD3C7", #"#FFFFB3", "#BEBADA", "#FB8072", 
+                             "#80B1D3", #"#FDB462",
+                             "#CCEBC5"),
+                    name = "Early Clusters", 
+                    labels = c("E1","E5","ELow")
+                    )
+
+
+
+```
+
+```{r}
+# SLIDE 27: Mature Spaces Power User perspective:  How long does it take users to find value in Spaces? Does it vary across Early Behavioral clusters?
+
+df <- load(paste0("/Users/wendyvu/Documents/Cluster_SeptOct2018Cohort_first35days_Deepdive_20200901.RData"))
+
+m1 <- as.data.frame(m1_txns)
+spaces <- m1[m1$mature_cat == 2,c("mature_cat","cluster_cat","early_cluster_size","periods","med_days_ks","med_days_cs","med_spaces_txns","avg_spaces_txns")]
+
+spaces$perc_users <- spaces$early_cluster_size/sum(unique(spaces$early_cluster_size))
+ggplot(unique(spaces[spaces$cluster_cat %in% c("E1","E5","ELow"),c("cluster_cat", "med_days_cs","med_days_ks")]), aes(x=as.factor(cluster_cat), y=med_days_cs,fill=as.factor(cluster_cat))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(med_days_cs)), position=position_dodge(width=0.9), vjust=0) + theme(legend.position = "none",axis.text=element_text(size=16,face="bold")) +
+  xlab("Early User Clusters") + ylab("Days from First Top-up") + 
+  ggtitle("Number of Days from Ft-MAU to First Spaces Txn") +
+  theme_bw() +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=16,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  #facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=c("#8DD3C7", #"#FFFFB3", "#BEBADA", "#FB8072", 
+                             "#80B1D3", #"#FDB462",
+                             "#CCEBC5"),
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+
+ggplot(filter(m1,periods <= 12, mature_cat == "2", cluster_cat %in% c("E1","E5","ELow")),
+       aes(x=as.factor(periods), 
+           #y = avg_n_txn,
+           y = avg_spaces_txns,
+           group=as.factor(cluster_cat),
+           color=as.factor(cluster_cat)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Avg Spaces Txns") + xlab("Period since Ft-MAU") +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("Mature Spaces Power Users split by Early User clusters") +
+  theme_bw() +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=18,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(type ~ ., scales = "free_y", labeller = labeller(type = ss_labels)) + 
+  scale_color_manual(values=c("#8DD3C7", #"#FFFFB3", "#BEBADA", "#FB8072", 
+                             "#80B1D3", #"#FDB462",
+                             "#CCEBC5"),
+                    name = "Early Clusters", 
+                    #labels = c("1","3","Mature\nLow Activity")
+                    )
+
+
+```
+# USER JOURNEY ANALYSIS: UNDERSTANDING EACH USER JOURNEY? 
+BRINGING TOGETHER EARLY AND MATURE USER CLUSTERS TO UNDERSTAND BEHAVIORAL CHANGES ACROSS THE LIFECYCLE OF OUR USERS
+
+```{r}
+library("dplyr")
+library("ggplot2")
+library("alluvial")
+#devtools::install_github('thomasp85/ggforce')
+library("ggforce")
+#devtools::install_github("corybrunson/ggalluvial")
+library("ggalluvial")
+library("ggparallel")
+
+#reference alluvial plots: https://matthewdharris.com/2017/11/11/a-brief-diversion-into-static-alluvial-sankey-diagrams-in-r/
+
+# SLIDES 29-32
+# aggregate low activity groups
+merged.df$cluster <- as.character(merged.df$cluster)
+df.agg <- merged.df %>%
+  mutate(
+    cluster_agg = case_when(
+      cluster %in% c("E7","E8","E9","E10") ~ "ELow",
+      TRUE ~ cluster
+    )
+  )
+
+
+early <- as.data.frame(table(df.agg[,c("cluster_agg","mature_cluster")]))
+colnames(early) <- c("Early_Clusters","Mature_Clusters","Freq")
+early$Early_Clusters <- as.factor(early$Early_Clusters)
+
+color <- brewer.pal(12,"Set3")
+e <- rev(c("E1","E2","E3","E4","E5","E6","ELow"))
+early$Early_Clusters = factor(early$Early_Clusters,levels=e)
+m <- rev(c(1,2,3,4,5,6,7,8,9,10))
+early$Mature_Clusters = factor(early$Mature_Clusters,levels=m)
+
+
+
+# ALL
+
+values=c("#8DD3C7", "#FFFFB3", "#BEBADA", "#FB8072", "#80B1D3", "#FDB462", "#CCEBC5")
+alluvial::alluvial(early[,1:2], freq=early$Freq,
+                   xw=0.2, alpha=alpha,gap.width=0.1,
+                   col= values,
+                   border=values,
+                   blocks=TRUE, cex = 1.1, cex.axis = 1.5
+)
+
+values = c("#8DD3C7",
+          "#ECECEC",
+          "#ECECEC",
+          "#FB8072",
+          "#ECECEC",
+          "#ECECEC",
+          "#ECECEC"
+          )
+
+alluvial::alluvial(early[,1:2], freq=early$Freq,
+                   xw=0.2, alpha=alpha,gap.width=0.1,
+                   col= values,
+                   border=values,
+                   blocks=TRUE, cex = 1.1, cex.axis = 1.5
+)
+
+
+values = c("#ECECEC",
+          "#FFFFB3",
+          "#BEBADA",
+          "#ECECEC",
+          "#ECECEC",
+          "#ECECEC",
+          "#ECECEC"
+          )
+
+alluvial::alluvial(early[,1:2], freq=early$Freq,
+                   xw=0.2, alpha=alpha,gap.width=0.1,
+                   col= values,
+                   border=values,
+                   blocks=TRUE, cex = 1.1, cex.axis = 1.5
+)
+
+values=c( "#CCEBC5")
+
+values = c("#ECECEC",
+          "#ECECEC",
+          "#ECECEC",
+          "#ECECEC",
+          "#80B1D3", "#FDB462",
+          "#ECECEC"
+          )
+
+alluvial::alluvial(early[,1:2], freq=early$Freq,
+                   xw=0.2, alpha=alpha,gap.width=0.1,
+                   col= values,
+                   border=values,
+                   blocks=TRUE, cex = 1.1, cex.axis = 1.5
+)
+
+
+values = c("#ECECEC",
+          "#ECECEC",
+          "#ECECEC",
+          "#ECECEC",
+          "#ECECEC",
+          "#ECECEC",
+          "#CCEBC5"
+          )
+
+alluvial::alluvial(early[,1:2], freq=early$Freq,
+                   xw=0.2, alpha=alpha,gap.width=0.1,
+                   col= values,
+                   border=values,
+                   blocks=TRUE, cex = 1.1, cex.axis = 1.5
+)
+
+
+
+df <- as.data.frame(table(df.agg[,c("cluster_agg","mature_cluster")]))
+
+df <- 
+    df %>% group_by(cluster_agg) %>%
+      mutate(early_total = sum(Freq),
+             perc_early_mature = Freq/early_total)
+
+# E1 AND E4
+ggplot(filter(df, cluster_agg %in% c("E1","E4")), aes(y=perc_early_mature,x=forcats::fct_rev(factor(mature_cluster)),fill=as.factor(cluster_agg))) +
+  geom_bar(position="dodge", stat="identity") + xlab("Mature User Clusters") + ylab("Percent Users from Early Cluster") +
+  scale_y_continuous(labels=scales::percent) +
+    theme(
+    legend.title = element_text(color = "black", size = 16, face = "bold"),
+    legend.text = element_text(color = "black", size = 18,face="bold"),
+    legend.key.size = unit(1.75, "cm"),
+    axis.text=element_text(size=20,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 23,face='bold'),
+    axis.title.y = element_text(size=18,face='bold') 
+  ) + coord_flip() + 
+  #geom_text(aes(label = round(perc_early_mature,1), y = percent + 0.40), position = position_dodge(0.9),format_string='{:.1f}% ') + 
+  scale_fill_manual(values=c("#8DD3C7", "#FB8072"),
+                    name = "Early User Cluster", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+
+# E2 AND E3
+
+ggplot(filter(df, cluster_agg %in% c("E2","E3")), aes(y=perc_early_mature,x=forcats::fct_rev(factor(mature_cluster)),fill=as.factor(cluster_agg))) +
+  geom_bar(position="dodge", stat="identity") + xlab("Mature User Clusters") + ylab("Percent Users from Early Cluster") +
+  scale_y_continuous(labels=scales::percent) +
+    theme(
+    legend.title = element_text(color = "black", size = 16, face = "bold"),
+    legend.text = element_text(color = "black", size = 18,face="bold"),
+    legend.key.size = unit(1.75, "cm"),
+    axis.text=element_text(size=23,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 18,face='bold'),
+    axis.title.y = element_text(size=18,face='bold') 
+  ) + coord_flip() + 
+  #geom_text(aes(label = round(perc_early_mature,1), y = percent + 0.40), position = position_dodge(0.9),format_string='{:.1f}% ') + 
+  scale_fill_manual(values=c("#FFFFB3", "#BEBADA"),
+                    name = "Early User Cluster", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+
+# E5 AND E6
+
+ggplot(filter(df, cluster_agg %in% c("E5","E6")), aes(y=perc_early_mature,x=forcats::fct_rev(factor(mature_cluster)),fill=as.factor(cluster_agg))) +
+  geom_bar(position="dodge", stat="identity") + xlab("Mature User Clusters") + ylab("Percent Users from Early Cluster") +
+  scale_y_continuous(labels=scales::percent) +
+    theme(
+    legend.title = element_text(color = "black", size = 16, face = "bold"),
+    legend.text = element_text(color = "black", size = 18,face="bold"),
+    legend.key.size = unit(1.75, "cm"),
+    axis.text=element_text(size=23,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 18,face='bold'),
+    axis.title.y = element_text(size=18,face='bold') 
+  ) + coord_flip() + 
+  #geom_text(aes(label = round(perc_early_mature,1), y = percent + 0.40), position = position_dodge(0.9),format_string='{:.1f}% ') + 
+  scale_fill_manual(values=c("#80B1D3", "#FDB462"),
+                    name = "Early User Cluster", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+
+# ELow
+
+ggplot(filter(df, cluster_agg %in% c("ELow")), aes(y=perc_early_mature,x=forcats::fct_rev(factor(mature_cluster)),fill=as.factor(cluster_agg))) +
+  geom_bar(position="dodge", stat="identity") + xlab("Mature User Clusters") + ylab("Percent Users from Early Cluster") +
+  scale_y_continuous(labels=scales::percent) + 
+    theme(
+    legend.title = element_text(color = "black", size = 16, face = "bold"),
+    legend.text = element_text(color = "black", size = 18,face="bold"),
+    legend.key.size = unit(1.75, "cm"),
+    axis.text=element_text(size=23,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 18,face='bold'),
+    axis.title.y = element_text(size=18,face='bold') 
+  ) + coord_flip() + 
+  #geom_text(aes(label = round(perc_early_mature,1), y = percent + 0.40), position = position_dodge(0.9),format_string='{:.1f}% ') + 
+  scale_fill_manual(values=c("#CCEBC5"),
+                    name = "Early User Cluster", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+
+
+```
+
+
+```{r}
+# SLIDE 32: Generally speaking early financial activity is a predictor of late activity in ~70% of users
+
+# aggregate low activity groups
+merged.df$cluster <- as.character(merged.df$cluster)
+df.agg <- merged.df %>%
+  mutate(
+    cluster_agg = case_when(
+      cluster %in% c("E1","E2","E3","E4","E5","E6") ~ "EHigh",
+      cluster %in% c("E7","E8","E9","E10") ~ "ELow",
+      TRUE ~ cluster
+    )
+  )
+
+
+early <- as.data.frame(table(df.agg[,c("cluster_agg","mature_cluster")]))
+colnames(early) <- c("Early_Clusters","Mature_Clusters","Freq")
+early$Early_Clusters <- as.factor(early$Early_Clusters)
+
+color <- brewer.pal(9,"Set1")
+e <- rev(c("EHigh","ELow"))
+early$Early_Clusters = factor(early$Early_Clusters,levels=e)
+m <- rev(c(1,2,3,4,5,6,7,8,9,10))
+early$Mature_Clusters = factor(early$Mature_Clusters,levels=m)
+
+
+
+# Ehigh and Elow
+
+values=c("#377EB8","#CCEBC5")
+alluvial::alluvial(early[,1:2], freq=early$Freq,
+                   xw=0.2, alpha=alpha,gap.width=0.1,
+                   col= values,
+                   border=values,
+                   blocks=TRUE, cex = 1.1, cex.axis = 1.5
+)
+
+# Ehigh 
+values=c("#377EB8","#ECECEC")
+alluvial::alluvial(early[,1:2], freq=early$Freq,
+                   xw=0.2, alpha=alpha,gap.width=0.1,
+                   col= values,
+                   border=values,
+                   blocks=TRUE, cex = 1.1, cex.axis = 1.5
+)
+
+
+# ELow
+values=c("#ECECEC","#CCEBC5")
+alluvial::alluvial(early[,1:2], freq=early$Freq,
+                   xw=0.2, alpha=alpha,gap.width=0.1,
+                   col= values,
+                   border=values,
+                   blocks=TRUE, cex = 1.1, cex.axis = 1.5
+)
+
+
+df <- as.data.frame(table(df.agg[,c("cluster_agg","mature_cluster")]))
+
+df <- 
+    df %>% group_by(cluster_agg) %>%
+      mutate(early_total = sum(Freq),
+             perc_early_mature = Freq/early_total)
+
+# E1 AND E4
+ggplot(df, aes(y=perc_early_mature,x=forcats::fct_rev(factor(mature_cluster)),fill=as.factor(cluster_agg))) +
+  geom_bar(position="dodge", stat="identity") + xlab("Mature User Clusters") + ylab("Percent Users from Early Cluster") +
+  scale_y_continuous(labels=scales::percent) +
+    theme(
+    legend.title = element_text(color = "black", size = 16, face = "bold"),
+    legend.text = element_text(color = "black", size = 18,face="bold"),
+    legend.key.size = unit(1.75, "cm"),
+    axis.text=element_text(size=20,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 23,face='bold'),
+    axis.title.y = element_text(size=18,face='bold') 
+  ) + coord_flip() + 
+  #geom_text(aes(label = round(perc_early_mature,1), y = percent + 0.40), position = position_dodge(0.9),format_string='{:.1f}% ') + 
+  scale_fill_manual(values=c("#377EB8","#CCEBC5"),
+                    name = "Early User Cluster", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+
+```
+
+
+# EARLY USER CLUSTER RETENTION AND PROFITABILITY 
+
+```{r}
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/Cluster_SeptOct2018Cohort_first35days_Deepdive_20200901.RData"))
+
+# SLIDE 34: EARLY USER RETENTION
+rt <- as.data.frame(retention)
+
+color <- brewer.pal(12,"Set3")
+
+ggplot(rt,
+       aes(x=as.factor(month), 
+           y = retained,
+           group=as.factor(cluster),
+           color=as.factor(cluster)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% User Retained") + xlab("Month") + #ylim(0,0.58) +
+  ggtitle("Early Clustering: User Retention") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 15,face='bold'),
+    axis.title.y = element_text(size=15,face='bold'),
+    legend.key.size = unit(1.75, "cm"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~cluster_new) +
+  scale_color_manual(values = color,
+                    name = "Early User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+# SLIDE 35: MARGINAL CUMULATIVE PROFITABILITY
+
+pl <- as.data.frame(pnl_retention_marginal)
+color <- brewer.pal(12,"Set3")
+pl$cluster <- factor(pl[,1],levels=c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10"))
+
+ggplot(pl,
+       aes(x=as.factor(period), 
+           y = pnl_marg_user,
+           group=as.factor(cluster),
+           color=as.factor(cluster)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Cumulative Avg PnL per User (Euro)") + xlab("Month from Sign-Up") + #ylim(0,0.58) +
+  ggtitle("Early Clustering: Marginal PnL") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 15,face='bold'),
+    axis.title.y = element_text(size=15,face='bold'),
+    legend.key.size = unit(1.75, "cm"),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~cluster_new) +
+  scale_color_manual(values = color,
+                    name = "Early User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+#SLIDE 36: MARGINAL CUMULATIVE PROFITABILITY SPLIT BY MEMBERSHIP
+
+plm <- as.data.frame(pnl_retention_membership)
+
+ggplot(plm,
+       aes(x=as.factor(period), 
+           y = pnl_marg_user,
+           group=as.factor(cluster),
+           color=as.factor(cluster)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Cumulative Avg PnL per User (Euro)") + xlab("Month from Sign-Up") + #ylim(0,0.58) +
+  ggtitle("Early Clustering: Marginal PnL") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 15,face='bold'),
+    axis.title.y = element_text(size=15,face='bold'),
+    legend.key.size = unit(1.75, "cm"),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(~membership) +
+  scale_color_manual(values = color,
+                    name = "Early User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+# SLIDE 37: PNL marginal split by MARKET
+
+plu <- as.data.frame(pnl_marginal_user)
+plu$cluster <- factor(plu$cluster,levels=c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10"))
+
+# remove avg_value for E4 group related to ITA/FRA bc cash26 is not available those countries and there there is only 1 user
+plu$avg_value[plu$avg_value == 25.44] <- 0 
+plu$avg_value[plu$avg_value == 76.28] <- 0 
+
+ggplot(plu, aes(x=as.factor(cluster), y=avg_value,fill=as.factor(cluster))) + 
+  geom_bar(stat="identity") + geom_text(aes(label = round(avg_value)), vjust = -0.5) +
+  ylab("Avg PnL per User") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 15,face='bold'),
+    axis.title.y = element_text(size=15,face='bold'),
+    legend.key.size = unit(1.75, "cm"),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 20, 
+        #color = "red", 
+        face = "bold"
+        ),
+    #strip.text.y = element_text(
+     #   size = 12, color = "red", face = "bold.italic"),
+  ) +
+  facet_grid(market ~ ., #scales = "free_y"
+             ) + 
+  scale_fill_manual(values=color,
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+```
+
+```{r}
+
+# SLIDE 38: Upgrades to Premium Tiers by Early User Clusters
+
+
+# SIGNUP MEMBERSHIp
+ftp <- as.data.frame(ft_product)
+
+color <- brewer.pal(12,"Set3")
+ftp$cluster <- factor(ftp$cluster,levels=c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10"))
+ftp$product_id <- factor(ftp$product_id,levels=c("standard","premium","flex"))
+ggplot(filter(ftp,product_id != 'standard'), aes(x=as.factor(cluster), y=perc_users,fill=as.factor(cluster))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=0) +
+  ylab("% Users") +
+  ggtitle("Signup Membership Products") +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 15,face='bold'),
+    axis.title.y = element_text(size=15,face='bold'),
+    legend.key.size = unit(1.75, "cm"),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 20, 
+        #color = "red", 
+        face = "bold"
+        ),
+    #strip.text.y = element_text(
+     #   size = 12, color = "red", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(product_id ~ ., #scales = "free_y"
+             ) + 
+  scale_fill_manual(values=color,
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+# UPGRADE RATE
+up <- as.data.frame(upgrade)
+up$cluster <- factor(up$cluster,levels=c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10"))
+up_piv <- as.data.frame( 
+  up[,c('cluster','perc_upgrade','perc_down')] %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("per"), # column name starts with string
+      names_to = "action", # new column name of column names after pivot
+      values_to = "percent", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+up_piv$action <- factor(up_piv$action,levels=c('perc_upgrade','perc_down'))
+names <- c('perc_upgrade'="Upgrade",'perc_down'="Downgrade" )
+
+ggplot(up_piv, aes(x=as.factor(cluster), y=percent,fill=as.factor(cluster))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(percent*100)), position=position_dodge(width=0.9), vjust=0) +
+  ylab("% Users") +
+  ggtitle("% Upgrades and Downgrades since Sign-Up") +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 15,face='bold'),
+    axis.title.y = element_text(size=15,face='bold'),
+    legend.key.size = unit(1.75, "cm"),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 20, 
+        #color = "red", 
+        face = "bold"
+        ),
+    #strip.text.y = element_text(
+     #   size = 12, color = "red", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(action ~ ., scales = "free_y", labeller = as_labeller(names)
+             ) + 
+  scale_fill_manual(values=color,
+                    #name = "Spend Type", 
+                    #labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+
+```
+
+# EXTRA INSIGHTS
+
+```{r}
+# SLIDE 43: How has Covid-19 influenced early behavior? Are customers still using our app primarily for Travel?
+
+tr <- as.data.frame(ftmau_travel)
+
+# color
+color1 <- brewer.pal(8,"Set2")
+# are users still traveling
+tr$ftmau_cohort <- as.Date(tr$ftmau_cohort)
+# dplyr: pivoting Long: convert columns to rows
+tr_piv <- as.data.frame( 
+  tr %>% 
+    tidyr::pivot_longer(
+      cols = ends_with("_ratio1"), # column name starts with string
+      names_to = "type", # new column name of column names after pivot
+      values_to = "percent", # new column for values,
+      #names_prefix = "per_",
+      #na.rm=TRUE,
+    )
+  )
+
+ggplot(filter(tr_piv, (ftmau_cohort >= "2017-07-01") & (ftmau_cohort <= "2020-08-01"),
+              #cluster_new %in% c(1:7)
+              ),
+       aes(x=as.factor(ftmau_cohort), 
+           y = percent,
+           group=as.factor(type),
+           color=as.factor(type),
+           #linetype = as.factor(type)
+           #shape =as.factor(type)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users completing 1+ card txns") + xlab("Month") +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("First-Time MAU Travel Spend") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=14,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=12,face="bold",angle=90),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_wrap(~cluster_new,
+  #           nrow = 2) +
+  scale_color_manual(values = c("#66C2A5","#FC8D62","#FC8D62"),
+                    name = "Spend Type", 
+                    labels = c("International Travel","Euro Travel")
+                    ) 
+
+# SLIDE 44: How long does it take users to make their first deposit after KYCc?
+
+kf <- as.data.frame(kyc_fct_days)
+# DAYS FROM KYCC TO FIRST DEPOSIT
+kf$cluster <- factor(kf[,1],levels=c("E1","E2","E3","E4","E5","E6","E7","E8","E9","E10"))
+#kf$kyc_fct_days[kf$kyc_fct_days == 100] <- '>50'
+ggplot(kf,
+       aes(x=as.factor(kyc_fct_days), 
+           y = perc_user,
+           group=as.factor(cluster),
+           color=as.factor(cluster)
+           )
+       ) +
+  geom_line(size=1)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% User") + xlab("Days from KYCc to First Top-Up") + #ylim(0,0.58) +
+  ggtitle("Early Clustering: Days from KYCc to First Top-up") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=14,face="bold",angle=45),
+    axis.title.x = element_text(size= 15,face='bold'),
+    axis.title.y = element_text(size=15,face='bold'),
+    legend.key.size = unit(1.75, "cm"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~cluster_new) +
+  scale_color_manual(values = color,
+                    name = "Early User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+# SLIDE 45: The second Top-up matters more than the first.
+dp = as.data.frame(deposits)
+
+ggplot(dp, aes(x=as.factor(cluster), y=med_amt_eur,fill=as.factor(rn))) + 
+  geom_bar(position='dodge',stat="identity") + geom_text(aes(label=round(med_amt_eur)), position=position_dodge(width=0.9), vjust=0) +
+  ylab("% Users") +
+  ggtitle("First and Second Deposits") +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 15,face='bold'),
+    axis.title.y = element_text(size=15,face='bold'),
+    legend.key.size = unit(1.75, "cm"),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 20, 
+        #color = "red", 
+        face = "bold"
+        ),
+    #strip.text.y = element_text(
+     #   size = 12, color = "red", face = "bold.italic"),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(action ~ ., scales = "free_y", labeller = as_labeller(names)) + 
+  scale_fill_manual(values=color,
+                    name = "Deposit", 
+                    labels = c("1st deposit","2nd deposit")
+                    )
+
+
+```

@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <!-- Global site tag (gtag.js) - Google Analytics START -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-438HTXNEPZ"></script>
+  <!-- Global site tag (gtag.js) - Google Analytics END -->
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
+    gtag('config', 'G-438HTXNEPZ');
+  </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport"
+    content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0" />
+  <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+  <title>N26 Research</title>
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css"
+    integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous" />
+  <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js"
+    integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo"
+    crossorigin="anonymous"></script>
+  <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js"
+    integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM"
+    crossorigin="anonymous"></script>
+  <link rel="shortcut icon" type="image/jpg" href="favicon.ico" />
+  <script src="/js/tablebg.js"></script>
+  <link rel="stylesheet" href="/css/style.css" type="text/css" />
+  <script src="/js/script.js"></script>
+</head>
+
+<body onload="javascript:onload()">
+  <!-- PRELOADER START -->
+  <div id="load"></div>
+  <!-- PRELOADER END -->
+  <div id="wrapper" class="container-fluid">
+    <div class="row w-100">
+      <div class="col d-flex flex-column vh-100" style="max-height: 100vh">
+        <nav id="Header" class="row d-flex align-items-center navbar navbar-expand-lg">
+          <div id="HeaderLogo" class="col col-pixel-width-300 d-none d-lg-block">
+            <img src="/images/N26_logo.gif" alt="N26 Logo" />
+          </div>
+          <div id="HeaderLogo" class="col col-sm-auto d-lg-none">
+            <img src="/images/N26_logo_small.png" alt="N26 Logo" />
+          </div>
+          <div id="Search" class="col d-none d-sm-block">
+            <input type="text" id="SearchInput" onkeyup="onSearch()" placeholder="Search titles, tags or authors" />
+          </div>
+          <!-- INFO MODAL START -->
+          <div id="Info" class="col col-sm-auto">
+            <button id="modalActivate" type="button" class="btn" data-toggle="modal" data-target="#ModalInfo">
+              <img src='/images/info.png' alt='FAQ' />
+            </button>
+            <div class="modal fade right" id="ModalInfo" tabindex="-1" role="dialog" aria-labelledby="ModalInfoLabel"
+              aria-hidden="true">
+              <div class="modal-dialog-full-width modal-dialog momodel modal-dialog-scrollable modal-fluid"
+                role="document">
+                <div class="modal-content-full-width modal-content">
+                  <div class=" modal-header-full-width modal-header text-center">
+                    <h5 class="modal-title w-100" id="ModalInfoLabel">FAQ</h5>
+                    <button type="button" class="close " data-dismiss="modal" aria-label="Close">
+                      <span style="font-size: 1.3em;" aria-hidden="true">&times;</span>
+                    </button>
+                  </div>
+                  <div class="modal-body">
+                    <h2 class="section-heading wow fadeIn pt-3">What is N26 Research?</h2>
+                    <p>N26 Research is our internal research hub. Our aim is to accelerate the pace of innovation within
+                      our organization by enabling knowledge sharing and efficient collaboration through effortless
+                      discovery of insights. All research displayed here resides on our Github repository <a
+                        href='https://github.com/n26/boston/' target='_blank'>Boston</a> (only available for those with
+                      access to the N26 Github).
+                    </p>
+                    <hr />
+                    <h2 class="section-heading wow fadeIn pt-3">I am a(n)...</h2>
+                    <div class="tab-wrap">
+                      <input type="radio" name="tabs" id="tab1" checked>
+                      <div class="tab-label-content" id="tab1-content">
+                        <label for="tab1">
+                          <h2 class="section-heading wow fadeIn my-5 pt-3">All-Encompassing Unicorn 🦄</h2>
+                        </label>
+                        <div class="tab-content">
+                          <h2>How do I use this?</h2>
+                          <p>
+                            Hello you beautiful all-encompassing unicorn 💖 You are free to click anything and read
+                            everything you desire on this page! Yes, click away! If you are searching for something
+                            specific, you may try to search for tags. Or you may be just browsin' and horsin'
+                            around? All work is also categorized into segments, teams, authors, regions and clusters
+                            to help you find what you are looking for (even if you don't know what you're looking
+                            for yet).
+                          </p>
+                          <hr />
+                          <h2>How can I contribute?</h2>
+                          <p>
+                            This research hub is made with lots of love (and sweat and maybe some tears). As we are
+                            only humans after all, we are prone to make mistakes or let something slip past our
+                            radar. If you find bugs, have general feedback or even ideas on how to make this
+                            grander, do give a shout in the Slack channel <kbd>#data-team-public</kbd>.
+                          </p>
+                        </div>
+                      </div>
+                      <input type="radio" name="tabs" id="tab2">
+                      <div class="tab-label-content" id="tab2-content">
+                        <label for="tab2">
+                          <h2 class="section-headingwow fadeIn my-5 pt-3">Data Analyst/Data Scientist 🔬</h2>
+                        </label>
+                        <div class="tab-content">
+                          <h2>How can I contribute?</h2>
+                          <p>
+                            ❗ Do NOT show any PII data in your research findings.
+                          </p>
+                          <p>
+                            In order to contribute your work to Boston you need:
+                          <ol>
+                            <li>Access to <a href="https://github.com/n26" target="_blank">N26 Github</a> and the <a
+                                href="https://github.com/n26/boston" target="_blank">Boston repository</a></li>
+                            <li>Python notebook or R file</li>
+                            <li>Either an external presentation link such as a Google Slides URL or the HTML output of
+                              your notebooks (both is fine too!) </li>
+                          </ol>
+                          </p>
+                          <p>
+                            For guidelines on how to prepare your research documents for upload, such as how to fill in
+                            the metadata in your notebook header, as well as how to actually upload the research such
+                            that it can be represented here, please consult the <a
+                              href="https://github.com/n26/boston/blob/master/README.md" target="_blank">README.md</a>
+                            file in the Boston repository.
+                          </p>
+                        </div>
+                      </div>
+                      <input type="radio" name="tabs" id="tab3">
+                      <div class="tab-label-content" id="tab3-content">
+                        <label for="tab3">
+                          <h2 class="section-headingwow fadeIn my-5 pt-3">User Researcher/Growth Insights Finder 🔎</h2>
+                        </label>
+                        <div class="tab-content">
+                          <h2>How can I contribute?</h2>
+                          <p>
+                            ❗ Do NOT show any PII data in your research findings.
+                          </p>
+                          <p>
+                            To enable Boston to parse your research for the relevant metadata correctly, please follow
+                            the guidelines below. The more descriptive your metadata is, the better discoverable is your
+                            research on our Research Hub, so don’t sleep on this one!
+                          </p>
+                          <ol>
+                            <li>
+                              Fill in <a
+                                href="https://docs.google.com/spreadsheets/d/1EM89wuWHTYQkModvw5yeC8ns5z5VAj7CiYEjw7eZRTw/edit#gid=0"
+                                target="_blank">this sheet</a> with your research metadata (1 line per research article)
+                              <ol>
+                                <li><kbd>region</kbd>: use the drop-down validation to select a region</li>
+                                <li><kbd>date</kbd>: follow the format <kbd>YYYY-MM-DD </kbd></li>
+                                <li><kbd>author</kbd>: the research author’s name, probably yours</li>
+                                <li><kbd>link</kbd>: URL to relevant materials of your research (e.g., Google Slides
+                                  URL) </li>
+                                <li><kbd>tags</kbd>: comma separated, please try to include as many searchable and
+                                  relevant tags as possible
+                                </li>
+                                <li><kbd>summary</kbd>: give an overview of <b>what your research is about</b> and
+                                  <b>what the main findings are</b>. Other questions you may want to answer could
+                                  include: what was the context of the research? How were the findings made actionable?
+                                  What were next step recommendations? What were limitations?
+                                </li>
+                                <li><kbd>segment</kbd>: use the drop-down validation to select a segment</li>
+                              </ol>
+                            </li>
+                            <li>
+                              Get in touch with a Data Analyst (either message your go-to Data Analyst, or a random pick
+                              from <a
+                                href="https://number26-jira.atlassian.net/wiki/spaces/DATA/pages/1722229932/Team+Structure+and+Responsibilities"
+                                target="_blank">here</a>, or <a
+                                href="https://number26-jira.atlassian.net/servicedesk/customer/portal/51/group/233/create/1310"
+                                target="_blank">file a ticket</a>) to upload your research and add it to the Research
+                              Hub. They will convert your input into a CSV file and add it to <a
+                                href="https://github.com/n26/boston" target="_blank">Boston</a>, our research repository
+                              on Github.
+                            </li>
+                          </ol>
+                          </p>
+                        </div>
+                      </div>
+                      <input type="radio" name="tabs" id="tab4">
+                      <div class="tab-label-content" id="tab4-content">
+                        <label for="tab4">
+                          <h2 class="section-headingwow fadeIn my-5 pt-3">none of these ¯\_(ツ)_/¯</h2>
+                        </label>
+                        <div class="tab-content">
+                          <h2>How can I contribute?</h2>
+                          <p>
+                            We are working hard on integrating all kinds of kick-bum research and insights across
+                            the organization to this hub. If your team's research is currently not (*gasp*)
+                            showcased here, but you think it should (!), feel free to reach out to us in the Slack
+                            channel
+                            <kbd>#data-team-public</kbd> so we can have a coffee (or any other beverage of
+                            preference) and chat!
+                          </p>
+                        </div>
+                      </div>
+                      <div class="slide"></div>
+                    </div>
+                  </div>
+                  <div class="modal-footer-full-width modal-footer">
+                    <button type="button" class="btn btn-danger btn-md btn-rounded" data-dismiss="modal">Close</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- INFO MODAL END -->
+          <!-- FILTER TOGGLER -->
+          <div class="togglers col col-sm-auto">
+            <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#Filters" aria-controls="Filters" aria-expanded="false" aria-label="Toggle Filter">
+              <img src='/images/filter.png' alt='Filters' />
+            </button>
+          </div>
+          <div class="togglers col col-sm-auto">
+            <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#ResearchNav" aria-controls="ResearchNav" aria-expanded="false" aria-label="Toggle Research List">
+              <img src='/images/list.png' alt='Research List' />
+            </button>
+          </div>
+          <!-- FILTER TOGGLER END -->
+        </nav>
+        <nav class="navbar navbar-expand-lg p-0">
+          <div class="container-fluid p-0 m-0">
+            <!--FILTER BAR-->
+            <div id="Filters" class="row collapse navbar-collapse">
+              <div class="col-lg-2">
+                <select id="segmentDropdown" oninput="filterTable()">
+                  <option>All Segments</option>
+                  {% for row in segment_list %}
+                  <option>{{ row }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-lg-2">
+                <select id="authorsDropdown" oninput="filterTable()">
+                  <option>All Authors</option>
+                  {% for row in author_list %}
+                  <option>{{ row }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-lg-2">
+                <select id="regionDropdown" oninput="filterTable()">
+                  <option>All Regions</option>
+                  {% for row in region_list %}
+                  <option>{{ row }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-lg-2">
+                <select id="researchtypeDropdown" oninput="filterTable()">
+                  <option>All Types</option>
+                  {% for row in research_type_list %}
+                  <option>{{ row }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-lg-2">
+                <select id="clustersDropdown" oninput="filterTable()">
+                  <option>All Research Clusters</option>
+                  {% for row in clusters_list %}
+                  <option>{{ row }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-lg-2">
+                <button type="button" id="ClearFilterButton" class="select" disabled>Clear All
+                  Filters</button>
+              </div>
+            </div>
+            <!-- FILTER BAR END -->
+          </div>
+        </nav>
+        <div id="Research" class="row flex-grow-1 overflow-hidden">
+          <nav class="nav navbar-expand-lg p-0 col-lg-4">
+            <div class="container p-0 m-0">
+              <div id="ResearchNav" class="collapse navbar-collapse">
+                <div id="CountText" class="row">
+                  Total articles: {{research_list_length}}
+                </div>
+                <div id="table-responsive" class="flex-grow-1 overflow-auto align-self-stretch">
+                  <table id="ResearchTable" class="table table-borderless">
+                    {% for row in research_list %}
+                    <tr id="ResearchTableRow" class="research-table-bg" onclick="getId(this)">
+                      <td class="emoji">{{ row.region }}</td>
+                      <td class="right-border-round">
+                        <div class="research-table-title">{{ row.title }}</div>
+                        <div class=“research-table-meta”>{{ row.date }}</div>
+                        <!--
+                            <div class="research-table-meta">{{ row.date }}</div>
+                            <div class="emoji">{{ row.region }} {{ row.file_type }}</div>
+                            -->
+                      </td>
+                      <td class="hidden">{{ row.title }}</td>
+                      <td class="hidden">{{ row.author }}</td>
+                      <td class="hidden">{{ row.tags }}</td>
+                      <td class="hidden">{{ row.region }}</td>
+                      <td class="hidden">{{ row.date }}</td>
+                      <td class="hidden">{{ row.summary }}</td>
+                      <td class="hidden">{{ row.link }}</td>
+                      <td class="hidden">{{ row.link_icon }}</td>
+                      <td class="hidden">{{ row.github }}</td>
+                      <td class="hidden">{{ row.segment }}</td>
+                      <td class="hidden">{{ row.research_type }}</td>
+                      <td class="hidden">{{ row.html }}</td>
+                      <td class="hidden">{{ row.html_icon }}</td>
+                      <td class="hidden">{{ row.github_icon }}</td>
+                      <td class="hidden">{{ row.cluster_name }}</td>
+                      <td class="hidden">{{ row.research_title_list }}</td>
+                    </tr>
+                    {% endfor %}
+                  </table>
+                </div>
+              </div>
+            </div>
+          </nav>
+          <div id="ResearchDetails" class="col-lg-8 d-flex flex-column h-100">
+            <div id="ResearchContent" class="flex-grow-1 overflow-auto">
+              <div id="DetailLabels">
+                <img src='/images/folder.png' /><button type="button" class="label" id="DetailSegment">{{
+                  research_list[0].segment }}</button>
+                <img src='/images/team.png' /><button type="button" class="label" id="DetailResearchType">{{
+                  research_list[0].research_type
+                  }}</button>
+              </div>
+              <div id="DetailTitle">{{ research_list[0].title }}</div>
+              <hr />
+              <div id="DetailSourceButtons">
+                <div id="DetailButtons" class="emoji">
+                  <button type="button" id="DetailHtml"><a href="{{ research_list[0].html }}" target="_blank"><img
+                        src="{{ research_list[0].html_icon }}" /></a></button>
+                  <button type="button" id="DetailLink"><a href="{{ research_list[0].link }}" target="_blank"><img
+                        src="{{ research_list[0].link_icon }}" /></a></button>
+                  <button type="button" id="DetailGithub"><a href="{{ research_list[0].github }}" target="_blank"><img
+                        src="{{ research_list[0].github_icon }}" /></a></button>
+                </div>
+              </div>
+              <div id="DetailTable">
+                <div class="detail-table-row">
+                  <div class="detail-table-label">Date</div>
+                  <div id="DetailDate">{{ research_list[0].date }}</div>
+                </div>
+                <div class="detail-table-row">
+                  <div class="detail-table-label">Author</div>
+                  <div id="DetailAuthor">{{ research_list[0].author }}</div>
+                </div>
+                <div class="detail-table-row">
+                  <div class="detail-table-label">Region</div>
+                  <div id="DetailRegion" class="emoji">{{ research_list[0].region }}</div>
+                </div>
+              </div>
+              <div id="DetailSummary">{{ research_list[0].summary }}</div>
+              <div id="DetailTags">
+                <div id="DetailTagsList">
+                  {% set tags = research_list[0].tags.split(',') %}
+                  {% for tag in tags %}<button class="tag" onclick="PopulateInput( '{{tag}}' )">{{ tag }}</button>{%
+                  endfor %}
+                </div>
+              </div>
+              <div id="DetailRelated" class="hidden">
+                <div class="detail-table-label">You might be interested in these related insights</div>
+                <div id="DetailRelatedList">
+                  {% set related_articles = research_list[0].research_title_list.split(',') %}
+                  {% for related_article in related_articles %}
+                  <button class="related_article" onclick="PopulateInput( '{{related_article}}' )">{{ related_article
+                    }}</button>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <footer class="footer">
+    <div class="row h-100">
+      <div class="col-sm-12 text-center align-self-center">
+        <span class="align-middle">N26 Research Hub &copy; 2022. All rights reserved.</span>
+      </div>
+    </div>
+  </footer>
+  <script src="/js/filterselect.js"></script>
+  <!--PRELOADER SCRIPT START-->
+  <script>
+    document.onreadystatechange = function () {
+      var state = document.readyState
+      if (state == 'complete') {
+        document.getElementById('interactive');
+        document.getElementById('load').style.visibility = "hidden";
+      }
+    }
+  </script>
+  <!--PRELOADER SCRIPT END-->
+</body>
+
+</html>

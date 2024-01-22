@@ -1,0 +1,9 @@
+---
+title: "Geo-testing Google Ads ACi in France"
+author: "Bart de Groot"
+date: "2021-03-24"
+region: "EU"
+summary: "Analysis for a geo-test that evaluated incrementality of paid mobile advertising in the Google Ads ACI-channel in the FR market. Outcome of the test was a significant result for a positive and incremental impact of the campaigns on the total target metric signups. Based on this result the channel was scaled to other markets and to all regions in the test market."
+link: "https://docs.google.com/presentation/d/1Kh5aQJb-tUGzZLgnfbOpgHkyCTxskmY6X9Xd1uib0Fo/edit#slide=id.gc9e5686bd5_0_0"
+tags: "marketing"
+---

@@ -1,0 +1,486 @@
+with users as (
+select
+user_created,
+user_id,
+kyc_first_completed,
+ft_mau,
+product_id,
+is_premium,
+(ft_mau + interval '35 days') as ft_mau_35,
+case when ft_mau_35::date <= current_date::date then true else false end as qualify -- users
+complete first 35 days of ft-mau
+from dbt.zrh_users
+where true
+--and product_id ilike '%smart%'
+and kyc_first_completed >= '2020-11-25'::date
+)
+select
+*
+from users
+where qualify is true
+limit 500;
+
+--clustering first 35 days after smart tier launch
+--days from kycc to first topup and first 35 days since first topup
+drop table if exists users;
+create temp table users as
+select
+a.user_id,
+a.user_created,
+a.kyc_first_completed as kycc,
+a.card_first_activated as card_act,
+date_diff('days',kycc::date,card_act::date) as kycc_card_days,
+case when country_tnc_legal in ('DEU', 'FRA','ITA', 'ESP', 'GBR', 'AUT') THEN a.country_tnc_legal else 'RoE'
+end as market,
+case when a.country_shipping in ('DEU', 'FRA','ITA', 'ESP', 'GBR', 'AUT') THEN a.country_shipping else 'RoE'
+end as country_shipping,
+a.product_id,
+a.is_premium,
+a.age_group,
+a.last_click_source,
+a.has_overdraft_enabled,
+a.is_dunning,
+a.is_expat,
+ft_mau,
+date_diff('days',kycc::date,ft_mau::date) as kyc_ct_days,
+case when (ft_mau + interval '35 days') <= current_date::date then true else false end as qualify -- users
+complete first 35 days of ft-mau
+from dbt.zrh_users a
+where a.kyc_first_completed >= '2020-11-25'::date
+and qualify is true -- filter for users that completed first 35 days of ft-mau
+;
+
+drop table if exists kycc;
+create temp table kycc as
+select * from users
+where kycc_card_days >= 0 or kyc_ct_days >= 0
+order by random()
+limit 20000;
+
+select * from kycc where kycc_card_days < 0 or kyc_ct_days < 0;
+select * from kycc where kycc_card_days is null or kyc_ct_days is null;
+--TXNS FIRST 35 DAYS OF FIRST TOPUP
+drop table if exists txns;
+create temp table txns as
+select
+a.user_created,
+sum(n_pt) as n_pt,
+sum(n_dt) as n_dt,
+sum(n_ft) as n_ft,
+sum(n_dd) as n_dd,
+sum(n_tub) as n_tub,
+sum(n_ct) as n_ct,
+sum(n_cash26) as n_cash26,
+sum(n_stripetopup_in) as n_stripe,
+sum(n_card_atm) as n_atm,
+sum(n_card_ecomm) as n_ecomm,
+sum(n_card_cardpresent) as n_cardpresent,
+sum(n_card_apple) as n_apple,
+sum(n_card_google) as n_google,
+(n_apple + n_google) as n_mobile,
+sum(n_spaces_ct) as n_spaces_ct,
+sum(n_spaces_dt) as n_spaces_dt,
+sum(n_act_total) as n_act_total,
+sum(n_int_total) as n_int_total,
+sum(n_total) as n_total,
+round(sum(amount_cents_pt::float/100),2) as pt_amt,
+round(sum(amount_cents_dt::float/100),2) as dt_amt,
+round(sum(amount_cents_ft::float/100),2) as ft_amt,
+round(sum(amount_cents_dd::float/100),2) as dd_amt,
+round(sum(amount_cents_tub::float/100),2) as tub_amt,
+round(sum(amount_cents_ct::float/100),2) as ct_amt,
+round(sum(amount_cents_cash26::float/100),2) as cash26_amt,
+round(sum(amount_cents_stripetopup_in::float/100),2) as stripe_amt,
+round(sum(amount_cents_card_atm::float/100),2) as atm_amt,
+round(sum(amount_cents_card_ecomm::float/100),2) as ecomm_amt,
+round(sum(amount_cents_card_cardpresent::float/100),2) as cardpresent_amt,
+round(sum(amount_cents_card_apple::float/100),2) as apple_amt,
+round(sum(amount_cents_card_google::float/100),2) as google_amt,
+(apple_amt + google_amt) as mobile_amt,
+round(sum(amount_cents_spaces_ct::float/100),2) as spaces_ct_amt,
+round(sum(amount_cents_spaces_dt::float/100),2) as spaces_dt_amt,
+round(sum(amount_cents_act_total::float/100),2) as act_total_amt,
+round(sum(amount_cents_int_total::float/100),2) as int_total_amt,
+round(sum(amount_cents_total::float/100),2) as total_amt
+from kycc a
+join dbt.zrh_txn_day b
+on a.user_created = b.user_created
+and b.txn_date >= '2018-09-01'::date
+where b.txn_date between a.ft_mau and a.ft_mau + interval '35 days'
+group by 1;
+select count(user_id) from dev.pca_35days_JanFeb2019cohort;
+-- foreign/domestic trxns
+drop table if exists card_txns;
+create temp table card_txns as
+select
+a.user_created,
+
+b.card_tx_type,
+b.region_group,
+count(*) as n_pt_,
+round(sum(b.amount_cents_eur::float/100),2) as sum_amt_eur
+from kycc a
+join dbt.zrh_card_transactions b
+on a.user_created = b.user_created
+where type = 'PT'
+and card_tx_type in ('cardpresent','atm')
+and b.created between a.ft_mau and a.ft_mau + interval '35 days'
+group by 1,2,3;
+drop table if exists travel;
+create temp table travel as
+select
+user_created,
+sum(case when card_tx_type = 'cardpresent' and region_group = 'inter' then n_pt_ end) as n_inter,
+sum(case when card_tx_type = 'cardpresent' and region_group = 'dom' then n_pt_ end) as n_dom,
+sum(case when card_tx_type = 'cardpresent' and region_group = 'intra' then n_pt_ end) as n_intra,
+sum(case when card_tx_type = 'atm' and region_group = 'inter' then n_pt_ end) as n_inter_atm,
+sum(case when card_tx_type = 'atm' and region_group = 'dom' then n_pt_ end) as n_dom_atm,
+sum(case when card_tx_type = 'atm' and region_group = 'intra' then n_pt_ end) as n_intra_atm,
+sum(case when card_tx_type = 'cardpresent' and region_group = 'inter' then sum_amt_eur end) as
+inter_sum,
+sum(case when card_tx_type = 'cardpresent' and region_group = 'dom' then sum_amt_eur end) as
+dom_sum,
+sum(case when card_tx_type = 'cardpresent' and region_group = 'intra' then sum_amt_eur end) as
+intra_sum,
+sum(case when card_tx_type = 'atm' and region_group = 'inter' then sum_amt_eur end) as inter_atm_sum,
+sum(case when card_tx_type = 'atm' and region_group = 'dom' then sum_amt_eur end) as dom_atm_sum,
+sum(case when card_tx_type = 'atm' and region_group = 'intra' then sum_amt_eur end) as intra_atm_sum
+from card_txns
+group by 1;
+-- mcc_category
+--drop table if exists card_mcc;
+--create temp table card_mcc as
+--select
+--a.user_created,
+--b.mcc_category,
+--count(*) as n_mcc_cat,
+--round(sum(b.amount_cents_eur::float/100),2) as amount_euro
+--from kycc a
+--join dbt.zrh_card_transactions b
+--on a.user_created = b.user_created
+--where type = 'PT'
+--and card_tx_type in ('cardpresent','atm')
+--and b.created between a.ft_mau and a.ft_mau + interval '35 days'
+--group by 1,2
+--order by 1,2;
+--create temp table mcc as
+--select
+--user_created,
+--count(case when mcc_category = 'grocery_market' then n_mcc_cat end) as grocery_market,
+--count(case when mcc_category = 'restaurants' then n_mcc_cat end) as restaurant,
+--count(case when mcc_category = 'atm' then n_mcc_cat end) as atm,
+--count(case when mcc_category = 'fast_food' then n_mcc_cat end) as fast_food,
+--count(case when mcc_category = 'local_transport_railway' then n_mcc_cat end) as local_transport,
+--count(case when mcc_category = 'clothing_depart_store' then n_mcc_cat end) as clothing,
+
+--count(case when mcc_category = 'retail_store' then n_mcc_cat end) as retail,
+--count(case when mcc_category = 'household_store' then n_mcc_cat end) as household,
+--count(case when mcc_category = 'gas_service_station' then n_mcc_cat end) as gas_service,
+--count(case when mcc_category = 'food_drink_stores' then n_mcc_cat end) as food_drinks,
+--count(case when mcc_category = 'taxicabs' then n_mcc_cat end) as taxicabs,
+--count(case when mcc_category = 'drug_pharma' then n_mcc_cat end) as drug_pharma,
+--count(case when mcc_category = 'bars_clubs' then n_mcc_cat end) as bars_clubs,
+--count(case when mcc_category = 'car_toll_parking' then n_mcc_cat end) as car_toll_parking,
+--count(case when mcc_category = 'entertainment' then n_mcc_cat end) as entertainment,
+--count(case when mcc_category = 'utilities' then n_mcc_cat end) as utilities,
+--count(case when mcc_category = 'subscriptions' then n_mcc_cat end) as subscriptions,
+--count(case when mcc_category = 'bookstores' then n_mcc_cat end) as bookstores,
+--count(case when mcc_category = 'business_org_services' then n_mcc_cat end) as business_org_serv,
+--count(case when mcc_category = 'hotel_lodging' then n_mcc_cat end) as hotel_lodge,
+--count(case when mcc_category = 'computer_electronic_stores' then n_mcc_cat end) as computer_electronic,
+--count(case when mcc_category = 'bakeries' then n_mcc_cat end) as bakeries,
+--count(case when mcc_category = 'gambling_gaming' then n_mcc_cat end) as gambling_gaming,
+--count(case when mcc_category = 'record_stores' then n_mcc_cat end) as record_stores,
+--count(case when mcc_category = 'digital_goods' then n_mcc_cat end) as digital_goods,
+--count(case when mcc_category = 'airline' then n_mcc_cat end) as airline,
+--count(case when mcc_category = 'beauty_stores' then n_mcc_cat end) as beauty_stores,
+--count(case when mcc_category = 'transport_serv' then n_mcc_cat end) as transport_serv,
+--count(case when mcc_category = 'fines_taxes_gov' then n_mcc_cat end) as fines_tax_gov,
+--count(case when mcc_category = 'money_cash_financial' then n_mcc_cat end) as money_financial,
+--count(case when mcc_category = 'prof_serv' then n_mcc_cat end) as professional_serv,
+--count(case when mcc_category = 'discount_stores' then n_mcc_cat end) as discount_stores,
+--count(case when mcc_category = 'travel_tour_agencies' then n_mcc_cat end) as travel_agencies,
+--count(case when mcc_category = 'computer_data_serv' then n_mcc_cat end) as computer_data_serv,
+--count(case when mcc_category = 'car_rental' then n_mcc_cat end) as car_rental,
+--count(case when mcc_category = 'health_serv' then n_mcc_cat end) as health_serv,
+--count(case when mcc_category = 'advertising_serv' then n_mcc_cat end) as advertising_serv,
+--count(case when mcc_category = 'education' then n_mcc_cat end) as education,
+--count(case when mcc_category = 'dating_serv' then n_mcc_cat end) as dating_serv,
+--count(case when mcc_category = 'no_cat' then n_mcc_cat end) as no_cat
+--from card_mcc
+--group by 1;
+--
+--
+--drop table if exists mcc_sum;
+--create temp table mcc_sum as
+--select
+--user_created,
+--sum(case when mcc_category = 'grocery_market' then n_mcc_cat end) as grocery_market,
+--sum(case when mcc_category = 'restaurants' then n_mcc_cat end) as restaurant,
+--sum(case when mcc_category = 'atm' then n_mcc_cat end) as atm,
+--sum(case when mcc_category = 'fast_food' then n_mcc_cat end) as fast_food,
+--sum(case when mcc_category = 'local_transport_railway' then n_mcc_cat end) as local_transport,
+--sum(case when mcc_category = 'clothing_depart_store' then n_mcc_cat end) as clothing,
+--sum(case when mcc_category = 'retail_store' then n_mcc_cat end) as retail,
+--sum(case when mcc_category = 'household_store' then n_mcc_cat end) as household,
+--sum(case when mcc_category = 'gas_service_station' then n_mcc_cat end) as gas_service,
+--sum(case when mcc_category = 'food_drink_stores' then n_mcc_cat end) as food_drinks,
+--sum(case when mcc_category = 'taxicabs' then n_mcc_cat end) as taxicabs,
+--sum(case when mcc_category = 'drug_pharma' then n_mcc_cat end) as drug_pharma,
+--sum(case when mcc_category = 'bars_clubs' then n_mcc_cat end) as bars_clubs,
+--sum(case when mcc_category = 'car_toll_parking' then n_mcc_cat end) as car_toll_parking,
+--sum(case when mcc_category = 'entertainment' then n_mcc_cat end) as entertainment,
+--sum(case when mcc_category = 'utilities' then n_mcc_cat end) as utilities,
+--sum(case when mcc_category = 'subscriptions' then n_mcc_cat end) as subscriptions,
+--sum(case when mcc_category = 'bookstores' then n_mcc_cat end) as bookstores,
+--sum(case when mcc_category = 'business_org_services' then n_mcc_cat end) as business_org_serv,
+--sum(case when mcc_category = 'hotel_lodging' then n_mcc_cat end) as hotel_lodge,
+
+--sum(case when mcc_category = 'computer_electronic_stores' then n_mcc_cat end) as computer_electronic,
+--sum(case when mcc_category = 'bakeries' then n_mcc_cat end) as bakeries,
+--sum(case when mcc_category = 'gambling_gaming' then n_mcc_cat end) as gambling_gaming,
+--sum(case when mcc_category = 'record_stores' then n_mcc_cat end) as record_stores,
+--sum(case when mcc_category = 'digital_goods' then n_mcc_cat end) as digital_goods,
+--sum(case when mcc_category = 'airline' then n_mcc_cat end) as airline,
+--sum(case when mcc_category = 'beauty_stores' then n_mcc_cat end) as beauty_stores,
+--sum(case when mcc_category = 'transport_serv' then n_mcc_cat end) as transport_serv,
+--sum(case when mcc_category = 'fines_taxes_gov' then n_mcc_cat end) as fines_tax_gov,
+--sum(case when mcc_category = 'money_cash_financial' then n_mcc_cat end) as money_financial,
+--sum(case when mcc_category = 'prof_serv' then n_mcc_cat end) as professional_serv,
+--sum(case when mcc_category = 'discount_stores' then n_mcc_cat end) as discount_stores,
+--sum(case when mcc_category = 'travel_tour_agencies' then n_mcc_cat end) as travel_agencies,
+--sum(case when mcc_category = 'computer_data_serv' then n_mcc_cat end) as computer_data_serv,
+--sum(case when mcc_category = 'car_rental' then n_mcc_cat end) as car_rental,
+--sum(case when mcc_category = 'health_serv' then n_mcc_cat end) as health_serv,
+--sum(case when mcc_category = 'advertising_serv' then n_mcc_cat end) as advertising_serv,
+--sum(case when mcc_category = 'education' then n_mcc_cat end) as education,
+--sum(case when mcc_category = 'dating_serv' then n_mcc_cat end) as dating_serv,
+--sum(case when mcc_category = 'no_cat' then n_mcc_cat end) as no_cat
+--from card_mcc
+--group by 1;
+--
+--
+--create temp table mcc_sum_amt as
+--select
+--user_created,
+--sum(case when mcc_category = 'grocery_market' then amount_euro end) as grocery_market_sum,
+--sum(case when mcc_category = 'restaurants' then amount_euro end) as restaurant_sum,
+--sum(case when mcc_category = 'atm' then amount_euro end) as atm_sum,
+--sum(case when mcc_category = 'fast_food' then amount_euro end) as fast_food_sum,
+--sum(case when mcc_category = 'local_transport_railway' then amount_euro end) as local_transport_sum,
+--sum(case when mcc_category = 'clothing_depart_store' then amount_euro end) as clothing_sum,
+--sum(case when mcc_category = 'retail_store' then amount_euro end) as retail_sum,
+--sum(case when mcc_category = 'household_store' then amount_euro end) as household_sum,
+--sum(case when mcc_category = 'gas_service_station' then amount_euro end) as gas_service_sum,
+--sum(case when mcc_category = 'food_drink_stores' then amount_euro end) as food_drinks_sum,
+--sum(case when mcc_category = 'taxicabs' then amount_euro end) as taxicabs_sum,
+--sum(case when mcc_category = 'drug_pharma' then amount_euro end) as drug_pharma_sum,
+--sum(case when mcc_category = 'bars_clubs' then amount_euro end) as bars_clubs_sum,
+--sum(case when mcc_category = 'car_toll_parking' then amount_euro end) as car_toll_parking_sum,
+--sum(case when mcc_category = 'entertainment' then amount_euro end) as entertainment_sum,
+--sum(case when mcc_category = 'utilities' then amount_euro end) as utilities_sum,
+--sum(case when mcc_category = 'subscriptions' then amount_euro end) as subscriptions_sum,
+--sum(case when mcc_category = 'bookstores' then amount_euro end) as bookstores_sum,
+--sum(case when mcc_category = 'business_org_services' then amount_euro end) as business_org_serv_sum,
+--sum(case when mcc_category = 'hotel_lodging' then amount_euro end) as hotel_lodge_sum,
+--sum(case when mcc_category = 'computer_electronic_stores' then amount_euro end) as
+computer_electronic_sum,
+--sum(case when mcc_category = 'bakeries' then amount_euro end) as bakeries_sum,
+--sum(case when mcc_category = 'gambling_gaming' then amount_euro end) as gambling_gaming_sum,
+--sum(case when mcc_category = 'record_stores' then amount_euro end) as record_stores_sum,
+--sum(case when mcc_category = 'digital_goods' then amount_euro end) as digital_goods_sum,
+--sum(case when mcc_category = 'airline' then amount_euro end) as airline_sum,
+--sum(case when mcc_category = 'beauty_stores' then amount_euro end) as beauty_stores_sum,
+--sum(case when mcc_category = 'transport_serv' then amount_euro end) as transport_serv_sum,
+--sum(case when mcc_category = 'fines_taxes_gov' then amount_euro end) as fines_tax_gov_sum,
+--sum(case when mcc_category = 'money_cash_financial' then amount_euro end) as money_financial_sum,
+--sum(case when mcc_category = 'prof_serv' then amount_euro end) as professional_serv_sum,
+--sum(case when mcc_category = 'discount_stores' then amount_euro end) as discount_stores_sum,
+--sum(case when mcc_category = 'travel_tour_agencies' then amount_euro end) as travel_agencies_sum,
+--sum(case when mcc_category = 'computer_data_serv' then amount_euro end) as computer_data_serv_sum,
+
+--sum(case when mcc_category = 'car_rental' then amount_euro end) as car_rental_sum,
+--sum(case when mcc_category = 'health_serv' then amount_euro end) as health_serv_sum,
+--sum(case when mcc_category = 'advertising_serv' then amount_euro end) as advertising_serv_sum,
+--sum(case when mcc_category = 'education' then amount_euro end) as education_sum,
+--sum(case when mcc_category = 'dating_serv' then amount_euro end) as dating_serv_sum,
+--sum(case when mcc_category = 'no_cat' then amount_euro end) as no_cat_sum
+--from card_mcc
+--group by 1;
+-- Spaces/primary account avg balance
+-- primary
+drop table if exists prim_bal;
+create temp table prim_bal as
+select
+a.user_created,
+round(avg(balance_eur),2) as primary_bal_avg
+from kycc a
+join dbt.mmb_daily_balance_aud b
+on a.user_created = b.user_created
+and account_role = 'PRIMARY'
+where date::date between a.ft_mau and a.ft_mau + interval '35 days'
+group by 1;
+drop table if exists space_bal;
+create temp table space_bal as
+select
+a.user_created,
+round(avg(balance_eur),2) as space_bal_avg
+from kycc a
+join dbt.mmb_daily_balance_aud b
+on a.user_created = b.user_created
+and account_role = 'SECONDARY'
+where date::date between a.ft_mau and a.ft_mau + interval '35 days'
+group by 1;
+--logins/in-app features first 35 days
+--create temp table events as
+--select
+--a.user_created,
+--b.feature,
+--sum(b.value) as sum_event,
+--count(b.event_dt) as days_event
+--from kycc a
+--join dbt.zrh_main_events b
+--on a.user_created = b.user_created
+--where event_dt between a.ft_mau and a.ft_mau + interval '35 days'
+--group by 1,2;
+--create temp table event as
+--select
+--user_created,
+--sum(case when feature = 'atm_map' then days_event end) as atm_map,
+--sum(case when feature = 'bal_check' then days_event end) as bal_check,
+--sum(case when feature = 'card_limit_change' then days_event end) as card_limit_change,
+--sum(case when feature = 'card_lock' then days_event end) as card_lock,
+--sum(case when feature = 'card_online_payments_disable' then days_event end) as card_online_pay_disable,
+--sum(case when feature = 'card_payment_limit_change' then days_event end) as card_pay_limit_change,
+--sum(case when feature = 'discreet' then days_event end) as discreet,
+--sum(case when feature = 'explore' then days_event end) as explore,
+--sum(case when feature = 'friend_ref' then days_event end) as friend_ref,
+--sum(case when feature = 'my_account' then days_event end) as my_account,
+
+--sum(case when feature = 'search' then days_event end) as search,
+--sum(case when feature = 'spaces_viewed' then days_event end) as spaces_viewed,
+--sum(case when feature = 'statistics' then days_event end) as statistics,
+--sum(case when feature = 'txn_details' then days_event end) as txn_details,
+--sum(case when feature = 'webapp_login' then days_event end) as webapp_login
+--from events
+--group by 1;
+-- activity and logins days
+drop table if exists act_logins;
+create temp table act_logins as
+select
+a.user_created,
+count(case when n_act_txns > 0 then act_date end) as act_txns_days,
+count(case when n_logins > 0 then n_logins end) as login_days,
+sum(n_act_txns) as total_act_txns
+from kycc a
+join dbt.zrh_act_day b
+on a.user_created = b.user_created
+where act_date between a.ft_mau and a.ft_mau + interval '35 days'
+group by 1;
+--balance at day 35
+drop table if exists balance;
+create temp table balance as
+select a.user_created,
+b.date,
+(a.ft_mau + interval '35 days')::date as day35,
+balance_eur as day35_bal
+from kycc a
+join dbt.mmb_daily_balance_aud b
+on a.user_created = b.user_created
+and b.date = (a.ft_mau + interval '35 days')::date
+and product_key_group = 'PRIMARY';
+-- friend referral
+drop table if exists friend;
+create temp table friend as
+select
+k.user_created,
+count(t.user_certified) as n_wu,
+round(sum(t.bank_balance_impact_cents)::float/100,2) as wu_amt
+from kycc k
+join dbt.zr_transaction_user t
+on k.user_created = t.user_created
+where type = 'WU'
+and user_certified between k.ft_mau and k.ft_mau + interval '35 days'
+group by 1;
+drop table if exists dev.pca_35days_Nov252020Smartcohort;
+create table dev.pca_35days_Nov252020Smartcohort as
+select
+a.user_id,market,is_expat,age_group,last_click_source,has_overdraft_enabled,is_dunning,
+product_id,is_premium,kycc_card_days, kyc_ct_days,
+b.n_pt,n_dt,n_ft,n_dd,n_tub,n_ct,n_cash26,n_stripe,n_atm,n_ecomm,n_cardpresent,
+n_mobile,n_spaces_ct,n_spaces_dt,
+k.n_wu,
+b.n_act_total,n_int_total,n_total,
+c.n_inter,n_dom,n_intra,n_inter_atm,n_dom_atm,n_intra_atm,
+b.pt_amt,dt_amt,ft_amt,dd_amt,tub_amt,ct_amt,cash26_amt,stripe_amt,atm_amt,ecomm_amt,cardpresent_amt,
+mobile_amt,spaces_ct_amt,spaces_dt_amt,
+
+k.wu_amt,
+b.act_total_amt,int_total_amt,total_amt,
+c.inter_sum,dom_sum,intra_sum,inter_atm_sum,dom_atm_sum,intra_atm_sum,
+f.primary_bal_avg, g.space_bal_avg,
+j.day35_bal,
+h.act_txns_days,login_days,total_act_txns
+--d.grocery_market,restaurant,atm,fast_food,local_transport,clothing,retail,household,gas_service,
+--food_drinks,taxicabs,drug_pharma,bars_clubs,car_toll_parking,entertainment,utilities,subscriptions,
+--bookstores,business_org_serv,hotel_lodge,computer_electronic,bakeries,gambling_gaming,record_stores,
+--digital_goods,airline,beauty_stores,transport_serv,fines_tax_gov,money_financial,professional_serv,
+--discount_stores,travel_agencies,computer_data_serv,car_rental,health_serv,advertising_serv,
+--education,dating_serv,no_cat,
+--
+e.grocery_market_sum,restaurant_sum,atm_sum,fast_food_sum,local_transport_sum,clothing_sum,retail_sum,
+--household_sum,gas_service_sum,
+--
+food_drinks_sum,taxicabs_sum,drug_pharma_sum,bars_clubs_sum,car_toll_parking_sum,entertainment_sum,
+--utilities_sum,subscriptions_sum,
+--bookstores_sum,business_org_serv_sum,hotel_lodge_sum,computer_electronic_sum,bakeries_sum,
+--gambling_gaming_sum,record_stores_sum,
+--digital_goods_sum,airline_sum,beauty_stores_sum,transport_serv_sum,fines_tax_gov_sum,
+--money_financial_sum,professional_serv_sum,
+--discount_stores_sum,travel_agencies_sum,computer_data_serv_sum,car_rental_sum,health_serv_sum,
+--advertising_serv_sum,education_sum,dating_serv_sum,no_cat_sum,
+--i.atm_map, bal_check,card_limit_change,card_lock,card_online_pay_disable,card_pay_limit_change,discreet,
+--explore, friend_ref, my_account,search,spaces_viewed,statistics,txn_details,webapp_login
+from kycc a
+left join txns b
+on a.user_created = b.user_created
+left join travel c
+on a.user_created = c.user_created
+--left join mcc_sum d
+--on a.user_created = d.user_created
+--left join mcc_sum_amt e
+--on a.user_created = e.user_created
+left join prim_bal f
+on a.user_created = f.user_created
+left join space_bal g
+on a.user_created = g.user_created
+left join act_logins h
+on a.user_created = h.user_created
+--left join event i
+--on a.user_created = i.user_created
+left join balance j
+on a.user_created = j.user_created
+left join friend k
+on a.user_created = k.user_created;
+select *
+from dev.pca_35days_Nov252020Smartcohort
+order by random()
+limit 10000;
+select count(*)
+from dev.pca_35days_SeptOct2020cohort
+where kycc_card_days is null or kyc_ct_days is null
+;
+select * from dev.pca_35days_MayJune2020cohort;
+select * from dev.pca_35days_SeptOct2018cohort_resample; --where kycc_card_days < 0 or kyc_ct_days <
+0;
+
+select * from dev.pca_35days_SeptOct2019cohort
+
+select * from dev_dbt.earlyuserclusters_20200901;
+select * from dev.pca_35days_JanFeb2019cohort;
+select * from dev.pca_35days_AprilMay2020cohort;
+select * from dev_dbt.earlyuserclusters_20200901;
+select *
+from dev.pca_35days_Nov252020Smartcohort
+order by random()
+limit 10000;

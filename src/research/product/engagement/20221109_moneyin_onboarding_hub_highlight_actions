@@ -1,0 +1,37 @@
+{
+ "metadata": {
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": 3
+  },
+  "orig_nbformat": 4
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2,
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "title: Onboarding Hub AB Test: Highlight Actions\n",
+    "author: Leticia Takahara\n",
+    "date: 2022-11-09\n",
+    "region: EU\n",
+    "link: https://docs.google.com/presentation/d/1X6M8xRL25DuzuB8-EovwtNehrzWJMWw218_j5aoWQ9A/edit#slide=id.gb0a5380750_0_449\n",
+    "tags: engage, onboarding, onboarding hub, completion rate.\n",
+    "summary: Currently all the actions of the Onboarding Hub are displayed at the same time which might make actions completion more difficult.
+Our hypothesis is that highlighting only the missing actions will increase the Hub completion rate. This analysis summirize the results and outcomes of the AB test."
+   ]
+  }
+ ]
+}

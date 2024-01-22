@@ -1,0 +1,1018 @@
+---
+title: "Onboarding AB Testing"
+author: "Wendy Vu"
+region: "EU"
+date: "2020-11-09"
+summary: "40% of KYCc users experience the V1 onboarding (Test Group), and the remaining 60% of users were shown the original onboarding. Implemented a Two-way Proportion Z-test to test for significant differences between Test vs Control group. These results are based on raw counts of the number of users that converted for test and control group. Users were split up into weekly experimental cohorts. We analyzed the first 7 days of KYCc tested for significant differences, *P value < 0.05."
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+  pdf_document:
+    toc: yes
+link: "https://docs.google.com/presentation/d/1xC28kMqD7Lc3KKXFiZlRoJnUfZessP8J67NeWF0igrg/edit?usp=sharing"
+tags: "enable, ab, test, onboarding, transactions, feed, mau, ft-mau, customer service, top-up, early"
+  
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Background
+
+Users lack transparency in key actions they need to take to get their account set-up and become financially active.
+
+Here were test a new onboarding flow that is more transparent/educational to see if this leads to increased numbers of users that become more financially active in the future.
+
+Hypothesis: 
+
+H0: V1 has a positive impact on ftMAUs in 7 days. 
+H1: V1 has a positive impact on cards ordered in all memberships (top up to get the card delivered—EU only).
+H2: V1 has a positive impact on instant issuing [EU only]
+H3: V1 will reduce the % of KYCc contacting CS in the first 35 days. 
+H4: Increase FtMAU Retention by month 6  
+
+Experimental Design:
+
+  - Experiment started on 2020-10-15
+  - All users that entered the experiment completed phone-pairing, KYC, pin setup and opened an account (re-KYC users were
+  excluded).
+  - Test/Control: 30/70 user split was done in Fermium
+  - Control users experienced the normal onboarding flow, while test users were educated on our app and encouraged to enable push notifications, biometric login, top-up and explore the app.
+
+Query and Data for analysis can be found [here](https://drive.google.com/drive/folders/1-FjGy0ClSfozXRW4Jik1_T7wexk5599Q?usp=sharing)
+
+```{r}
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/V1_Onboarding_AB_test_Oct2020/Onboarding_AB_test_Oct2020.RData"))
+
+
+```
+
+
+```{r}
+# SLIDE 9: Are there significant differences of the % of users that are Ft-mau within the first 7 days of KYCc between test/control group?
+# Testing for significance
+
+library(tidyr)
+library('dplyr')
+library('spatstat')
+library('ggplot2')
+
+mau <- as.data.frame(ftmau_query)
+dates <- unique(mau$week)
+
+for (i in dates) {
+  test = filter(mau,week == i)
+  print(unique(test$week))
+  print(as.matrix(test[,3:4]))
+  results = prop.test(as.matrix(test[,3:4]))
+  print(results)
+}
+
+# Test/Control Group sample size plots
+ggplot(mau, 
+       aes(x=as.factor(week), 
+           y = perc_ftmau,
+           fill=exp_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  geom_text(position = position_dodge2(width = 0.9, 
+                                       preserve = "single"),
+            aes(y=perc_ftmau, group=exp_group, label=perc_ftmau, hjust=0,vjust=0.25,), #angle=90
+            ) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% Ft-MAU") + xlab("KYCc Cohort Week") +
+  ggtitle("% Ft-MAU within 7 days of KYCc") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Exp. Group", 
+                    labels = c("Control","Test")
+                    )
+
+# Proportion of Ft-MAU by test/control group 
+ggplot(mau, 
+       aes(x=as.factor(week), 
+           y = n_users,
+           fill=exp_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(perc_ftmau*100), group = exp_group), 
+  #Eposition = position_dodge(0.5),
+  #vjust = 0.5, size = 3.5
+  #) +
+  ylab("# of Users") + xlab("KYCc Cohort Week") +
+  ggtitle("% KYCc Cohort Sample Size") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Exp. Group", 
+                    labels = c("Control","Test")
+                    )
+
+```
+
+```{r}
+# SLIDE 10: Among Ft-MAU, how long does it take users to complete their first top-up from kycc?
+
+kyc <- as.data.frame(kycc_ftmau)
+
+kyc_ftmau <- as.data.frame(
+  filter(kyc, rn == 1, kycc_act_days >= 0) %>% group_by(week,exp_group) %>%
+  summarise(mean = mean(kycc_act_days,na.rm=T),
+            median = median(kycc_act_days,na.rm=T)))
+
+# CDR plots for number of days from kycc to first topup
+kyc_days <- as.data.frame (
+  filter(kyc,rn == 1, kycc_act_days >= 0) %>% 
+  mutate(
+    kyc_days_cat = case_when(
+      kycc_act_days > 7 ~ 100,
+      TRUE ~ kycc_act_days
+    )
+  ) %>% group_by(exp_group,kyc_days_cat) %>%
+  summarise(n_users = length(unique(user_id))
+            ) %>% group_by(exp_group) %>% 
+  mutate(
+    cum_sum = cumsum(n_users),
+    total_users = sum(n_users),
+    perc_users = round(cum_sum/total_users,2)
+  ))
+
+ggplot(kyc_days, 
+       aes(x=as.factor(kyc_days_cat), 
+           y = perc_users,
+           group=as.factor(exp_group),
+           color=as.factor(exp_group)
+           )
+       ) +
+  geom_line()+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Cumulative % Users") + xlab("Days from KYCc to First Top-Up") +
+  ggtitle("CDR Plot") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=20,face="bold",angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  scale_x_discrete(labels=c("0", "1", "2", "3","4","5","6","7",">7 days")) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "Exp. Group", labels = c("Control","Test")
+                    )
+
+# Testing for significance 
+# Results indicate that Test User tend to topup sooner than Control Users
+control_days <- kyc[kyc$exp_group == 'control' & kyc$rn == 1 & kyc$kycc_act_days >= 0,]$kycc_act_days
+test_days <- kyc[kyc$exp_group == 'test' & kyc$rn == 1 & kyc$kycc_act_days >= 0,]$kycc_act_days
+
+days_kycc_ftmau <- wilcox.test(control_days, 
+            test_days, 
+            alternative=c("two.sided"), 
+            conf.level=.9, 
+            correct=TRUE, 
+            paired = FALSE)
+
+days_kycc_ftmau
+
+```
+
+
+
+```{r}
+# SLIDE 11: Did the V1 onboarding experience impact the number of users that ordered a cards within the first 7 days? Topup to get cards delivered
+
+# testing for significance
+co <- as.data.frame(card_orders)
+dates <- unique(co$week)
+
+for (i in dates) {
+  test = filter(co,week == i)
+  print(unique(test$week))
+  print(as.matrix(test[,3:4]))
+  results = prop.test(as.matrix(test[,3:4]))
+  print(results)
+}
+
+# Proportion of Ft-MAU by test/control group 
+ggplot(co, 
+       aes(x=as.factor(week), 
+           y = perc_card_users,
+           fill=exp_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  geom_text(position = position_dodge2(width = 0.9, 
+                                       preserve = "single"),
+            aes(y=perc_card_users, group=exp_group, label=perc_card_users, hjust=0,vjust=0.25,), #angle=90
+            ) +
+  ylab("# of Users ordering cards") + xlab("KYCc Cohort Week") +
+  ggtitle("% KYCc Cohort Sample Size") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Exp. Group", 
+                    labels = c("Control","Test")
+                    )
+
+# CDR PLOT FOR NUMBER OF DAYS FROM KYCC TO CARD ORDER
+
+kc <- as.data.frame(kyc_cards)
+kc[,17] <- NULL
+kcards <- as.data.frame(
+  filter(kc, kycc_card_days >= 0) %>% group_by(week,exp_group) %>%
+  summarise(mean = mean(kycc_card_days,na.rm=T),
+            median = median(kycc_card_days,na.rm=T)))
+
+
+# CDR plots for number of days from kycc to card order
+kyc_days <- as.data.frame (
+  filter(kc, kycc_card_days >= 0) %>% 
+  mutate(
+    kyc_days_cat = case_when(
+      kycc_card_days > 7 ~ 100,
+      TRUE ~ kycc_card_days
+    )
+  ) %>% group_by(exp_group,kyc_days_cat) %>%
+  summarise(n_users = length(unique(user_id))
+            ) %>% group_by(exp_group) %>% 
+  mutate(
+    cum_sum = cumsum(n_users),
+    total_users = sum(n_users),
+    perc_users = round(cum_sum/total_users,2)
+  ))
+
+ggplot(kyc_days, 
+       aes(x=as.factor(kyc_days_cat), 
+           y = perc_users,
+           group=as.factor(exp_group),
+           color=as.factor(exp_group)
+           )
+       ) +
+  geom_line()+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Cumulative % Users") + xlab("Days from KYCc to Card Order") +
+  ggtitle("CDR Plot") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=20,face="bold",angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  scale_x_discrete(labels=c("0", "1", "2", "3","4","5","6","7",">7 days")) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "Exp. Group", labels = c("Control","Test")
+                    )
+
+
+
+```
+
+```{r}
+
+
+
+
+```
+
+
+```{r}
+# SLIDE 12: Are there significant differences in the number of users that topup for the first time using different types of deposit methods? (i.e. CT, Stripe, Cash26,MoneyBeam)
+
+tt <- as.data.frame(topup_type)
+
+sum_tup <- as.data.frame(tt %>% group_by(exp_group) %>% 
+  summarize(n_users = sum(n_users),
+            n_users_ct = sum(n_users_ct),
+            n_users_stripe = sum(n_users_stripe),
+            n_users_cash26 = sum(n_users_cash26),
+            n_users_ft = sum(n_users_ft))
+)
+
+# TEST FOR SIGNIFICANCE
+tp_type <- colnames(sum_tup)[3:6]
+for (i in tp_type) {
+  test = select(sum_tup,n_users, i)
+  print(unique(i))
+  print(as.matrix(test))
+  results = prop.test(as.matrix(test))
+  print(results)
+}
+
+# FIGURE
+# dplyr: pivoting Long: convert columns to rows
+percent_piv <- as.data.frame( 
+  tt[,c(1,2,8:11)] %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("per"), # column name starts with string
+      names_to = "type", # new column name of column names after pivot
+      values_to = "percent", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+percent_piv$type <- factor(percent_piv$type,levels = c("per_users_ct","per_users_stripe","per_users_cash26","per_users_ft"))
+
+ggplot(percent_piv, 
+       aes(x=as.factor(week), 
+           y = percent,
+           fill=exp_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(perc_ftmau*100), group = exp_group), 
+  #Eposition = position_dodge(0.5),
+  #vjust = 0.5, size = 3.5
+  #) +
+  ylab("% Users") + xlab("KYCc Cohort Week") +
+  ggtitle("% Users First Top-Up Txn Type") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=14,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(vars(type), scales = "free") +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Exp. Group", 
+                    labels = c("Control","Test")
+                    )
+
+
+
+
+```
+
+```{r}
+# SLIDE 13 AND 14: Are there differences in the amount of first topup across the test/control groups?
+tx <- as.data.frame(txns_users)
+
+ft_amt_feature <- as.data.frame(
+  filter(tx,rn==1,!is.na(feature)) %>% group_by(exp_group,feature) %>%
+  summarise(med_amt = median(value,na.rm=TRUE),
+            avg_amt = mean(value,na.rm=TRUE))
+)
+
+ft_amt_feature$feature <- factor(ft_amt_feature$feature,levels=c("ct","stripe",
+                                                                 "cash26","moneybeam"))
+
+ft_amt <- as.data.frame(
+  filter(tx,rn==1) %>% group_by(week,exp_group) %>%
+  summarise(med_amt = median(value,na.rm=TRUE),
+            avg_amt = mean(value,na.rm=TRUE))
+)
+
+# Median first Top-up Amount 
+ggplot(ft_amt, 
+       aes(x=as.factor(week), 
+           y = med_amt,
+           fill=exp_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(perc_ftmau*100), group = exp_group), 
+  #Eposition = position_dodge(0.5),
+  #vjust = 0.5, size = 3.5
+  #) +
+  ylab("Median Amount of First Top-Up") + xlab("KYCc Cohort Week") +
+  ggtitle("Median Amount of First top-up split by Exp. Group") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=14,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(vars(type), scales = "free") +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Exp. Group", 
+                    labels = c("Control","Test")
+                    )
+
+
+
+ggplot(ft_amt, 
+       aes(x=as.factor(week), 
+           y = avg_amt,
+           fill=exp_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(perc_ftmau*100), group = exp_group), 
+  #Eposition = position_dodge(0.5),
+  #vjust = 0.5, size = 3.5
+  #) +
+  ylab("Avg Amount of First Top-Up") + xlab("KYCc Cohort Week") +
+  ggtitle("Avg Amount of First top-up split by Exp. Group") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=14,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(vars(type), scales = "free") +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Exp. Group", 
+                    labels = c("Control","Test")
+                    )
+
+
+# first topup amount split by topup method
+ggplot(ft_amt_feature, 
+       aes(x=exp_group, 
+           y = med_amt,
+           fill=exp_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  geom_text(
+  aes(label = round(med_amt), group = exp_group), 
+  #Eposition = position_dodge(0.5),
+  vjust = 0.5, size = 3.5
+  ) +
+  ylab("Median Amount of First Top-Up") + xlab("Exp. Group") +
+  ggtitle("Median Amount of First top-up split by Exp. Group") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(vars(feature), scales = "free") +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Exp. Group", 
+                    labels = c("Control","Test")
+                    )
+
+ggplot(ft_amt_feature, 
+       aes(x=exp_group, 
+           y = avg_amt,
+           fill=exp_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  geom_text(
+  aes(label = round(avg_amt), group = exp_group), 
+  #Eposition = position_dodge(0.5),
+  vjust = 0.5, size = 3.5
+  ) +
+  ylab("Avg Amount of First Top-Up") + xlab("Exp. Group") +
+  ggtitle("Avg Amount of First top-up split by Exp. Group") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=14,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(vars(feature), scales = "free") +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Exp. Group", 
+                    labels = c("Control","Test")
+                    )
+
+
+# Using Kruskal-Wallis test and Median.test for median differences
+# Results: despite no apparent differences in median values, both test rejects the null hypothesis that the medians are the same. This is due to the fact that the test assumes that the shape of distribution of the two groups are the same (in order to test significance). If the distributions are different then the test can reject the null hypothesis even though the medians are the same. 
+# REF: http://www.biostathandbook.com/kruskalwallis.html
+# Judgement call: since we only care about median differences that cause a shift in the distribution rather than the shape, I will call this not significant.
+
+test <- filter(tx,rn==1,!is.na(value))
+kruskal.test(value ~ exp_group, data =test)
+
+library(agricolae)
+out <- with(test,Median.test(value,exp_group,console=FALSE,simulate.p.value = TRUE))
+print('MEDIAN TEST')
+out
+
+```
+
+```{r}
+# SLIDE 14 AND 19: There is significant a mean difference between Test and Control groups but no median difference: Test users deposit on average less monehy on their first deposit relative to control users. These results suggests that V1 onboarding might have had an influence on the users on the right tail of the distribution (i.e. the few users taht tend to deposit more) 
+
+# distribution of first topup amount between test and control 
+
+library(ggplot2)
+library(dplyr)
+library(hrbrthemes)
+
+# SIGNIFICANCE TEST FOR MEAN DIFFERENCES ON first TOPUP AMT 
+
+test <- filter(tx,rn==1,exp_group == 'test')$value
+control <- filter(tx,rn==1,exp_group == 'control')$value
+
+wilcox.test(control, 
+            test, 
+            alternative=c("two.sided"), 
+            conf.level=.9, 
+            correct=TRUE, 
+            paired = FALSE)
+
+p <- filter(tx, rn == 1,kycc_curr_days >= 7) %>% 
+    ggplot( aes(x=value, fill=exp_group)) + xlab("First Top-Up Amount") +
+    geom_histogram( color="#e9ecef", alpha=0.6, position = 'identity',binwidth = 25) +
+    scale_fill_manual(values=c("#48AC98", "#E5C3C7")) + xlim(0,500) +
+    theme_ipsum() +
+    labs(fill="") + 
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 20,face="bold"),
+    axis.text=element_text(size=24,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    legend.key.size = unit(1, "cm"),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  )
+
+p
+
+```
+```{r}
+
+# SLIDE 15: Are there differences in the amount of topup in the first 7 days of kycc?
+topup_7days <- as.data.frame(
+  filter(tx, kycc_txn_days <= 7, kycc_curr_days >= 7) %>%
+  group_by(user_id,week,exp_group) %>% 
+  summarise(sum_value = sum(value)) %>% 
+    group_by(week,exp_group) %>%
+  summarise(avg_amt = mean(sum_value,na.rm=T),
+            med_amt = median(sum_value,na.rm=T))
+)
+
+ggplot(topup_7days, 
+       aes(x=as.factor(week), 
+           y = med_amt,
+           fill=exp_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(perc_ftmau*100), group = exp_group), 
+  #Eposition = position_dodge(0.5),
+  #vjust = 0.5, size = 3.5
+  #) +
+  ylab("Median Total Top-Up Amt first 7 days") + xlab("KYCc Cohort Week") +
+  ggtitle("Median Total Top-Up Amt first 7 days of KYCc") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=14,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(vars(type), scales = "free") +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Exp. Group", 
+                    labels = c("Control","Test")
+                    )
+
+```
+
+
+```{r}
+
+# Previous Top-Up Analysis shows that users tend to topup at least 2 times within the first 35 days of KYCc and users tend to topup more on their second deposit than their first.
+# Here we look at users that completed KYCc at least 20 days ago, the median number of topups = 2
+
+# testing significance
+test <- filter(tx,rn==1,kycc_txn_days <= 15, kycc_curr_days >= 15)
+kruskal.test(value ~ exp_group, data =test)
+
+
+# How often do users topup within the first 7 days?
+tp_ <- as.data.frame(
+  filter(tx, kycc_txn_days <= 15, kycc_curr_days >= 15) %>%
+  group_by(user_id) %>% 
+  mutate(txn_cnt = length(txn_ts))
+)
+
+tp <- unique(tp_[,c("user_id","exp_group","txn_cnt")])
+
+tp_cumsum <- as.data.frame(
+  tp %>% group_by(exp_group,txn_cnt) %>%
+  summarise(n_users = length(user_id)) %>%
+  mutate(cumsum = cumsum(n_users)) %>% 
+  group_by(exp_group) %>%
+  mutate(total_users = sum(n_users),
+         perc_users = round(cumsum/total_users,3))
+)
+
+median(tp[tp[,2] == 'control',]$txn_cnt,na.rm=T)
+median(tp[tp[,2] == 'test',]$txn_cnt,na.rm=T)
+
+ggplot(filter(tp_cumsum,txn_cnt <= 10), 
+       aes(x=as.factor(txn_cnt), 
+           y = perc_users,
+           group=as.factor(exp_group),
+           color=as.factor(exp_group)
+           )
+       ) +
+  geom_line(aes(group=factor(exp_group)),size=1.25)+ ylim(0,1) +
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Cumulative % Users") + xlab("# of Top-Ups") + 
+  ggtitle("CDR Plot") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=20,face="bold",angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent,limits=c(0,1)) +
+  #scale_x_discrete(labels=c("0", "1", "2", "3","4","5","6","7",">7 days")) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "Exp. Group", labels = c("Control","Test")
+                    )
+
+```
+
+```{r}
+# SLIDE 16: Since users tend to top-up at least 2 times within the first 7 days of KYCc, are there differences in the amount between the first and second topup?
+
+tp_amt <- as.data.frame(
+  filter(tp_,rn <= 2) %>% group_by(exp_group,rn) %>% 
+  summarise(med_tp = median(value)
+            )
+)
+
+
+ggplot(tp_amt, 
+       aes(x=as.factor(exp_group), 
+           y = med_tp,
+           fill=as.factor(rn),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(perc_ftmau*100), group = exp_group), 
+  #Eposition = position_dodge(0.5),
+  #vjust = 0.5, size = 3.5
+  #) +
+  ylab("Median Top-Up Amt") + xlab("Exp. Group") +
+  ggtitle("Median Top-Up Amt of 1st and 2nd Top-Up") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=14,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(vars(type), scales = "free") +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c(#"#48AC98", "#E5C3C7",
+                             "#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "First/Second Top-Up", 
+                    labels = c("First","Second")
+                    )
+
+```
+
+```{r}
+
+# SLIDE 17: Are there differences in the number of users that go into dunning/contact CS between test and control groups?
+du <- as.data.frame(dunning)
+cs <- as.data.frame(cs)
+
+ggplot(du, 
+       aes(x=as.factor(exp_group), 
+           y = per_users,
+           fill=as.factor(exp_group),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  geom_text(
+  aes(label = round(per_users*100,2), group = exp_group), 
+  #Eposition = position_dodge(0.5),
+  vjust = 0.5, size = 3.5
+  ) +
+  ylab("% Users") + xlab("Exp. Group") +
+  ggtitle("% Users in Dunning") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=14,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(vars(type), scales = "free") +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c(#"#48AC98", "#E5C3C7",
+                             "#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Exp. Group", 
+                    labels = c("Control","Test")
+                    )
+
+ggplot(cs, 
+       aes(x=as.factor(exp_group), 
+           y = perc_users,
+           fill=as.factor(exp_group),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  geom_text(
+  aes(label = round(perc_users*100,2), group = exp_group), 
+  #Eposition = position_dodge(0.5),
+  vjust = 0.5, size = 3.5
+  ) +
+  ylab("% Users") + xlab("Exp. Group") +
+  ggtitle("% Users Contacting Customer Service") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=14,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(vars(type), scales = "free") +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c(#"#48AC98", "#E5C3C7",
+                             "#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Exp. Group", 
+                    labels = c("Control","Test")
+                    )
+
+# testing for significance
+print("Dunning")
+prop.test(as.matrix(du[,2:3]))
+print("Customer Service contacts")
+prop.test(as.matrix(cs[,2:3]))
+
+```
+
+```{r}
+
+
+```
+
+```{r}
+
+```
+

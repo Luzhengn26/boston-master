@@ -1,0 +1,9 @@
+---
+title: "Did 100% Yellow Flow KYC reduce the Fraud Rate?"
+author: "Carlo Scalisi"
+date: "2021-02-18"
+region: "US"
+link: "https://docs.google.com/presentation/d/1fANYhZiu6cZi-1XnM18zSuj_e8VoFV1jUCKU9-9rtMU/edit?usp=sharing"
+summary: "Investigation on linkages between the move to a mandatory two-step KYC process and observed levels of fraud in relative KYCc users"
+tags: "socure, kyc, yellow flow, fraud"
+---

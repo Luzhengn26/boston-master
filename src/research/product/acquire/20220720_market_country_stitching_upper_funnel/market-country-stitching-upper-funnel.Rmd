@@ -1,0 +1,10 @@
+---
+title: "Market country stitching in Acquire upper funnel front-end Snowplow data"
+author: "Claudia Dai"
+region: "EU"
+date: "2022-07-20"
+link: "https://docs.google.com/presentation/d/1Vn5urZuaZ_1HcfliFfq2lGwFRM---50qq3m2kWn0QZc/"
+tags: "acquire, signup, upper funnel, market country, snowplow"
+research_type: "Data Deep Dives"
+summary: "For our upper sign up funnel (pre-SU), we rely on front-end tracking Snowplow data to understand and infer the market of a user. At signup_initiated step, we capture either the market of website source or the IP geolocation as $COUNTRY variable. After sign up initiation, users select their desired market from the drop down, which is only stored from personal_information step onwards. Hence, we would expect a mismatch in some cases between the $COUNTRY value stored at signup_initiated vs. personal_information+. We aim to employ country stitching method to backfill signup_initiated events (pre-personal_information). We propose to use $COUNTRY value sent at personal_information and waiting_list to backfill predating signup_initiated, and subsequent funnel events. This solution ignores the 6.99% user attempts that have no countries in their attempts, and will address 4.14% user attempts which fall within the 2-country bucket, 0.02% that have more than 2 distinct countries, and future incoming cases. We achieve a reduction of NULL values at signup_initiated step (-27.96%). Our data historically inflated German SUi attempts and deflated the other core markets."
+---

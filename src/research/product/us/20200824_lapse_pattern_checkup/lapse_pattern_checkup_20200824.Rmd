@@ -1,0 +1,13 @@
+---
+title: "Checking Whether 2020 Summer Lapse Patterns Are Unexpected"
+author: "Dani Mermelstein"
+date: "2020-08-24"
+region: "US"
+summary: "We found that MAU first time lapse rates are in line with previous cohorts, while relapse and reactivation patterns are strongly correlated to the total growth of our funded users (cumulative FT MAU counts). Coupled with a cohort analysis showing steady behavior patterns across cohorts, this indicates users are not lapsing at a higher or lower rate than historical rates. The increase in monthly counts of relapsed and reactivated users correlates very strongly with the growth in funded users. We should expect the counts for these groups to continue to grow in line with our cumulative FT MAU numbers. This analysis was done on lapse behaviors that happened between January 1 and July 31 2020."
+link: "https://docs.google.com/presentation/d/1rruSaWA9o--a4gmhQtSzW1HFZlFDMqUIGWPC_WbwfZg/edit?usp=sharing"
+tags: "lapse rates, reactivation, net mau, ft mau, cohort analysis, correlations"
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---

@@ -1,0 +1,229 @@
+---
+title: "introductory_page_v2_us test results"
+author: "Dani Mermelstein"
+date: "2021-07-20"
+region: "US"
+link: 
+tags: "ab test, split test, signup, new screen, acquire,"
+summary: "This AB test in the US Signup flow resulted in no changes to key KPIs. We are calling it for the control variant."
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(kableExtra)
+library(bayesAB)
+library(ggplot2)
+library(scales)
+
+# load the data
+load(paste0("data/intro_page_data.RData"))
+
+# aggregate
+test_groups <- test_data[,.(users=.N,
+                            kyci=sum(ifelse(!is.na(kyci),1,0)),
+                            kycc=sum(ifelse(!is.na(kycc),1,0)),
+                            ft_mau=sum(ifelse(!is.na(ftmau),1,0)),
+                            fraudsters=sum(ifelse(!is.na(first_fraud_flag),1,0))), 
+                         by=.(variant)][order(variant),]
+```
+
+# Context
+
+For this test we look at users who started signup between `r as.Date(min(test_data$created))` and `r as.Date(max(test_data$created))`
+
+# High-level behavior
+
+```{r, echo=FALSE}
+
+kable(test_groups)%>%
+  kable_styling(full_width = FALSE)
+
+```
+
+# Results
+
+We note no significant changes to the following KPIs:
+
+ - KYC Initiated
+ - KYC Completed
+ - FT MAU rates
+ - Fraudsters
+
+# KPI Analysis  {.tabset .tabset-fade .tabset-pills} 
+
+## KYC Initiated
+
+```{r, echo=FALSE}
+
+# set outcome
+bayes_data <- test_data
+bayes_data$outcome <- ifelse(!is.na(bayes_data$kyci),1,0)
+
+# get outcome vectors
+control <- as.integer(bayes_data[variant=='introductory_page_v2_us_control',]$outcome)
+test <- as.integer(bayes_data[variant=='introductory_page_v2_us',]$outcome)
+
+# control for sample size differences
+# no_ach <- sample(no_ach, size=length(yes_ach))
+
+AB1 <- bayesTest(test, control, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+kable(data.frame("Variants"=c("control","test"), 
+           "Users"=c(length(control), length(test)), 
+           "Outcomes"=c(sum(control), sum(test)),
+           "Rate"=c(sum(control)/length(control), sum(test)/length(test)))) %>%
+  kable_styling(full_width = F)
+
+```
+
+### TL;DR
+
+When looking at KYC Initiated within 7 days of test assignment, users **`r ifelse(abs(1-summary(AB1)$probability$Probability)<5 & !(summary(AB1)$interval$Probability[1] < 0 & 0 < summary(AB1)$interval$Probability[2]), "are", "are NOT")`** more likely to initiate KYC.
+
+### Estimated Lift: **`r percent(mean(c(summary(AB1)$interval$Probability)))`**
+
+### 90% Confidence Interval: **(`r summary(AB1)$interval$Probability`)**
+ 
+### Charts
+
+```{r, echo=FALSE}
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("test","control"))
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+```
+
+## KYC Completed
+
+```{r, echo=FALSE}
+
+# set outcome
+bayes_data <- test_data
+bayes_data$outcome <- ifelse(!is.na(bayes_data$kycc),1,0)
+
+# get outcome vectors
+control <- as.integer(bayes_data[variant=='introductory_page_v2_us_control',]$outcome)
+test <- as.integer(bayes_data[variant=='introductory_page_v2_us',]$outcome)
+
+# control for sample size differences
+# no_ach <- sample(no_ach, size=length(yes_ach))
+
+AB1 <- bayesTest(test, control, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+kable(data.frame("Variants"=c("control","test"), 
+           "Users"=c(length(control), length(test)), 
+           "Outcomes"=c(sum(control), sum(test)),
+           "Rate"=c(sum(control)/length(control), sum(test)/length(test)))) %>%
+  kable_styling(full_width = F)
+
+```
+
+### TL;DR
+
+When looking at KYC Completed within 7 days of test assignment, users **`r ifelse(abs(1-summary(AB1)$probability$Probability)<5 & !(summary(AB1)$interval$Probability[1] < 0 & 0 < summary(AB1)$interval$Probability[2]), "are", "are NOT")`** more likely to complete KYC.
+
+### Estimated Lift: **`r percent(mean(c(summary(AB1)$interval$Probability)))`**
+
+### 90% Confidence Interval: **(`r summary(AB1)$interval$Probability`)**
+ 
+### Charts
+
+```{r, echo=FALSE}
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("test","control"))
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+```
+
+## FT MAU
+
+```{r, echo=FALSE}
+
+# set outcome
+bayes_data <- test_data
+bayes_data$outcome <- ifelse(!is.na(bayes_data$ftmau),1,0)
+
+# get outcome vectors
+control <- as.integer(bayes_data[variant=='introductory_page_v2_us_control',]$outcome)
+test <- as.integer(bayes_data[variant=='introductory_page_v2_us',]$outcome)
+
+# control for sample size differences
+# no_ach <- sample(no_ach, size=length(yes_ach))
+
+AB1 <- bayesTest(test, control, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+kable(data.frame("Variants"=c("control","test"), 
+           "Users"=c(length(control), length(test)), 
+           "Outcomes"=c(sum(control), sum(test)),
+           "Rate"=c(sum(control)/length(control), sum(test)/length(test)))) %>%
+  kable_styling(full_width = F)
+
+```
+
+### TL;DR
+
+When looking at FT MAU within 21 days of KYC Complete, users **`r ifelse(abs(1-summary(AB1)$probability$Probability)<5 & !(summary(AB1)$interval$Probability[1] < 0 & 0 < summary(AB1)$interval$Probability[2]), "are", "are NOT")`** more likely to fund their accounts.
+
+### Estimated Lift: **`r percent(mean(c(summary(AB1)$interval$Probability)))`**
+
+### 90% Confidence Interval: **(`r summary(AB1)$interval$Probability`)**
+ 
+### Charts
+
+```{r, echo=FALSE}
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("test","control"))
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+```
+
+## Fraudsters
+
+```{r, echo=FALSE}
+
+# set outcome
+bayes_data <- test_data
+bayes_data$outcome <- ifelse(!is.na(bayes_data$first_fraud_flag),1,0)
+
+# get outcome vectors
+control <- as.integer(bayes_data[variant=='introductory_page_v2_us_control',]$outcome)
+test <- as.integer(bayes_data[variant=='introductory_page_v2_us',]$outcome)
+
+# control for sample size differences
+# no_ach <- sample(no_ach, size=length(yes_ach))
+
+AB1 <- bayesTest(test, control, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+kable(data.frame("Variants"=c("control","test"), 
+           "Users"=c(length(control), length(test)), 
+           "Outcomes"=c(sum(control), sum(test)),
+           "Rate"=c(sum(control)/length(control), sum(test)/length(test)))) %>%
+  kable_styling(full_width = F)
+
+```
+
+### TL;DR
+
+When looking at fraud rates, users **`r ifelse(abs(1-summary(AB1)$probability$Probability)<5 & !(summary(AB1)$interval$Probability[1] < 0 & 0 < summary(AB1)$interval$Probability[2]), "are", "are NOT")`** more likely to become fraudsters.
+
+### Estimated Lift: **`r percent(mean(c(summary(AB1)$interval$Probability)))`**
+
+### 90% Confidence Interval: **(`r summary(AB1)$interval$Probability`)**
+ 
+### Charts
+
+```{r, echo=FALSE}
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("test","control"))
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+```

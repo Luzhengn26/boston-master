@@ -1,0 +1,599 @@
+---
+title: "AB Test: Does Removing Stripe Topup Lead to Fewer MAUs?"
+author: "Dani Mermelstein"
+date: "2020-03-29"
+region: "US"
+link: 
+summary: "Here we want to know how many users we have prevented from becoming ftMAU due to removing the Stripe topup capability. Looking at all users in our test shows that there is no difference in the overall funding rate between the treatment and control variants. However, there are underlying differences between new and tenured user behavior that counteract each other: new users are showing a decrease of 1.81% in their ftMAU rate and tenured users show no significant difference between their ftMAU rate."
+tags: "ab test, stripe, topup, ftmau, funding"
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyverse)
+library(bayesAB)
+library(ggplot2)
+
+# load the data
+load(paste0("data/first_time_funders.RData"))
+
+# set as datatable so we can easily aggregate
+first_time_funders <- as.data.table(first_time_funders_completed)
+
+# handle NA values and name the variants
+first_time_funders$variant_name <- "BOTH_METHODS"
+first_time_funders[,c("variant_name")][which(first_time_funders$variant==FALSE),] <- "GOOGLE/APPLE_PAY"
+
+# translate to boolean for the rate analysis
+first_time_funders[!is.na(first_time_funders$ft_fau)]$ft_fau <- 1
+first_time_funders[is.na(first_time_funders$ft_fau)]$ft_fau <- 0
+first_time_funders[!is.na(first_time_funders$sp_ach)]$sp_ach <- 1
+first_time_funders[is.na(first_time_funders$sp_ach)]$sp_ach <- 0
+first_time_funders[!is.na(first_time_funders$card_funded)]$card_funded <- 1
+first_time_funders[is.na(first_time_funders$card_funded)]$card_funded <- 0
+first_time_funders$ft_fau <- as.integer(first_time_funders$ft_fau)
+first_time_funders$sp_ach <- as.integer(first_time_funders$sp_ach)
+first_time_funders$card_funded <- as.integer(first_time_funders$card_funded)
+
+# overall aggregation
+agg <- first_time_funders[order(variant_name),][, .(total_funded = sum(ft_fau), 
+                              card_funded = sum(card_funded),
+                              users = .N, 
+                              overall_rate = sum(ft_fau)/.N, 
+                              card_rate = sum(card_funded)/.N,
+                              non_card_rate = (sum(ft_fau)-sum(card_funded))/.N,
+                              sp_ach = sum(sp_ach)), 
+                          by = .(variant_name)]
+
+# new users
+agg_new <- first_time_funders[order(variant_name),][which(cohort_age=='new'),][, .(total_funded = sum(ft_fau), 
+                              card_funded = sum(card_funded),
+                              users = .N, 
+                              overall_rate = sum(ft_fau)/.N, 
+                              card_rate = sum(card_funded)/.N,
+                              non_card_rate = (sum(ft_fau)-sum(card_funded))/.N,
+                              sp_ach = sum(sp_ach)), 
+                          by = .(variant_name)]
+
+# tenured users
+agg_tenured <- first_time_funders[order(variant_name),][which(cohort_age=='tenured'),][, .(total_funded = sum(ft_fau), 
+                              card_funded = sum(card_funded),
+                              users = .N, 
+                              overall_rate = sum(ft_fau)/.N, 
+                              card_rate = sum(card_funded)/.N,
+                              non_card_rate = (sum(ft_fau)-sum(card_funded))/.N,
+                              sp_ach = sum(sp_ach)), 
+                          by = .(variant_name)]
+
+```
+
+# Background
+
+On `r test.start.date`, we launched an A/B test in the US centered around reducing fraud via Stripe card topups. The alternative hypothesis was that we would be able to reduce AML issues if we simply removed the ability for card topups via Stripe and directed users to do card topup via Google/Apple Pay. 
+
+Since we are so early into the test we don't actually have enough cases of fraud yet to determine whether there has been a reduction of that metric. A concern has also developed around the funding rates observed for the treatment variant: mainly that by removing a funding method we have significantly affected the overall number of users who would fund at all. We therefore will look at first-time funding rates to understand the high-level effects of running this test in its current form.
+
+## Definitions and Notes
+
+  - "New" user: someone who signed up after `r test.start.date`
+  - "Tenured" user: someone who signed up before `r test.start.date`
+  - "Google/Apple_Pay": name of the treatment variant
+  - "Both_Methods": name of the control variant
+  - Valid outcomes are filtered to first-time funding after the test start, ie only first time transactions happening after `r test.start.date` (based on transaction completion date)
+  - We do not take into account transaction completion rates because this analysis is interested in whether users choose to fund or not
+
+# TL;DR
+
+We want to know how many users we have prevented from becoming ftMAU due to removing the Stripe topup capability.
+
+```{r, echo=FALSE}
+# run prop test for overall funding
+agg_results <- prop.test(agg$total_funded, agg$users, correct = FALSE, conf.level = .95)
+agg_results_new <- prop.test(agg_new$total_funded, agg_new$users, correct = FALSE, conf.level = .95)
+agg_results_tenured <- prop.test(agg_tenured$total_funded, agg_tenured$users, correct = FALSE, conf.level = .95)
+
+# run prop test for card funding
+card_agg_results <- prop.test(agg$card_funded, agg$users, correct = FALSE, conf.level = .95)
+card_agg_results_new <- prop.test(agg_new$card_funded, agg_new$users, correct = FALSE, conf.level = .95)
+card_agg_results_tenured <- prop.test(agg_tenured$card_funded, agg_tenured$users, correct = FALSE, conf.level = .95)
+```
+
+## Results
+
+Looking at all users in our test shows that **there is no difference in the overall funding rate between the treatment and control variants.** However, there are underlying differences between new and tenured user behavior that counteract each other.
+
+ - New users are showing a decrease of `r percent(1- agg_new[which(agg_new$variant_name=='GOOGLE/APPLE_PAY'),]$overall_rate/agg_new[which(agg_new$variant_name=='BOTH_METHODS'),]$overall_rate, accuracy=.01)` in their ftMAU rate
+   - This is driven by a reduction in Card TopUp transactions, and while we do see an increase in non-card funding it is not enough to cover the deficit.
+   - It is possible with the recent launch of Stripe/Plaid ACH (and further funding methods) this impact to new user ftMAU will be reduced if we run the test for longer
+- Tenured users show no significant difference between their ftMAU rate.
+   - This might hint that users who take longer to fund (but might in their future) are less likely to have a preference for funding through Stripe TopUp vs other methods available.
+
+Because tenured users outnumber new users in our test, they mask how new users are affected by the lack of Stripe TopUp.
+
+## Recommendations and further discussion
+
+  - Additional analysis is needed around the downstream financial impact of a `r percent(1- agg_new[which(agg_new$variant_name=='GOOGLE/APPLE_PAY'),]$overall_rate/agg_new[which(agg_new$variant_name=='BOTH_METHODS'),]$overall_rate, accuracy=.01)` drop in the ftMAU rate going forward, and what size reduction of fraud would justify that drop.
+  - We can keep debit card TopUp available but implement zip code matching for fraud reduction.
+  - New funding methods should continue be explored, since a large percentage of funding users (both new and tenured) did appear to be able to switch away from card-related funding if needed.
+
+## Deep Dive {.tabset .tabset-fade .tabset-pills}
+
+We chose to look at `card ftMAU` and `overall ftMAU` metrics through three lenses:
+
+  1. Overall population
+  2. New user population
+  3. Tenured user population
+
+We used a _Test of Equal or Given Proportions_ to check whether there are statistically significant differences between funding rates for the control and treatment groups.
+
+### All Users
+
+This rate includes all funding methods, eg Apple Pay, Stripe Topup, external ACH, Stripe/Plaid ACH.
+
+When we look at the test results from this angle, the difference in the overall funding rate is `r if (agg_results$p.value < 0.05){ paste0("**statistically significant** (p-value = ", round(agg_results$p.value, digits=4), ")")} else if (agg_results$p.value < 0.1){ paste0("**not statistically significant**, but is directionally indicative (p-value = ", round(agg_results$p.value, digits=4), ")")} else {  paste0("**NOT statistically significant** (p-value = ", round(agg_results$p.value, digits=4), ")")}`
+
+ - Control group funding rate: **`r percent(agg[which(agg$variant_name=='BOTH_METHODS'),]$overall_rate, accuracy=.01)`**
+ - Treatment group funding rate: **`r percent(agg[which(agg$variant_name=='GOOGLE/APPLE_PAY'),]$overall_rate, accuracy=.01)`**
+
+We can look a little deeper at two two opposing trends in this test:
+
+ 1. **A reduction in users funding via debit card**
+    - _`r percent(agg[which(agg$variant_name=='BOTH_METHODS'),]$card_rate, accuracy=.01)`_ users in control vs _`r percent(agg[which(agg$variant_name=='GOOGLE/APPLE_PAY'),]$card_rate, accuracy=.01)`_ users in treatment. This difference is `r if (card_agg_results$p.value < 0.05){ paste0("**statistically significant** (p-value = ", round(card_agg_results$p.value, digits=4), ")")} else if (card_agg_results$p.value < 0.1){ paste0("**not statistically significant**, but is directionally indicative (p-value = ", round(card_agg_results$p.value, digits=4), ")")} else {  paste0("**NOT statistically significant** (p-value = ", round(card_agg_results$p.value, digits=4), ")")}`
+  2. **An increase in users funding via non-card options (ie ACH)**
+      - _`r percent(agg[which(agg$variant_name=='BOTH_METHODS'),]$non_card_rate, accuracy=.01)`_ users in control vs _`r percent(agg[which(agg$variant_name=='GOOGLE/APPLE_PAY'),]$non_card_rate, accuracy=.01)`_ users in treatment
+
+The increase in users funding via non-card options has actually fully counterbalanced the decrease in card funding. This would indicate that some users who are currently using Stripe topup are able and willing to use other funding methods, if those methods were more prominent and accessible (or if they had to).
+
+### New Users
+
+This rate includes all funding methods, eg Apple Pay, Stripe Topup, external ACH, Stripe/Plaid ACH.
+
+When we look at the test results from this angle, the difference in the overall funding rate is `r if (agg_results_new$p.value < 0.05){ paste0("**statistically significant** (p-value = ", round(agg_results_new$p.value, digits=4), ")")} else if (agg_results_new$p.value < 0.1){ paste0("**not statistically significant**, but is directionally indicative (p-value = ", round(agg_results_new$p.value, digits=4), ")")} else {  paste0("**NOT statistically significant** (p-value = ", round(agg_results_new$p.value, digits=4), ")")}`
+
+ - Control group funding rate: **`r percent(agg_new[which(agg_new$variant_name=='BOTH_METHODS'),]$overall_rate, accuracy=.01)`**
+ - Treatment group funding rate: **`r percent(agg_new[which(agg_new$variant_name=='GOOGLE/APPLE_PAY'),]$overall_rate, accuracy=.01)`**
+
+We've observed two opposing trends so far in this test:
+
+ 1. **A reduction in users funding via debit card**
+    - _`r percent(agg_new[which(agg_new$variant_name=='BOTH_METHODS'),]$card_rate, accuracy=.01)`_ users in control vs _`r percent(agg_new[which(agg_new$variant_name=='GOOGLE/APPLE_PAY'),]$card_rate, accuracy=.01)`_ users in treatment. This difference is `r if (card_agg_results_new$p.value < 0.05){ paste0("**statistically significant** (p-value = ", round(card_agg_results_new$p.value, digits=4), ")")} else if (card_agg_results_new$p.value < 0.1){ paste0("**not statistically significant**, but is directionally indicative (p-value = ", round(card_agg_results_new$p.value, digits=4), ")")} else {  paste0("**NOT statistically significant** (p-value = ", round(card_agg_results_new$p.value, digits=4), ")")}`
+  2. **An increase in users funding via non-card options (ie ACH)**
+      - _`r percent(agg_new[which(agg_new$variant_name=='BOTH_METHODS'),]$non_card_rate, accuracy=.01)`_ users in control vs _`r percent(agg_new[which(agg_new$variant_name=='GOOGLE/APPLE_PAY'),]$non_card_rate, accuracy=.01)`_ users in treatment
+
+The increase in users funding via non-card options hasn't been enough to fully counterbalance the decrease in card funding, **resulting in an `r percent(1- agg_new[which(agg_new$variant_name=='GOOGLE/APPLE_PAY'),]$overall_rate/agg_new[which(agg_new$variant_name=='BOTH_METHODS'),]$overall_rate, accuracy=.01)` decrease in the ftMAU rate** among new users (from `r percent(agg_new[which(agg_new$variant_name=='BOTH_METHODS'),]$overall_rate, accuracy=.01)` down to `r percent(agg_new[which(agg_new$variant_name=='GOOGLE/APPLE_PAY'),]$overall_rate, accuracy=.01)`). On the bright side, this would indicate that some new users who are currently using Stripe topup are able and willing to use other funding methods, if those methods were more prominent and accessible (or if they had to).
+
+### Tenured Users
+
+This rate includes all funding methods, eg Apple Pay, Stripe Topup, external ACH, Stripe/Plaid ACH.
+
+When we look at the test results from this angle, the difference in the overll funding rate is `r if (agg_results_tenured$p.value < 0.05){ paste0("**statistically significant** (p-value = ", round(agg_results_tenured$p.value, digits=4), ")")} else if (agg_results_tenured$p.value < 0.1){ paste0("**not statistically significant**, but is directionally indicative (p-value = ", round(agg_results_tenured$p.value, digits=4), ")")} else {  paste0("**NOT statistically significant** (p-value = ", round(agg_results_tenured$p.value, digits=4), ")")}`
+
+ - Control group funding rate: **`r percent(agg_tenured[which(agg_tenured$variant_name=='BOTH_METHODS'),]$overall_rate, accuracy=.01)`**
+ - Treatment group funding rate: **`r percent(agg_tenured[which(agg_tenured$variant_name=='GOOGLE/APPLE_PAY'),]$overall_rate, accuracy=.01)`**
+
+We've observed two opposing trends so far in this test:
+
+ 1. **A reduction in users funding via debit card**
+    - _`r percent(agg_tenured[which(agg_tenured$variant_name=='BOTH_METHODS'),]$card_rate, accuracy=.01)`_ users in control vs _`r percent(agg_tenured[which(agg_tenured$variant_name=='GOOGLE/APPLE_PAY'),]$card_rate, accuracy=.01)`_ users in treatment. This difference is `r if (card_agg_results_tenured$p.value < 0.05){ paste0("**statistically significant** (p-value = ", round(card_agg_results_tenured$p.value, digits=4), ")")} else if (card_agg_results_tenured$p.value < 0.1){ paste0("**not statistically significant**, but is directionally indicative (p-value = ", round(card_agg_results_tenured$p.value, digits=4), ")")} else {  paste0("**NOT statistically significant** (p-value = ", round(card_agg_results_tenured$p.value, digits=4), ")")}`
+  2. **An increase in users funding via non-card options (ie ACH)**
+      - _`r percent(agg_tenured[which(agg_tenured$variant_name=='BOTH_METHODS'),]$non_card_rate, accuracy=.01)`_ users in control vs _`r percent(agg_tenured[which(agg_tenured$variant_name=='GOOGLE/APPLE_PAY'),]$non_card_rate, accuracy=.01)`_ users in treatment
+
+The increase in users funding via non-card options has actually fully counterbalanced the decrease in card funding. This would indicate that some users who are currently using Stripe topup are able and willing to use other funding methods, if those methods were more prominent and accessible (or if they had to).
+
+# Analysis Output {.tabset .tabset-fade .tabset-pills}
+
+## Card Funding Only {.tabset .tabset-fade}
+
+### All Users
+
+```{r, echo=FALSE}
+
+kable(agg[,c(1,3,4,6)])%>%
+  kable_styling(full_width = F)
+
+card_agg_results
+
+```
+
+### New Users
+
+```{r, echo=FALSE}
+
+kable(agg_new[,c(1,3,4,6)])%>%
+  kable_styling(full_width = F)
+
+card_agg_results_new
+
+```
+
+### Tenured Users
+
+```{r, echo=FALSE}
+
+kable(agg_tenured[,c(1,3,4,6)])%>%
+  kable_styling(full_width = F)
+
+card_agg_results_tenured
+
+```
+
+## Overall Funding {.tabset .tabset-fade}
+
+### All Users
+
+```{r, echo=FALSE}
+
+kable(agg[,c(1,2,4,5)])%>%
+  kable_styling(full_width = F)
+
+agg_results
+
+```
+
+### New Users
+
+```{r, echo=FALSE}
+
+kable(agg_new[,c(1,2,4,5)])%>%
+  kable_styling(full_width = F)
+
+agg_results_new
+
+```
+
+### Tenured Users
+
+```{r, echo=FALSE}
+
+kable(agg_tenured[,c(1,2,4,5)])%>%
+  kable_styling(full_width = F)
+
+agg_results_tenured
+
+```
+
+
+# Difference by Days from Signup
+
+```{r, echo=FALSE, message=FALSE}
+
+new_funders <- as.data.table(first_time_funders_completed)
+new_funders <- new_funders[which(cohort_age=='new'),]
+
+new_funders$variant_name <- "BOTH_METHODS"
+new_funders[,c("variant_name")][which(new_funders$variant==FALSE),] <- "GOOGLE/APPLE_PAY"
+
+new_funders$ftmau_diff <- as.Date(new_funders$ft_fau) - as.Date(new_funders$user_created)
+
+new_funders$day3 <- ifelse(new_funders$ftmau_diff <= 3, 1, 0)
+new_funders[is.na(new_funders$day3)]$day3 <- 0
+new_funders$day5 <- ifelse(new_funders$ftmau_diff <= 5, 1, 0)
+new_funders[is.na(new_funders$day5)]$day5 <- 0
+new_funders$day7 <- ifelse(new_funders$ftmau_diff <= 7, 1, 0)
+new_funders[is.na(new_funders$day7)]$day7 <- 0
+new_funders$day10 <- ifelse(new_funders$ftmau_diff <= 10, 1, 0)
+new_funders[is.na(new_funders$day10)]$day10 <- 0
+new_funders$day14 <- ifelse(new_funders$ftmau_diff <= 14, 1, 0)
+new_funders[is.na(new_funders$day14)]$day14 <- 0
+new_funders$day18 <- ifelse(new_funders$ftmau_diff <= 18, 1, 0)
+new_funders[is.na(new_funders$day18)]$day18 <- 0
+new_funders$day21 <- ifelse(new_funders$ftmau_diff <= 21, 1, 0)
+new_funders[is.na(new_funders$day21)]$day21 <- 0
+new_funders$day26 <- ifelse(new_funders$ftmau_diff <= 26, 1, 0)
+new_funders[is.na(new_funders$day26)]$day26 <- 0
+new_funders$day30 <- ifelse(new_funders$ftmau_diff <= 30, 1, 0)
+new_funders[is.na(new_funders$day30)]$day30 <- 0
+new_funders$day45 <- ifelse(new_funders$ftmau_diff <= 45, 1, 0)
+new_funders[is.na(new_funders$day45)]$day45 <- 0
+
+# first_time_funders[!is.na(first_time_funders$sp_ach)]$sp_ach <- 1
+# first_time_funders[is.na(first_time_funders$sp_ach)]$sp_ach <- 0
+# first_time_funders[!is.na(first_time_funders$card_funded)]$card_funded <- 1
+# first_time_funders[is.na(first_time_funders$card_funded)]$card_funded <- 0
+# first_time_funders$ft_fau <- as.integer(first_time_funders$ft_fau)
+# first_time_funders$sp_ach <- as.integer(first_time_funders$sp_ach)
+# first_time_funders$card_funded <- as.integer(first_time_funders$card_funded)
+
+rates <- new_funders[order(variant_name),][, .(
+                              users = .N, 
+                              users_3d = sum(day3), 
+                              users_5d = sum(day5), 
+                              users_7d = sum(day7), 
+                              users_10d = sum(day10), 
+                              users_14d = sum(day14), 
+                              users_18d = sum(day18), 
+                              users_21d = sum(day21), 
+                              users_21d = sum(day26),
+                              users_30d = sum(day30),
+                              users_45d = sum(day45),
+                              rate_3d = sum(day3)/.N,
+                              rate_5d = sum(day5)/.N,
+                              rate_7d = sum(day7)/.N,
+                              rate_10d = sum(day10)/.N,
+                              rate_14d = sum(day14)/.N,
+                              rate_18d = sum(day18)/.N,
+                              rate_21d = sum(day21)/.N,
+                              rate_26d = sum(day26)/.N,
+                              rate_30d = sum(day30)/.N,
+                              rate_45d = sum(day45)/.N
+                              ), 
+                          by = .(variant_name)]
+
+# convert to long
+long <- gather(rates, days, rate, rate_3d:rate_45d)
+long$days <- c(3,3,5,5,7,7,10,10,14,14,18,18,21,21,26,26,30,30,45,45)
+
+# ggplot(long, aes(days, rate, group = variant_name), fill='variant_name') +
+#   geom_line(aes(linetype=variant_name)) +
+#   geom_point()
+
+# convert to wide to get difference comparison
+wide <- long[,c('variant_name','days','rate')]
+wide <- spread(wide, variant_name, rate)
+wide$diff <- (wide$BOTH_METHODS-wide$`GOOGLE/APPLE_PAY`)/wide$BOTH_METHODS
+
+ggplot(wide[c(1,3:10),], aes(days, diff)) +
+  geom_line() +
+  geom_point() +
+  geom_smooth(method='loess', level=.2, span=.9) +
+  ylim(0,.3) +
+  labs(title="Difference between Control and Treatment ftMAU rate (New Users)",
+       x ="Days from Signup", 
+       y = "Percent")
+
+```
+
+# Bayesian Analysis {.tabset .tabset-fade}
+
+## All Users
+
+```{r, echo=FALSE}
+
+# set as datatable so we can easily aggregate
+first_time_funders <- as.data.table(first_time_funders_completed)
+
+# translate to boolean
+first_time_funders[!is.na(first_time_funders$ft_fau)]$ft_fau <- 1
+first_time_funders[is.na(first_time_funders$ft_fau)]$ft_fau <- 0
+
+# look at overall numbers
+control <- as.integer(first_time_funders[which(variant==TRUE),]$ft_fau)
+treatment <- as.integer(first_time_funders[which(variant==FALSE),]$ft_fau)
+
+AB1 <- bayesTest(treatment, control, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+```
+
+estimated lift: `r percent(mean(c(summary(AB1)$interval$Probability)))`
+
+### Plots
+
+```{r, echo=FALSE}
+
+kable(data.frame("Variants"=c("control","treatment"), 
+           "Users"=c(length(control), length(treatment)), 
+           "Outcomes"=c(sum(control), sum(treatment)),
+           "Rate"=c(sum(control)/length(control), sum(treatment)/length(treatment)))) %>%
+  kable_styling(full_width = F)
+
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("treatment","control"))
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+
+summary(AB1)
+```
+
+## New Users (all-time)
+
+```{r, echo=FALSE}
+
+# look at new users
+control <- as.integer(first_time_funders[which(variant==TRUE & cohort_age=='new'),]$ft_fau)
+treatment <- as.integer(first_time_funders[which(variant==FALSE & cohort_age=='new'),]$ft_fau)
+
+
+AB1 <- bayesTest(treatment, control, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+```
+
+estimated lift: `r percent(mean(c(summary(AB1)$interval$Probability)))`
+
+### Plots
+
+```{r, echo=FALSE}
+
+kable(data.frame("Variants"=c("control","treatment"), 
+           "Users"=c(length(control), length(treatment)), 
+           "Outcomes"=c(sum(control), sum(treatment)),
+           "Rate"=c(sum(control)/length(control), sum(treatment)/length(treatment)))) %>%
+  kable_styling(full_width = F)
+
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("treatment","control"))
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+
+summary(AB1)
+```
+
+
+## New Users (within 30 days)
+
+```{r, echo=FALSE}
+first_time_funders <- as.data.table(first_time_funders_completed)
+first_time_funders$ftmau_diff <- as.Date(first_time_funders$ft_fau) - as.Date(first_time_funders$user_created)
+
+first_time_funders$ftmau_diff <- ifelse(first_time_funders$ftmau_diff <= 30 & first_time_funders$ftmau_diff >= 0, 1, 0)
+first_time_funders[is.na(first_time_funders$ftmau_diff)]$ftmau_diff <- 0
+
+# look at new users
+control <- as.integer(first_time_funders[which(variant==TRUE & cohort_age=='new'),]$ftmau_diff)
+treatment <- as.integer(first_time_funders[which(variant==FALSE & cohort_age=='new'),]$ftmau_diff)
+
+
+AB1 <- bayesTest(treatment, control, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+```
+
+estimated lift: `r percent(mean(c(summary(AB1)$interval$Probability)))`
+
+### Plots
+
+```{r, echo=FALSE}
+
+kable(data.frame("Variants"=c("control","treatment"), 
+           "Users"=c(length(control), length(treatment)), 
+           "Outcomes"=c(sum(control), sum(treatment)),
+           "Rate"=c(sum(control)/length(control), sum(treatment)/length(treatment)))) %>%
+  kable_styling(full_width = F)
+
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("treatment","control"))
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+
+summary(AB1)
+```
+
+## All User Disputes (all-time)
+
+```{r, echo=FALSE}
+# # set as datatable so we can easily aggregate
+# first_time_funders <- as.data.table(first_time_funders_completed)
+# 
+# translate to boolean
+first_time_funders[!is.na(first_time_funders$disputed)]$disputed <- 1
+first_time_funders[is.na(first_time_funders$disputed)]$disputed <- 0
+
+
+# look at new users
+control <- as.integer(first_time_funders[which(variant==TRUE),]$disputed)
+treatment <- as.integer(first_time_funders[which(variant==FALSE),]$disputed)
+
+
+AB1 <- bayesTest(treatment, control, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+```
+
+estimated lift: `r percent(mean(c(summary(AB1)$interval$Probability)))`
+
+### Plots
+
+```{r, echo=FALSE}
+
+kable(data.frame("Variants"=c("control","treatment"), 
+           "Users"=c(length(control), length(treatment)), 
+           "Outcomes"=c(sum(control), sum(treatment)),
+           "Rate"=c(sum(control)/length(control), sum(treatment)/length(treatment)))) %>%
+  kable_styling(full_width = F)
+
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("treatment","control"))
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+
+summary(AB1)
+```
+
+# Deposit Amounts {.tabset .tabset-fade .tabset-pills}
+
+## Tenured Users
+
+```{r, echo=FALSE, message=FALSE}
+
+# https://stackoverflow.com/questions/4787332/how-to-remove-outliers-from-a-dataset
+remove_outliers <- function(x, na.rm = TRUE, ...) {
+  qnt <- quantile(x, probs=c(0, .98), na.rm = na.rm, ...)
+  H <- 1.5 * IQR(x, na.rm = na.rm)
+  y <- x
+  y[x < (qnt[1] - H)] <- 0
+  y[x > (qnt[2] + H)] <- 0
+  y
+}
+
+tenured_funder_amounts <- first_time_funders[complete.cases(first_time_funders$txn_amount)][which(cohort_age=='tenured')]
+tenured_funder_amounts$variant_name <- "BOTH_METHODS"
+tenured_funder_amounts[,c("variant_name")][which(tenured_funder_amounts$variant==FALSE),] <- "GOOGLE/APPLE_PAY"
+
+# tenured users
+control <- remove_outliers(as.integer(tenured_funder_amounts[which(variant==TRUE),]$txn_amount))
+treatment <- remove_outliers(as.integer(tenured_funder_amounts[which(variant==FALSE),]$txn_amount))
+
+wilcox.test(control, treatment, alternative=c("two.sided"), conf.level=.9, correct=TRUE, paired = FALSE)
+```
+
+Average deposit amounts:
+
+ - Control: `r dollar(mean(control))`
+ - Treatment: `r dollar(mean(treatment))`
+
+Median deposit amounts:
+
+ - Control: `r dollar(median(control))`
+ - Treatment: `r dollar(median(treatment))`
+ 
+```{r, echo=FALSE, message=FALSE}
+
+ggplot(tenured_funder_amounts, aes(x=txn_amount, fill=variant_name)) +
+  geom_density(alpha=.65) +
+  xlim(0, 500)
+
+
+```
+
+## New Users
+
+```{r, echo=FALSE, message=FALSE}
+new_funder_amounts <- new_funders[complete.cases(new_funders$txn_amount)]
+
+# new users
+control <- remove_outliers(as.integer(new_funder_amounts[which(variant==TRUE),]$txn_amount))
+treatment <- remove_outliers(as.integer(new_funder_amounts[which(variant==FALSE),]$txn_amount))
+
+wilcox.test(control, treatment, alternative=c("two.sided"), conf.level=.9, correct=TRUE, paired = FALSE)
+
+
+```
+
+Average deposit amounts:
+
+ - Control: `r dollar(mean(control))`
+ - Treatment: `r dollar(mean(treatment))`
+ 
+Median deposit amounts:
+
+ - Control: `r dollar(median(control))`
+ - Treatment: `r dollar(median(treatment))`
+ 
+```{r, echo=FALSE, message=FALSE}
+
+ggplot(new_funder_amounts, aes(x=txn_amount, fill=variant_name)) +
+  geom_density(alpha=.65) +
+  xlim(0, 500)
+
+
+```
+
+# Stripe Radar Risk Scores
+
+```{r, echo=FALSE, message=FALSE}
+chargeback_users <- as.data.table(chargeback_users)
+chargeback_users <- chargeback_users[complete.cases(chargeback_users),]
+chargeback_users$ci__outcome__risk_score <- as.integer(chargeback_users$ci__outcome__risk_score)
+
+# average risk scores
+chargeback_users[complete.cases(chargeback_users),][, .(avg_risk = mean(ci__outcome__risk_score)),by = .(variant)]
+
+```

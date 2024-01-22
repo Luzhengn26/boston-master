@@ -1,0 +1,264 @@
+---
+title: "How does the end of Unemployment Insurance benefits affect MAU numbers?"
+author: "Dani Mermelstein"
+date: "2020-07-01"
+region: "US"
+summary: "As of July 2020, the US is in the middle of an unemployment crisis. The Bureau of Labor Statistics in a recent release listed the unemployment rate at 11.1%, down from ~15%, which would be 17.8MM people. Compare that to the unemployment rate of 3.5% in February (5.8MM people) of this year. In this crisis our users have been receiving unemployment checks in their N26 accounts as part of the stimulus package. In light of conversations in Congress about whether to extend the special unemployment benefits past July, we figure this is a good time to explore broadly what would happen to our MAUs if that income was no longer available to them. These are not meant to be accurate predictions of our future MAU count, but an exercise showcasing how vulnerable our MAUs are to changes in US government policy regarding the unemployment stimulus package. Based on this analysis, between 1-13% of current MAUs would lapse within 35-65 days if the unemployment checks stopped coming."
+link: "https://docs.google.com/presentation/d/1UwdgVv5caYwuUiH12uumQT8Yk_4kWXj0XRuL47n-OhM"
+tags: "covid, balance, ui, unemployment, benefits, drawdown, mau"
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(kableExtra)
+library(ggplot2)
+library(scales)
+
+# load the data
+load(paste0("data/ui_data.RData"))
+```
+
+# Context
+
+As of July 2020, the US is in the middle of an unemployment crisis. The Bureau of Labor Statistics in a [recent release](https://www.bls.gov/news.release/pdf/empsit.pdf) listed the unemployment rate at 11.1%, down from ~15%, which would be 17.8MM people. Compare that to the unemployment rate of 3.5% in February (5.8MM people) of this year.
+
+In this crisis our users have been receiving unemployment checks in their N26 accounts as part of the stimulus package. In light of conversations in Congress about whether to extend the special unemployment benefits past July (see [this](https://www.fastcompany.com/90526168/600-unemployment-benefit-will-it-be-extended-heres-the-latest-as-congress-drags-its-feet) or [this](https://www.forbes.com/sites/jrose/2020/07/06/600-federal-unemployment-checks-to-be-extended/#cca4db3778fa) article), we figure this is a good time to explore broadly what would happen to our MAUs if that income was no longer available to them.
+
+# Methodology
+
+We identify users receiving UI benefits between 2020-03-01 and `r current_date`. We then gather their average monthly outflows, UI and non-UI monthly inflows, and current balance at N26. We then calculate for every user how long their balance might last under the following scenarios:
+
+ 1. The user continues to receive the non-UI income they got in June, but not the UI income
+ 2. The user does not receive any more income at all going forward
+
+## Assumptions
+
+These are admittedly very crude projections but they serve as an important thought experiment. Here are some of the things we are assuming or not controlling for:
+
+ - We are not taking into account cyclical/seasonal events (eg rent is paid in a lump sum at the beginning of the month)
+ - We don't know if our users hold balances at other banks
+ - We don't know if users have income outside of N26 (ie cash, other checking accounts)
+ - For simplicity we assume spending will not change despite a loss of income
+ - We assume users are independent and are not householded, even though a spouse might still have a job
+ - We don't take into consideration the time of month this analysis is performed (eg we use most current balance, not balance at day X in the month)
+
+# Scenario 1: Some Income
+
+**Recap:** Users retain their non-UI income from June (most recent month at time of analysis). What happens?
+
+```{r, echo=FALSE}
+
+# Look at users who've gotten UI benefits. Look at whether they have any other income besides UI
+table_agg <- as.data.table(unique(subset(deterministic_ui[ui_deposit==1,], select=c(user_id))))
+table_agg <- merge(table_agg, deterministic_ui[direction=='Incoming' & month=='2020-06-01' & ui_deposit==1, .(ui_amount=sum(amount)), by=.(user_id)], by="user_id")
+table_agg <- merge(table_agg, deterministic_ui[direction=='Incoming' & month=='2020-06-01' & ui_deposit==0, .(regular_amount=sum(amount)), by=.(user_id)], by="user_id")
+
+table_agg$june_amount <- table_agg$ui_amount + table_agg$regular_amount
+table_agg$ui_pct <- table_agg$ui_amount/table_agg$june_amount
+
+avg_outflows <- deterministic_ui[direction=='Outgoing' & month<'2020-07-01', .(amount = sum(amount)), by=.(month, user_id)][, .(avg_spend=mean(amount)), by=.(user_id)]
+
+table_agg <- merge(table_agg, subset(user_balances, select=c(user_id, balance)), by="user_id")
+table_agg <- merge(table_agg, avg_outflows, by="user_id")
+# with this methodology if a user has days > 30 then their June outflows are lower than their monthly non-UI inflows
+table_agg$days <- round((table_agg$balance+table_agg$regular_amount)/ (table_agg$avg_spend*-1) * 30)
+table_agg$ratio <- round((table_agg$balance+table_agg$regular_amount) / (table_agg$avg_spend*-1), digits=2)
+```
+
+We have data on `r length(table_agg$user_id)` users with UI and non-UI June inflows, avg outflow amounts from recent months, and currently OPEN accounts at N26. These are their median stats:
+
+ - Median UI income: `r dollar(median(table_agg$ui_amount))`
+ - Median non-UI income: `r dollar(median(table_agg$regular_amount))`
+ - Median current balance: `r dollar(median(table_agg$balance))`
+ - Median monthly outflows: `r dollar(median(table_agg$avg_spend))`
+
+So for each user we can do the following calculation:
+
+ > (current balance + non-UI inflows) / avg outflows * 30
+
+to find out how many days it will take for them to draw down their account. If the number is greater than 30 days, their non-UI inflows are greater than their average monthly outflows.
+
+And so we get a median of `r median(table_agg$days)` days before users run out of money, and `r percent(length(table_agg[days<=30,]$user_id)/length(table_agg$user_id))` of users in this group don't have enough funds to ride out 30 days.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(table_agg, aes(x=days))+
+  geom_histogram()+
+  xlim(-2,60)+
+  labs(title="# of days in which users run out of savings",
+       x ="Days", 
+       y = "User Count")
+
+# plot cumulative MAU lapses from today
+table_agg$lapse_days <- table_agg$days+35
+mau_lapse <- table_agg[order(lapse_days),][balance>=0 & days<31, .(users=.N), by=.(lapse_days)]
+mau_lapse$run_sum_users <- cumsum(mau_lapse$users)
+```
+
+## MAU impact
+
+If we assume that once a user draws down their balance they will have no more additional income, we can project when they will become lapsed users. In this scenario, independent from regular lapse rates and using our current MAU number of 31000, we're potentially looking at `r percent(mau_lapse[lapse_days==35,]$run_sum_users/31000)` to `r percent(mau_lapse[lapse_days==65,]$run_sum_users/31000)` of total MAUs lapsing within 35-65 days from the date of this analysis.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(mau_lapse, aes(x=lapse_days, y=run_sum_users))+
+  geom_col()+
+  labs(title="Cumulative # of users that will lapse X days from now with no more UI income",
+       x ="Days from now", 
+       y = "Lapsers")
+```
+
+# Scenario 2: No Income
+
+**Recap:** Users have no more income at all. What happens in this worst-case scenario?
+
+```{r, echo=FALSE}
+
+# look at all legit users with UI deposits, use their monthly cashflows to determine how fast they would run through savings and when they would no longer be counted as MAU
+
+# users who received unemployment benefits
+# what's the monthly outflows for a user?
+# what's their current balance? How quickly would they run out of $$ assuming their spending doesn't change?
+
+avg_outflows <- deterministic_ui[direction=='Outgoing' & month<'2020-07-01', .(amount = sum(amount)), by=.(month, user_id)][, .(avg_spend=mean(amount)), by=.(user_id)]
+
+dui_agg <- merge(as.data.table(unique(subset(deterministic_ui[ui_deposit==1,], select=c(user_id)))), avg_outflows, by="user_id")
+dui_agg <- merge(dui_agg, subset(user_balances, select=c(user_id, balance)), by="user_id")
+dui_agg$days <- round(dui_agg$balance / (dui_agg$avg_spend*-1) * 30)
+dui_agg$ratio <- round(dui_agg$balance / (dui_agg$avg_spend*-1), digits=2)
+```
+
+We have data on `r length(dui_agg$user_id)` users who have received UI deposits, avg outflow amounts from recent months, and have currently OPEN accounts at N26. These are their median stats:
+
+ - Median current balance: `r dollar(median(dui_agg$balance))`
+ - Median monthly outflows: `r dollar(median(dui_agg$avg_spend))`
+
+In this case for each user we do the following calculation:
+
+ > current balance / avg outflows * 30
+
+to find out how many days it will take for them to draw down their account. If the number is greater than 30 days, their non-UI inflows are greater than their average monthly outflows.
+
+And so we get a median of `r median(dui_agg$days)` days before users run out of money, and `r percent(length(dui_agg[days<=30,]$user_id)/length(dui_agg$user_id))` of users in this group don't have enough funds to ride out 30 days.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(dui_agg, aes(x=days))+
+  geom_histogram()+
+  xlim(-2,60)+
+  labs(title="# of days in which users run out of savings",
+       x ="Days", 
+       y = "User Count")
+
+# plot cumulative MAU lapses from today
+dui_agg$lapse_days <- dui_agg$days+35
+mau_lapse <- dui_agg[order(lapse_days),][balance>=0, .(users=.N), by=.(lapse_days)]
+mau_lapse$run_sum_users <- cumsum(mau_lapse$users)
+```
+
+## MAU impact
+
+If we assume that once a user draws down their balance they will have no more additional income, we can project when they will become lapsed users. In this scenario, independent from regular lapse rates and using our current MAU number of 31000, we're potentially looking at `r percent(mau_lapse[lapse_days==35,]$run_sum_users/31000)` to `r percent(mau_lapse[lapse_days==65,]$run_sum_users/31000)` of total MAUs lapsing within 35-65 days from the date of this analysis.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# % of users with $0 outgoing
+# zero <- merge(as.data.table(unique(subset(deterministic_ui[ui_deposit==1,], select=c(user_id)))), avg_outflows, by="user_id", all.x=TRUE)
+# length(zero[is.na(avg_spend),]$user_id)/length(zero$user_id)
+
+ggplot(mau_lapse, aes(x=lapse_days, y=run_sum_users))+
+  geom_col()+
+  xlim(34,60)+
+  labs(title="Cumulative # of users that will lapse X days from now with no more income",
+       x ="Days from now", 
+       y = "Lapsers")
+```
+
+
+# Appendix
+
+```{r, echo=FALSE}
+# What if outflows are only card txns?
+avg_outflows <- deterministic_ui[direction=='Outgoing' & month<'2020-07-01' & type=='Card', .(amount = sum(amount)), by=.(month, user_id)][, .(avg_spend=mean(amount)), by=.(user_id)]
+
+dui_agg <- merge(as.data.table(unique(subset(deterministic_ui[ui_deposit==1,], select=c(user_id)))), avg_outflows, by="user_id")
+dui_agg <- merge(dui_agg, subset(user_balances, select=c(user_id, balance)), by="user_id")
+dui_agg$days <- round(dui_agg$balance / (dui_agg$avg_spend*-1) * 30)
+dui_agg$ratio <- round(dui_agg$balance / (dui_agg$avg_spend*-1), digits=2)
+
+ggplot(dui_agg, aes(x=days))+
+  geom_histogram()+
+  xlim(-1,60)+
+  labs(title="# of days in which users run out of savings",
+       x ="Days", 
+       y = "User Count")
+
+
+median(dui_agg$days)
+dollar(sum(dui_agg$balance))
+dollar(sum(dui_agg$avg_spend))
+median(dui_agg$ratio)
+
+# plot cumulative MAU lapses from today
+dui_agg$lapse_days <- dui_agg$days+35
+mau_lapse <- dui_agg[order(lapse_days),][balance>=0, .(users=.N), by=.(lapse_days)]
+mau_lapse$run_sum_users <- cumsum(mau_lapse$users)
+
+ggplot(mau_lapse, aes(x=lapse_days, y=run_sum_users))+
+  geom_col()+
+  xlim(34,60)+
+  labs(title="# of users that will lapse X days from now with no more income",
+       x ="Days", 
+       y = "Lapsers")
+```
+
+## direct deposit
+
+```{r, echo=FALSE}
+
+# look at users with DD who started getting UI deposits (or whose DD stopped in the last month). Take that as the unemployment rate for users with DD, take the average monthly outflows and average monthly balance for "unemployed" users, and project how long it would take for those of users to draw down their savings.
+
+
+# users who had DD
+# how many received UI deposits? how many no longer got DD this past month? what's our estimated unemployment rate?
+# what's the monthly outflows for an "unemployed" user?
+# what's the current balance for an "unemployed" user? How quickly would they run out of $$ assuming their spending doesn't change?
+
+probabilistic_dd[, .(users =sum(dd_user), june=sum(has_june_dd)/sum(dd_user), ui=sum(has_ui_deposit)/sum(dd_user))]
+
+prob_dd_agg <- merge(probabilistic_dd[has_ui_deposit==1 | has_june_dd==0,], user_spending[direction=='Outgoing' & month<'2020-07-01', .(amount = sum(amount)), by=.(month, user_id)][, .(avg_spend=mean(amount)), by=.(user_id)], by="user_id")
+
+prob_dd_agg <- merge(prob_dd_agg, subset(user_balances, select=c(user_id, balance)), by="user_id")
+prob_dd_agg$days <- round(prob_dd_agg$balance / (prob_dd_agg$avg_spend*-1) * 30)
+prob_dd_agg$ratio <- round(prob_dd_agg$balance / (prob_dd_agg$avg_spend*-1), digits=2)
+
+ggplot(prob_dd_agg, aes(x=days))+
+  geom_histogram()+
+  xlim(-1,60)+
+  labs(title="# of days in which users run out of savings",
+       x ="Days", 
+       y = "User Count")
+
+median(prob_dd_agg$days)
+dollar(sum(prob_dd_agg$balance))
+median(prob_dd_agg$balance)
+dollar(sum(prob_dd_agg$avg_spend))
+median(prob_dd_agg$avg_spend)
+median(prob_dd_agg$ratio)
+
+# plot cumulative MAU lapses from today
+prob_dd_agg$lapse_days <- prob_dd_agg$days+35
+mau_lapse <- prob_dd_agg[order(lapse_days),][balance>=0, .(users=.N), by=.(lapse_days)]
+mau_lapse$run_sum_users <- cumsum(mau_lapse$users)
+
+ggplot(mau_lapse, aes(x=lapse_days, y=run_sum_users))+
+  geom_col()+
+  xlim(34,60)+
+  labs(title="Cumulative # of users that will lapse X days from now with no more income",
+       x ="Days from now", 
+       y = "Lapsers")
+
+```
+
+

@@ -1,0 +1,14 @@
+version: "3.4"
+
+services:
+  webserver:
+    platform: linux/arm64/v8
+    build:
+      context: ../../
+      args:
+        - PIP_EXTRA_INDEX_URL=${N26_PIP_INDEX_URL}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../:/app
+    command: bash -c " python -u setup/frontend/frontend_transfer.py && python -u setup/frontend/simplehttp.py "

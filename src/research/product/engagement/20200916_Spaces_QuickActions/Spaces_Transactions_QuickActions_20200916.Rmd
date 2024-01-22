@@ -1,0 +1,388 @@
+---
+title: "Which Spaces Transactions Flow do users prefer?"
+author: "Wendy Vu"
+region: "EU"
+date: "2020-09-16"
+summary: "The results suggests that Spaces Quick Actions is not performing as well as Quick Actions in the main screen. There was a substantial reduction of users creating new goals after the Spaces Quick Actions was launched. Users show no preference for initiating transactions/goal modifications through Spaces Quick Actions (instead preferred going through more visible entry points). Why didn’t Spaces Quick Actions have a positive effect on feature usage? It reduced feature visibility (e.g. goals) because they are now buried in the app and requires more clicks to find."
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+  pdf_document:
+    toc: yes
+link: "https://docs.google.com/presentation/d/1cYbDK2OXJNpg0lkzGoQ43XIjE0v-6L8I2VtUK5S3esY/edit?usp=sharing"
+tags: "spaces, transactions, quick actions, goals, visibility"
+  
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/Spaces_Transactions_QuickActions_20200916.RData"))
+g <- as.data.frame(goals)
+gm <- as.data.frame(goals_mod)
+stf <- as.data.frame(spaces_txns_flow)
+ss <- as.data.frame(shared_spaces)
+
+
+#df$user_certified <- as.Date(df$user_certified)
+#dim()
+#str(sd)
+#head(sd)
+
+#sd %>% summarise_all(n_distinct)
+
+```
+##Background:
+
+Users no longer have to enter the full name of the users they want to invite to share their spaces with. This happenend sometime at the end of 2019. Did this increase the number of successful shared invitations?
+
+In order to realize the true effects of this change we have to run an AB test in which a subset of users experience the changes with a control group with no changes. At this point, we have no power to detect differences between the prior version and the new version. 
+
+We can try to see if there is an uptick in the number of shared accounts across months and see if there is an increase. However, even if we do see an increase we cannot say that these changes are due to the change in how users enter the names as there a other factors that could be driving this difference that we are not accounting for.
+
+As expected the results are inconclusive. Although there was a month to month increase in shared spaces users as this is likely associated with 
+
+```{r}
+
+
+ss$month <- as.Date(ss$month)
+ggplot(filter(ss,month > '2019-04-01'),
+       aes(x=as.factor(month), 
+           y = perc_shared,
+           group=1,
+           #color=as.factor(dep_type)
+           )
+       ) +
+  geom_line(size=1.5,color = "#E69F00")+
+  geom_point(size=2, 
+             #shape=23,
+             color = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(perc_shared*100),3), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Shared Spaces Owners / Total Spaces Users") + xlab("Month") + #ylim(0,0.58) +
+  ggtitle("% Shared Spaces Users") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 15,face='bold'),
+    axis.title.y = element_text(size=15,face='bold'),
+    legend.key.size = unit(1.75, "cm"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~ftmau_cohort) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A",
+                             "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD'),
+                    #name = "Deposit Method", 
+                    #labels = c("Cash26","Sepa","MoneyBeam","Stripe","Friend Ref.")
+                    )
+
+
+# Number of Shared spaces users
+ggplot(filter(ss,month > '2019-04-01'), 
+       aes(x=as.factor(month), 
+           y = n_shared_users,
+           #fill=1,
+           group=1
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           ,fill = "#48AC98"
+           ) + geom_text(aes(label=round(n_shared_users)), position=position_dodge(width=0.9), vjust=0.1) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("# of Shared Spaces Users") + xlab("Month") +
+  ggtitle("Number of Shared Spaces Users") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(ftdep_type~ ., scales="free") +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A",
+                             "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD'),
+                  name="First Deposit Method",
+                  labels = c("Cash26","MoneyBeam","Friend Ref.","Sepa","Stripe"))
+
+```
+
+
+```{r}
+#creating/modifying goals
+#Note that there are two ways a user can modify goals but only one way to create a goallooks like most people prefer to tap on the goal screen rather than from the quick actions manage icon note that each time you modify a goal it has a different id/goal_id
+
+# Has there been a difference in the number of new goals created since it has been moved to from the Spaces feed to Spaces Quick Actions Manage tab?
+
+g$month <- as.Date(g$month)
+
+ggplot(filter(g,month > '2020-01-01'), 
+       aes(x=as.factor(month), 
+           y = perc_goals_users,
+           #fill=1,
+           group=1
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           ,fill = "#E5C3C7"
+           ) + geom_text(aes(label=round(perc_goals_users*100,2)), position=position_dodge(width=0.9), vjust=0.1) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% Spaces Users Creating New Goal") + xlab("Month") +
+  ggtitle("% Spaces Users Creating New Goal in Manage tab of the Spaces Quick Actions") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(ftdep_type~ ., scales="free") +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A",
+                             "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD'),
+                  name="First Deposit Method",
+                  labels = c("Cash26","MoneyBeam","Friend Ref.","Sepa","Stripe"))
+
+# There are two ways to modify goals: tap on goal statistics screen or go into quick actions manage tab
+# Which path do users perfer?
+
+gm$month <- as.Date(gm$month)
+
+gm_piv <- as.data.frame( 
+  gm[,c('month',"perc_non_actions_mod","perc_actions_mod")] %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("perc"), # column name starts with string
+      names_to = "type", # new column name of column names after pivot
+      values_to = "percent", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+ggplot(filter(gm_piv,month > '2020-01-01'), 
+       aes(x=as.factor(month), 
+           y = percent,
+           fill=type,
+           group=type
+           )) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E5C3C7"
+           ) + 
+  #geom_text(aes(label=round(perc_goals_users*100,2)), position=position_dodge(width=0.9), vjust=0.1) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% Goals Modified") + xlab("Month") +
+  ggtitle("Comparison of % Goals Modified split by Entry Point") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(ftdep_type~ ., scales="free") +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A",
+                             "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD'),
+                  name="Entry Point",
+                  labels = c("Quick Actions: Manage Tab","Non-Quick Actions")
+                  )
+
+
+```
+
+```{r}
+# Has Spaces Quick Actions influenced number of users completing transactions?
+stf$month <- as.Date(stf$month)
+ggplot(filter(stf,month > '2020-01-01'), 
+       aes(x=as.factor(month), 
+           y = perc_txn_users,
+           #fill=1,
+           group=1
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           ,fill = "#CB7C7A"
+           ) + geom_text(aes(label=round(perc_txn_users*100,2)), position=position_dodge(width=0.9), vjust=0.1) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% Users completing 1+ Spaces Txns") + xlab("Month") +
+  ggtitle("Number of Users that completed 1+ Spaces Txns") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(ftdep_type~ ., scales="free") +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A",
+                             "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD'),
+                  name="First Deposit Method",
+                  labels = c("Cash26","MoneyBeam","Friend Ref.","Sepa","Stripe"))
+
+# Which Entry flow do users prefer intiating a spaces transfer? Drag/Drop or Spaces Quick Actions
+
+
+stf_piv <- as.data.frame( 
+  stf[,c('month',"perc_non_actions_users","perc_actions_users")] %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("perc"), # column name starts with string
+      names_to = "type", # new column name of column names after pivot
+      values_to = "percent", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+ggplot(filter(stf_piv,month > '2020-01-01'), 
+       aes(x=as.factor(month), 
+           y = percent,
+           fill=type,
+           group=type
+           )) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E5C3C7"
+           ) + 
+  #geom_text(aes(label=round(perc_goals_users*100,2)), position=position_dodge(width=0.9), vjust=0.1) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% Users Complete 1+ Txn") + xlab("Month") +
+  ggtitle("Comparison of % Users that complete a Txn split by Entry Point") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(ftdep_type~ ., scales="free") +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A",
+                             "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD'),
+                  name="Entry Point",
+                  labels = c("Quick Actions:\nSend/Add","Non-Quick Actions:\nDrag & Drop")
+                  )
+
+
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

@@ -1,0 +1,1061 @@
+---
+title: "Impact of Financial Home design on Spaces Behavior"
+author: "Wendy Vu"
+region: "EU"
+date: "2022-08-18"
+output:
+  pdf_document:
+    toc: yes
+  html_document:
+    theme: cosmo
+    toc: yes
+    
+link: "https://docs.google.com/presentation/d/1ulh20Tp3lemOGhMn70fIrj_O38FdM8_g4d_WyLJmTaA/edit?usp=sharing"
+
+tags: "financial home, spaces, engage, behavior, screen design, ab test, experiment, spaces creation"
+
+summary: "In this study, we test the effects of the new financial home list view design relative to the normal Spaces Tile view on spaces user behavior - to assess whether there are any negative impacts of the new design on how users interact with spaces features (i.e. create new spaces, transfer money via drag n' drop). We found a significant reduction of users interacting with spaces creation and using the drag n' drop feature among the group that was exposed to the financial home list view screen. Furthermore, we find that the Plus Icon may spark more interest in spaces creation among Non-spaces users than placing an infocard in the empty state."
+
+
+  
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r - REVISITING FH ANALYSIS}
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+library(RColorBrewer)
+library(ggplot2)
+set2 <- brewer.pal(8,"Set2")
+color <- brewer.pal(12,"Set3")
+color <- append(color, c("#1A659E","#EED7C5"))
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/analysis/financial_home_spaces_impact/financial_home_spaces_impact_2.RData"))
+cr <- as.data.frame(test_users)
+scc <- as.data.frame(space_create_click)
+rcs <- as.data.frame(revisit_create_spaces)
+dnd <- as.data.frame(dragndrop)
+ust <- as.data.frame(users_spaces_txns)
+dndos <- as.data.frame(dragndrop_os)
+rscc <- as.data.frame(revisit_space_create_click)
+
+```
+
+```{r - testing following up fh design - plus icon vs infocard on spaces creation Aug 2022}
+
+
+#cr <- cr %>% separate(exp_group, c("group", "sample_size"))
+#cr$group_type <- paste(du$status_spaces,du$tot_user_grp_type)
+#du$type <- paste(du$user_type,du$status_spaces,du$sample_size)
+
+# AB test significance 
+
+
+exp <- unique(cr$status_spaces)
+
+for (i in exp) {
+  test = filter(cr,status_spaces == i)
+  print(unique(test$status_spaces))
+  print(as.matrix(test[,4:5]))
+  results = prop.test(as.matrix(test[,4:5]))
+  print(results)
+}
+
+
+
+
+exp <- unique(cr$status_spaces)
+
+for (i in exp) {
+  test = filter(cr,status_spaces == i)
+  print(unique(test$status_spaces))
+  print(as.matrix(test[,4:5]))
+  results = prop.test(as.matrix(test[,4:5]))
+  print(results)
+}
+
+
+# first experimental launch 35k users 
+st <- dnd
+st<- rscc
+st <- st %>% separate(group_, c("group", "sample_size"))
+st$group_type <- paste(st$status_spaces,st$sample_size)
+st$type <- paste(st$user_type,st$status_spaces,st$sample_size)
+
+st[,c(6,4)]
+
+# AB test significance 
+
+
+exp <- unique(st$type)
+
+for (i in exp) {
+  test = filter(st,type == i)
+  print(unique(test$type))
+  print(as.matrix(test[,c(6:7)]))
+  results = prop.test(as.matrix(test[,c(6,7)]))
+  print(results)
+}
+
+### revisit first experimental launch 35K
+rscc$perc <- round(rscc$n_users/rscc$group_size,3)
+
+st<- rscc
+st <- st %>% separate(group_, c("group", "sample_size"))
+st$group_type <- paste(st$status_spaces,st$sample_size)
+st$type <- paste(st$user_type,st$status_spaces,st$sample_size)
+
+exp <- unique(st$type)
+
+for (i in exp) {
+  test = filter(st,type == i,feat_cat == 'create_space')
+  print(unique(test$type))
+  print(as.matrix(test[,c(7:8)]))
+  results = prop.test(as.matrix(test[,c(7,8)]))
+  print(results)
+}
+
+
+st <- ust
+st <- st %>% separate(group_, c("group", "sample_size"))
+st$group_type <- paste(st$status_spaces,st$sample_size)
+st$type <- paste(st$user_type,st$status_spaces,st$sample_size)
+
+exp <- unique(st$type)
+
+for (i in exp) {
+  test = filter(st,type == i)
+  print(unique(test$type))
+  print(as.matrix(test[,c(4,6)]))
+  results = prop.test(as.matrix(test[,c(4,6)]))
+  print(results)
+}
+```
+
+```{r}
+ggplot(cr, aes(fill=as.factor(exp_group),group = exp_group, y=perc_users, x=status_spaces )) + xlab("User Type") +
+  geom_bar(stat="identity",position="dodge") + ylab("% Users Creating Spaces") + 
+  scale_y_continuous(labels=scales::percent) +
+  #ggtitle("Users Retained at Month 12") + #coord_cartesian(ylim = c(0, 1)) + 
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(group_type ~ . #,scales = "free") +
+  geom_text(aes(label=round(perc_users*100,3)), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(#legend.position = "none",
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.position="top",
+    axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 16, #angle = 45
+                           ),
+    axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45
+                           ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+        strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        )
+        ) + #coord_flip() #+ 
+  scale_fill_manual(values = set2,
+                    name = "Group Type", 
+                    labels = c("Control","Test")
+                    )
+
+
+# IN APP CLICKS TO CREATE A SPACE 
+
+scc$perc <- round(scc$count/scc$group_size,4)
+
+ggplot(filter(scc,feature=='fh_create_space'), aes(fill=as.factor(exp_group),group = exp_group, y=perc, x=status_spaces )) + xlab("User Type") +
+  geom_bar(stat="identity",position="dodge") + ylab("% Users Click on Creating Spaces") + 
+  scale_y_continuous(labels=scales::percent) +
+  #ggtitle("Users Retained at Month 12") + #coord_cartesian(ylim = c(0, 1)) + 
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(group_type ~ . #,scales = "free") +
+  geom_text(aes(label=round(perc*100,3)), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(#legend.position = "none",
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.position="top",
+    axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 16, #angle = 45
+                           ),
+    axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45
+                           ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+        strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        )
+        ) + #coord_flip() #+ 
+  scale_fill_manual(values = set2,
+                    name = "Group Type", 
+                    labels = c("Control","Test")
+                    )
+
+
+```
+
+```{r - revisit FH launch data - creating spaces and in app clicking}
+
+
+cs <- rcs %>% separate(group_, c("group", "sample_size"))
+cs$group_type <- paste(cs$status_spaces,cs$sample_size)
+cs$type <- paste(cs$user_type,cs$status_spaces,cs$sample_size)
+
+cs <- cs %>% mutate(
+  type1 = case_when(
+    type == 'spaces_power_mau Space Users 3k' ~ 'Spaces Power Users-3k',
+    type == 'mau_mix Non-Space Users 35k' ~ 'Non-Spaces MAU-35k',
+    type == 'mau_mix Space Users 35k' ~ 'Spaces MAU-35k',
+    type == 'spaces_power_mau Space Users 35k' ~ 'Spaces Power Users-35k'
+  )
+)
+
+ggplot(cs, aes(fill=as.factor(group),group = group, y=perc_users, x=type1)) + xlab("User Type") +
+  geom_bar(stat="identity",position="dodge") + ylab("% Users Creating (1+spaces)") + 
+  scale_y_continuous(labels=scales::percent) +
+  #ggtitle("Users Retained at Month 12") + #coord_cartesian(ylim = c(0, 1)) + 
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(group_type ~ . #,scales = "free") +
+  geom_text(aes(label=round(perc_users*100,2)), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(#legend.position = "none",
+    legend.title = element_text(color = "black", size = 18),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.position="top",
+    axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 14, #angle = 45
+                           ),
+    axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45
+                           ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+        strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        )
+        ) + #coord_flip() #+ 
+  scale_fill_manual(values = set2,
+                    name = "Group Type", 
+                    labels = c("Control","Test")
+                    )
+
+
+
+```
+
+
+```{r - users w/ 1+ spaces txns and drag n drop behavior}
+
+# USERS W/ 1+ TXNS
+st <- ust
+st <- st %>% separate(group_, c("group", "sample_size"))
+st$group_type <- paste(st$status_spaces,st$sample_size)
+st$type <- paste(st$user_type,st$status_spaces,st$sample_size)
+
+st <- st %>% mutate(
+  type1 = case_when(
+    type == 'spaces_power_mau Space Users 3k' ~ 'Spaces Power Users-3k',
+    type == 'mau_mix Non-Space Users 35k' ~ 'Non-Spaces MAU-35k',
+    type == 'mau_mix Space Users 35k' ~ 'Spaces MAU-35k',
+    type == 'spaces_power_mau Space Users 35k' ~ 'Spaces Power Users-35k'
+  )
+)
+
+ggplot(st, aes(fill=as.factor(group),group = group, y=perc_users, x=type1 )) + xlab("User Type") +
+  geom_bar(stat="identity",position="dodge") + ylab("% Users 1+ Spaces Txns") + 
+  scale_y_continuous(labels=scales::percent) +
+  #ggtitle("Users Retained at Month 12") + #coord_cartesian(ylim = c(0, 1)) + 
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(group_type ~ . #,scales = "free") +
+  geom_text(aes(label=round(perc_users*100,2)), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(#legend.position = "none",
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.position="top",
+    axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 16, #angle = 45
+                           ),
+    axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45
+                           ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+        strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        )
+        ) + #coord_flip() #+ 
+  scale_fill_manual(values = set2,
+                    name = "Group Type", 
+                    labels = c("Control","Test")
+                    )
+
+# DRAG N DROP 
+st <- dnd 
+st <- st %>% separate(group_, c("group", "sample_size"))
+st$group_type <- paste(st$status_spaces,st$sample_size)
+st$type <- paste(st$user_type,st$status_spaces,st$sample_size)
+
+st <- st %>% mutate(
+  type1 = case_when(
+    type == 'spaces_power_mau Space Users 3k' ~ 'Spaces Power Users-3k',
+    type == 'mau_mix Non-Space Users 35k' ~ 'Non-Spaces MAU-35k',
+    type == 'mau_mix Space Users 35k' ~ 'Spaces MAU-35k',
+    type == 'spaces_power_mau Space Users 35k' ~ 'Spaces Power Users-35k'
+  )
+)
+
+ggplot(st, aes(fill=as.factor(group),group = group, y=perc_users, x=type1 )) + xlab("User Type") +
+  geom_bar(stat="identity",position="dodge") + ylab("% Users using drag n' drop") + 
+  scale_y_continuous(labels=scales::percent) +
+  #ggtitle("Users Retained at Month 12") + #coord_cartesian(ylim = c(0, 1)) + 
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(group_type ~ . #,scales = "free") +
+  geom_text(aes(label=round(perc_users*100,2)), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(#legend.position = "none",
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.position="top",
+    axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 16, #angle = 45
+                           ),
+    axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45
+                           ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+        strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        )
+        ) + #coord_flip() #+ 
+  scale_fill_manual(values = set2,
+                    name = "Group Type", 
+                    labels = c("Control","Test")
+                    )
+
+# DRAG N DROP SPLIT BY PLATFORM
+
+st <- dndos 
+st <- st %>% separate(group_, c("group", "sample_size"))
+st$group_type <- paste(st$status_spaces,st$sample_size)
+st$type <- paste(st$user_type,st$status_spaces,st$sample_size)
+
+st <- st %>% mutate(
+  type1 = case_when(
+    type == 'spaces_power_mau Space Users 3k' ~ 'Spaces Power Users-3k',
+    type == 'mau_mix Non-Space Users 35k' ~ 'Non-Spaces MAU-35k',
+    type == 'mau_mix Space Users 35k' ~ 'Spaces MAU-35k',
+    type == 'spaces_power_mau Space Users 35k' ~ 'Spaces Power Users-35k'
+  )
+)
+
+ggplot(st, aes(fill=as.factor(group),group = group, y=perc_users, x=type1 )) + xlab("User Type") +
+  geom_bar(stat="identity",position="dodge") + ylab("% Users using drag n' drop") + 
+  scale_y_continuous(labels=scales::percent) +
+  #ggtitle("Users Retained at Month 12") + #coord_cartesian(ylim = c(0, 1)) + 
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(platform..7 ~ . #,scales = "free"
+             ) +
+  geom_text(aes(label=round(perc_users*100,2)), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(#legend.position = "none",
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.position="top",
+    axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 16, #angle = 45
+                           ),
+    axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45
+                           ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+        strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        )
+        ) + #coord_flip() #+ 
+  scale_fill_manual(values = set2,
+                    name = "Group Type", 
+                    labels = c("Control","Test")
+                    )
+```
+
+```{r - test significance user completing txns}
+
+
+st <- st %>% separate(group_, c("group", "sample_size"))
+st$group_type <- paste(st$status_spaces,st$sample_size)
+st$type <- paste(st$user_type,st$status_spaces,st$sample_size)
+
+st[,c(6,4)]
+
+# AB test significance 
+
+
+exp <- unique(st$type)
+
+for (i in exp) {
+  test = filter(st,type == i)
+  print(unique(test$type))
+  print(as.matrix(test[,c(6:7)]))
+  results = prop.test(as.matrix(test[,c(6,7)]))
+  print(results)
+}
+
+
+```
+```{r - wilcox test}
+
+tu <- tu %>% separate(group_, c("group", "sample_size"))
+tu$group_type <- paste(tu$status_spaces,tu$sample_size)
+tu$type <- paste(tu$user_type,tu$status_spaces,tu$sample_size)
+
+tu <- tu %>% mutate(
+  type1 = case_when(
+    type == 'spaces_power_mau Space Users 3k' ~ 'Spaces Power Users-3k',
+    type == 'mau_mix Non-Space Users 35k' ~ 'Non-Spaces MAU-35k',
+    type == 'mau_mix Space Users 35k' ~ 'Spaces MAU-35k',
+    type == 'spaces_power_mau Space Users 35k' ~ 'Spaces Power Users-35k'
+  )
+)
+
+control <- filter(tu,type1 == 'Spaces Power Users-35k',group == 'control')
+test <- filter(tu,type1 == 'Spaces Power Users-35k',group == 'test')
+
+wilcox.test(control$n_spaces, test$n_spaces)
+
+control <- filter(tu,type1 == 'Spaces Power Users-3k',group == 'control')
+test <- filter(tu,type1 == 'Spaces Power Users-3k',group == 'test')
+
+wilcox.test(control$n_spaces, test$n_spaces)
+
+
+```
+
+```{r - initial FH launch to first 3K and 35K users analysis date May 2022}
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+library(RColorBrewer)
+library(ggplot2)
+set2 <- brewer.pal(8,"Set2")
+color <- brewer.pal(12,"Set3")
+color <- append(color, c("#1A659E","#EED7C5"))
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/analysis/financial_home_spaces_impact/financial_home_spaces_impact.RData"))
+
+ev <- as.data.frame(event_views)
+cs <- as.data.frame(create_spaces)
+dd <- as.data.frame(dragndrop)
+st <- as.data.frame(spaces_txns)
+sp <- as.data.frame(sampling)
+nt <- as.data.frame(num_txns)
+tu <- as.data.frame(txn_users) # users
+du <- as.data.frame(dragndrop_users)
+
+df$user_certified <- as.Date(df$user_certified)
+dim(df)
+str(df)
+head(df)
+
+df %>% summarise_all(n_distinct)
+
+```
+
+```{r}
+ev <- ev %>% separate(group_, c("group", "sample_size"))
+ev$group_type <- paste(ev$status_spaces,ev$sample_size)
+
+ggplot(ev, 
+       aes(x=as.factor(feature), 
+           y = perc_users,
+           group=as.factor(user_type),
+           color=as.factor(user_type)
+           )
+       ) + #coord_cartesian(ylim = c(-0.5, 300)) + 
+  geom_line(size=1.5)+
+  geom_point(size=2.5, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0.5, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users Clicking On In App Event") + xlab("In App FH Event") +
+  ggtitle("") +
+    theme(
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.position="top",
+    axis.text.y=element_text(size=16,face="bold",angle=45
+                           ),
+    axis.text.x=element_text(size=13,face="bold",angle=45
+                           ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+        strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=2.0, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 20, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 20, 
+        #color = "red", 
+        face = "bold"
+  )) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(group_type ~ .) + #theme_bw() +
+  scale_color_manual(values = set2,
+                    name = "KYCc Cohort", 
+                    #labels = c("Sepa Top-Up","Stripe")
+                    )
+
+```
+
+```{r - sampling description }
+ev <- ev %>% separate(group_, c("group", "sample_size"))
+ev$group_type <- paste(ev$user_type,ev$sample_size)
+sample <- unique(ev[,c('group','sample_size','user_type','status_spaces','tot_user_grp_type')])
+sample$type <- paste(sample$user_type,sample$status_spaces)
+
+ggplot(sample, 
+       aes(x=sample_size, 
+           y = tot_user_grp_type,
+           group=as.factor(type),
+           fill=as.factor(type),
+           )
+       ) + 
+  geom_bar(stat="identity",position = "fill" #position_dodge()
+    #position="dodge",stat="identity", width=0.5,fill = "#E69F00"
+           ) + coord_cartesian(ylim = c(0, 1)) +
+  #geom_text(aes(label = round(perc), group = diff_), vjust = 1.6, size = 6) +
+  ylab("% Users") + xlab("Sample Size") +
+  ggtitle("") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=90
+                           ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+    legend.key.size = unit(1.75, "cm"),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 20, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 20, 
+        #color = "red", 
+        face = "bold"
+  )) + #coord_flip() + 
+  scale_y_continuous(labels=scales::percent) +
+  #geom_abline(slope=0, intercept=0.58,  col = "red",lty=2) +
+  #facet_grid(~su_member) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = set2,
+                    name = "User Type", 
+                    labels = c("Non-Spaces MAU","Spaces MAU","Spaces Power MAU")
+                    )
+
+```
+
+```{r - event viewed}
+
+ev <- ev %>% separate(group_, c("group", "sample_size"))
+ev$group_type <- paste(ev$user_type,ev$sample_size)
+ev$type <- paste(ev$user_type,ev$status_spaces,ev$sample_size)
+
+ggplot(ev, aes(fill=as.factor(type),group = type, y=perc_users, x=feature )) + xlab("In App FH Feature") +
+  geom_bar(stat="identity",position="dodge") + ylab("% Users Clicking") + 
+  scale_y_continuous(labels=scales::percent) +
+  #ggtitle("Users Retained at Month 12") + #coord_cartesian(ylim = c(0, 1)) + 
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(group_type ~ . #,scales = "free") +
+  geom_text(aes(label=round(perc_users*100)), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(#legend.position = "none",
+    legend.title = element_text(color = "black", size = 18),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.position="top",
+    axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 14, angle = 90
+                           ),
+    axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45
+                           ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=2.0, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 12, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 12, 
+        #color = "red", 
+        face = "bold"
+        )) + #coord_flip() #+ 
+  scale_fill_manual(values = set2,
+                    name = "Spaces User Type", 
+                    labels = c("Non-Spaces MAU-35k","Spaces MAU-35k","Spaces Power Users-35k","Spaces Power Users-3k")
+                    )
+
+
+```
+
+```{r - creating spaces}
+
+cs <- cs %>% separate(group_, c("group", "sample_size"))
+cs$group_type <- paste(cs$status_spaces,cs$sample_size)
+cs$type <- paste(cs$user_type,cs$status_spaces,cs$sample_size)
+
+cs <- cs %>% mutate(
+  type1 = case_when(
+    type == 'spaces_power_mau Space Users 3k' ~ 'Spaces Power Users-3k',
+    type == 'mau_mix Non-Space Users 35k' ~ 'Non-Spaces MAU-35k',
+    type == 'mau_mix Space Users 35k' ~ 'Spaces MAU-35k',
+    type == 'spaces_power_mau Space Users 35k' ~ 'Spaces Power Users-35k'
+  )
+)
+
+ggplot(cs, aes(fill=as.factor(group),group = group, y=perc_users, x=type1)) + xlab("User Type") +
+  geom_bar(stat="identity",position="dodge") + ylab("% Users Creating (1+spaces)") + 
+  scale_y_continuous(labels=scales::percent) +
+  #ggtitle("Users Retained at Month 12") + #coord_cartesian(ylim = c(0, 1)) + 
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(group_type ~ . #,scales = "free") +
+  geom_text(aes(label=round(perc_users*100,2)), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(#legend.position = "none",
+    legend.title = element_text(color = "black", size = 18),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.position="top",
+    axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 14, #angle = 45
+                           ),
+    axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45
+                           ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+        strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        )
+        ) + #coord_flip() #+ 
+  scale_fill_manual(values = set2,
+                    name = "Group Type", 
+                    labels = c("Control","Test")
+                    )
+
+
+
+
+
+```
+
+```{r}
+
+dd <- dd %>% separate(group_, c("group", "sample_size"))
+dd$group_type <- paste(dd$status_spaces,dd$sample_size)
+dd$type <- paste(dd$user_type,dd$status_spaces,dd$sample_size)
+
+dd <- dd %>% mutate(
+  type1 = case_when(
+    type == 'spaces_power_mau Space Users 3k' ~ 'Spaces Power Users-3k',
+    type == 'mau_mix Non-Space Users 35k' ~ 'Non-Spaces MAU-35k',
+    type == 'mau_mix Space Users 35k' ~ 'Spaces MAU-35k',
+    type == 'spaces_power_mau Space Users 35k' ~ 'Spaces Power Users-35k'
+  )
+)
+
+ggplot(dd, aes(fill=as.factor(group),group = group, y=perc_users, x=type1 )) + xlab("User Type") +
+  geom_bar(stat="identity",position="dodge") + ylab("% Users using Drag n Drop") + 
+  scale_y_continuous(labels=scales::percent) +
+  #ggtitle("Users Retained at Month 12") + #coord_cartesian(ylim = c(0, 1)) + 
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(group_type ~ . #,scales = "free") +
+  geom_text(aes(label=round(perc_users*100,2)), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(#legend.position = "none",
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.position="top",
+    axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 16, #angle = 45
+                           ),
+    axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45
+                           ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+        strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        )
+        ) + #coord_flip() #+ 
+  scale_fill_manual(values = set2,
+                    name = "Group Type", 
+                    labels = c("Control","Test")
+                    )
+
+```
+
+```{r - spaces txns}
+
+st <- st %>% separate(group_, c("group", "sample_size"))
+st$group_type <- paste(st$status_spaces,st$sample_size)
+st$type <- paste(st$user_type,st$status_spaces,st$sample_size)
+
+st <- st %>% mutate(
+  type1 = case_when(
+    type == 'spaces_power_mau Space Users 3k' ~ 'Spaces Power Users-3k',
+    type == 'mau_mix Non-Space Users 35k' ~ 'Non-Spaces MAU-35k',
+    type == 'mau_mix Space Users 35k' ~ 'Spaces MAU-35k',
+    type == 'spaces_power_mau Space Users 35k' ~ 'Spaces Power Users-35k'
+  )
+)
+
+ggplot(st, aes(fill=as.factor(group),group = group, y=perc_users, x=type1 )) + xlab("User Type") +
+  geom_bar(stat="identity",position="dodge") + ylab("% Users 1+ Spaces Txns") + 
+  scale_y_continuous(labels=scales::percent) +
+  #ggtitle("Users Retained at Month 12") + #coord_cartesian(ylim = c(0, 1)) + 
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(group_type ~ . #,scales = "free") +
+  geom_text(aes(label=round(perc_users*100,2)), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(#legend.position = "none",
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.position="top",
+    axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 16, #angle = 45
+                           ),
+    axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45
+                           ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+        strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        )
+        ) + #coord_flip() #+ 
+  scale_fill_manual(values = set2,
+                    name = "Group Type", 
+                    labels = c("Control","Test")
+                    )
+
+```
+
+```{r - number of txns}
+
+nt <- nt %>% separate(group_, c("group", "sample_size"))
+nt$group_type <- paste(nt$status_spaces,nt$sample_size)
+nt$type <- paste(nt$user_type,nt$status_spaces,nt$sample_size)
+
+nt <- nt %>% mutate(
+  type1 = case_when(
+    type == 'spaces_power_mau Space Users 3k' ~ 'Spaces Power Users-3k',
+    type == 'mau_mix Non-Space Users 35k' ~ 'Non-Spaces MAU-35k',
+    type == 'mau_mix Space Users 35k' ~ 'Spaces MAU-35k',
+    type == 'spaces_power_mau Space Users 35k' ~ 'Spaces Power Users-35k'
+  )
+)
+
+ggplot(nt, aes(fill=as.factor(group),group = group, y=med_spaces_txn, x=type1 )) + xlab("User Type") +
+  geom_bar(stat="identity",position="dodge") + ylab("Median No. Txns per User") + 
+  #scale_y_continuous(labels=scales::percent) +
+  #ggtitle("Users Retained at Month 12") + #coord_cartesian(ylim = c(0, 1)) + 
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(group_type ~ . #,scales = "free") +
+  geom_text(aes(label=round(med_spaces_txn)), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(#legend.position = "none",
+    legend.title = element_text(color = "black", size = 12),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.position="top",
+    axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 16, #angle = 45
+                           ),
+    axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45
+                           ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+        strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 15, 
+        #color = "red", 
+        face = "bold"
+        )
+        ) + #coord_flip() #+ 
+  scale_fill_manual(values = set2,
+                    name = "Group Type", 
+                    labels = c("Control","Test")
+                    )
+
+```
+
+```{r}
+
+tu <- tu %>% separate(group_, c("group", "sample_size"))
+tu$group_type <- paste(tu$status_spaces,tu$sample_size)
+tu$type <- paste(tu$user_type,tu$status_spaces,tu$sample_size)
+
+tu <- tu %>% mutate(
+  type1 = case_when(
+    type == 'spaces_power_mau Space Users 3k' ~ 'Spaces Power Users-3k',
+    type == 'mau_mix Non-Space Users 35k' ~ 'Non-Spaces MAU-35k',
+    type == 'mau_mix Space Users 35k' ~ 'Spaces MAU-35k',
+    type == 'spaces_power_mau Space Users 35k' ~ 'Spaces Power Users-35k'
+  )
+)
+
+control <- filter(tu,type1 == 'Spaces Power Users-35k',group == 'control')
+test <- filter(tu,type1 == 'Spaces Power Users-35k',group == 'test')
+
+wilcox.test(control$n_spaces, test$n_spaces)
+
+control <- filter(tu,type1 == 'Spaces Power Users-3k',group == 'control')
+test <- filter(tu,type1 == 'Spaces Power Users-3k',group == 'test')
+
+wilcox.test(control$n_spaces, test$n_spaces)
+
+```
+
+```{r}
+du <- du %>% separate(group_, c("group", "sample_size"))
+du$group_type <- paste(du$status_spaces,du$sample_size)
+du$type <- paste(du$user_type,du$status_spaces,du$sample_size)
+
+# AB test significance 
+
+
+exp <- unique(du$type)
+
+for (i in exp) {
+  test = filter(du,type == i)
+  print(unique(test$type))
+  print(as.matrix(test[,6:7]))
+  results = prop.test(as.matrix(test[,6:7]))
+  print(results)
+}
+
+```
+
+
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

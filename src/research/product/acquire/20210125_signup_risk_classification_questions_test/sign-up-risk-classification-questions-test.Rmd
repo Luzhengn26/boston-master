@@ -1,0 +1,10 @@
+---
+title: "Signup Risk Classification Questions: A/B Test"
+author: "Claudia Dai"
+region: "EU"
+date: "2021-01-25"
+link: "https://docs.google.com/presentation/d/1MdqMlM0QwD96URsWaQkuWhSLcCqaxczxyaCNP0kjSGM/"
+tags: "acquire, sign up, risk classification, ab test, conversion"
+research_type: "Data Deep Dives"
+summary: "New risk classifications need to be added to Signup to every country except for Italy (and the US). The A/B test was launched beginning of December 2020. We analyze the time period from 7th December 2020 until 15th January 2021. We have gathered a sample size of approx. 125k for control and treatment each. For % SUi to SU within 7d, we observe a 0.77pp decrease with >95% confidence. For % SUi to KYCc within 7d, we observe a 0.10pp decrease without significant confidence. The variant has worsened SUi to SU (7d) conversion rate by 0.77pp, a loss of approx. 2886 users. While the variant has worsened SUi to KYCc (7d) conversion rate by 0.10pp, this result is not significant. Hence, for SUi to KYCc (7d) conversion, we conclude that the variant and control don’t differ significantly from another."
+---

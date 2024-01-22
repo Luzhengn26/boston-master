@@ -1,0 +1,702 @@
+---
+date: "2020-03-31"
+region: "EU"
+author: "Wendy Vu"
+title: "User Clusters: Financial Behavioral Groups in our Customer Base"
+link: "https://docs.google.com/presentation/d/13Diykdi_HBRrUf_rTiLXcH29OzuSQmRbJO32XQJSnkM/edit#slide=id.g76cb8b17e3_0_485"
+tags: "customer behavior, engage, cluster, segmentation, financial behavior"
+summary: "This is an exploratory clustering analysis of our customers into distinct groups based on their first year of financial behaviour. The intention is to provide a first broad brush answer to the question “Who are our current customers and what are their main financial behaviours?”. There are 10 main user clusters, split across the 3 activity bands, as well as 34 key financial indicators which are needed to split the groups."
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r SPLIT TXN DATA: Business, SAU, Typical N26 users}
+
+load(paste0("data/clustering_data.RData"))
+df <- clustering_query
+
+#library(data.table)
+#df <- df[df[,3] %like% "2018-10",]
+dim(df)
+
+# replace NA's with 0's
+df[is.na(df)] <- 0
+summary(df)
+
+# REMOVE users that did not make an external deposit
+# (77% made at least 1 ext deposit)
+df1 <- df[df$mau_act > 0,]
+dim(df1)
+mau0 <- df[df$mau_act == 0,]
+
+# split Business accounts 
+bus <- df1[df1$product_id %in% c('BUSINESS_CARD','BUSINESS_BLACK'),]
+dim(bus)
+
+#split SAUs (users with >= 1 week SAU flag) 
+# 11% of users have at least 1 week of SAU flag
+summary(df1$months_sau)
+sau <- df1[df1$months_sau > 0,]
+dim(sau)
+```
+
+``` {r Removing All business account users from the clustering analysis}
+
+# TYPICAL N26 USERS
+# NON-business accounts N= 97031
+#df1 <- df1[(df1$months_sau == 0),] 
+df1 <- df1[!df1$product_id %in% c('BUSINESS_CARD','BUSINESS_BLACK'),]
+
+dim(df1)
+head(df1)
+
+```
+
+``` {r Calculate frequency of users for each Feature}
+df_fin <- df1[,14:135]
+
+# FREQUENCY OF USERS FOR EACH FEATURE
+library("ggplot2")
+d = NULL
+for (i in 1:dim(df_fin)[2]){
+  feat = df_fin[,1:122]
+  sum = sum((feat[,i]) & (!is.na(feat[,i])) != 0)
+  total = dim(feat)[1]
+  percent = sum/total
+  feature = colnames(feat)[i]
+  print(percent)
+  d = rbind(d, data.frame(percent,feature))
+}
+
+d.sort <- d[order(d$percent,decreasing=TRUE),]
+print(d.sort)
+
+# All defaults
+ggplot(d, aes(x=reorder(feature, -percent), y=percent, fill=feature, label=scales::percent(percent)))+
+  geom_bar(stat="identity", width=0.5) + ylab('Percent of Non-Zero Counts') + 
+  xlab('Features') + 
+  theme(axis.text.x = element_text(angle = 45, size=4, face='bold'), legend.position='none') +
+  geom_text(position = position_dodge(width = .9),    # move to center of bars
+            vjust = -0.5,    # nudge above top of bar
+            size = 1) +
+  scale_y_continuous(labels = scales::percent)
+
+
+```
+## Results
+
+There are a few low frequency features that will not provide any meaningful variation to the analysis so we will drop them as they create NA's in PCA.
+
+```{r CLEANING AND NORMALIZING DATA}
+
+# REMOVE low frequency features < 2%
+rm.feat <- d[d[,1] <0.021,] 
+df_fin <- df_fin[,!colnames(df_fin) %in% rm.feat[,2]]
+#df_fin$months_sau <- NULL
+dim(df_fin)
+
+# remove SAU feature
+# df_fin$months_sau <- NULL
+# NOTE: tried both removing and including SAU feature and there were no significant differences in the final behavioral groupings but there were marginal improvements in classifying users so I decided to include this feature for the final results.
+
+```
+```{r CLEANING AND NORMALIZING DATA p2}
+
+names(df_fin)
+
+# normalize COUNT DATA by ROW SUM --> to get relative importance of trxn count data for each user
+df_cnt_row <- df_fin
+
+# Make count data relative proportions by dividing by total transaction count for each user
+names(df_cnt_row[,c(5:19)]) # txn count
+names(df_cnt_row[,c(43:81)]) # mcc count
+
+df_cnt_row[,c(6:20)] <- df_cnt_row[,c(6:20)]/rowSums(df_cnt_row[,c(5:19)])
+df_cnt_row[,c(43:81)] <- df_cnt_row[,c(43:81)]/rowSums(df_cnt_row[,c(43:81)])
+
+df_cnt_row[is.na(df_cnt_row)] <- 0 
+
+### Transforming skewed data
+
+# log transform total volume for each transaction type
+names(df_cnt_row[,c(21:35)])
+names(df_cnt_row[,c(82:120)])
+
+df_cnt_row[df_cnt_row[,34] < 0,] <- 0 #replace negative balances with 0 before log transform
+
+df_cnt_row[,c(21:35)] <- df_cnt_row[,c(21:35)] + 1 # add 1 to all data point bc there are 0's
+df_cnt_row[,c(21:35)] <- log(df_cnt_row[,c(21:35)]) 
+
+df_cnt_row[,c(82:120)] <- df_cnt_row[,c(82:120)] + 1 
+df_cnt_row[,c(82:120)] <- log(df_cnt_row[,c(82:120)])
+```
+
+
+```{r Randomly sample 20K users from Sept/Oct cohort}
+#### FEATURES to include in Analysis
+#txn_mcc = df_cnt_row[,c(2:35,43:122)]
+#mcc_sum = df_cnt_row[,c(81:119)]
+txn = df_cnt_row[,c(2:35)]
+
+set.seed(42) # This is to keep the sampling consistent for this example. Remove it to test different random samples, I ran this a few times with different random samples to see how consistent the results are with the samples size to ensure that I'm sampling enough to capture the variation in the complete data set.
+users <-rownames(txn)
+sample <- sample(users, size=20000)
+df_sample = txn[rownames(txn) %in% sample,]
+
+```
+
+```{r Principle Components Analysis}
+library("FactoMineR")
+library("factoextra")
+
+res.pca <- PCA(df_sample, graph=FALSE,ncp=50, scale.unit=T)
+eig.val <- get_eigenvalue(res.pca)
+head(eig.val,15)
+
+# variance explained by each dimension/component
+# ~40% of variance is explained by the first 3 components
+fviz_eig(res.pca, addlabels = T, ylim=c(0,70))
+var <- get_pca_var(res.pca)
+
+# PCA correlation plot of features relative to the dimensions
+library("corrplot")
+corrplot(var$cos2, is.corr=FALSE,tl.cex=0.80)
+
+library(scatterplot3d)
+pc <- res.pca$ind$coord
+scatterplot3d(pc[,1:3], pch=3, color="blue")
+plot(eig.val[,3], xlab='Dimensions',ylab='Cumulative Variance',pch=19)
+
+# head(eig.val,15)
+# fviz_eig(res.pca, addlabels = T, ylim=c(0,70))
+# corrplot(var$cos2, is.corr=FALSE,tl.cex=0.80)
+# scatterplot3d(pc[,1:3], pch=3, color="blue")
+# plot(eig.val[,3], xlab='Dimensions',ylab='Cumulative Variance',pch=19)
+```
+## Analysis and Results 
+
+I used PCA to reduce the complexity of the data. By implementing PCA on the data before fitting the clustering model, we can reduce the complexity of the the clustering model and avoid overfitting (e.g. fitting noise) as well as improve the performance of the clustering model. I've fed in 35 features that result in 35 independent dimensions with each dimension capturing variation between correlated features. For instance, dim.3 captures that correlation between n_spaces_ct and n_space_dt. Note that each dim have orthogonal relationships thus completely independent of one another. 
+
+We can capture ~86% of the variance in the data by just using the first 15 PC's. Based on the PCA correlation plots, PC 16-35 does not seem to capture much meaningful variation among the features so we can drop them.
+
+```{r Explore the relationships between features }
+# biplot with variables and individuals
+
+# biplot for dim 1 and 2
+fviz_pca_biplot(res.pca, repel = T,geom.ind = "point", axes=c(1,2),
+                col.var = 'black', # Variables color
+                col.ind = 'grey'  # Individuals color         
+)
+
+# biplot for dim 1 and 3
+fviz_pca_biplot(res.pca, repel = T,geom.ind = "point", axes=c(1,3),
+                col.var = 'black', # Variables color
+                col.ind = 'grey'  # Individuals color         
+)
+
+# biplot for dim 2 and 3
+fviz_pca_biplot(res.pca, repel = T,geom.ind = "point", axes=c(2,3),
+                col.var = 'black', # Variables color
+                col.ind = 'grey'  # Individuals color         
+)
+
+# biplot for dim 2 and 5
+fviz_pca_biplot(res.pca, repel = T,geom.ind = "point", axes=c(2,5),
+                col.var = 'black', # Variables color
+                col.ind = 'grey'  # Individuals color         
+)
+
+```
+## Results
+
+These Biplots are 2 dimensional representations of the different principle components (dim) that describe the relationships between the features, which are represented by vectors. You can look at all different combinations of dims to investigate the relationships between the features. Its helpful to look at these plots in combination with the PCA correlation plot above. Grey dots represent the users.
+  -High postively correlated features are clustered/grouped together and vectors are pointing in the same direction. 
+  -Negatively correlated features are positioned on opposite sides of the plot (arrows pointing in opposite directions)
+  -Vectors that are far away from the origin (longest arrows) are well represented on the two dimensions (i.e dim1 and dim2 shows a strong relationship between mau_txn, pt_dom_atm_sum, ct_sum etc.) 
+
+``` {r Pairwise correlation plot of Features. A nice supplement for the biplots and pca feature correlation plots}
+
+# compute correlation matrix and rm NA's
+#df.scaled = scale(df_fin, center=TRUE, scale=TRUE) # non-normalized for rowsums
+df.scaled = scale(txn, center=TRUE, scale=TRUE)
+
+df.scaled = scale(df_cnt_row, center=TRUE, scale=TRUE)
+res.cor <- cor(df.scaled)
+
+library('corrplot')
+corrplot(res.cor, type="upper", order="hclust", 
+         tl.col="black", 
+         tl.srt=45,
+         diag=FALSE,
+         tl.cex=0.50,
+         #addCoef.col="black"
+         )
+
+```
+
+``` {r CLUSTERING PC 1-15: DETERMINE THE OPTIMAL NUMBER OF CLUSTERS USING WITHIN SUM OF SQUARES (WSS) ELBOW METHOD}
+pc <- res.pca$ind$coord
+
+# KMEANS CLUSTERING
+library(factoextra)
+comp <- pc[,1:15]
+
+# K-means clustering
+# Determine the correct number of clusters via weighted within sum of squares
+gc() # Garbage collect
+wss <- (nrow(comp)-1)*sum(apply(comp,2,var))
+for (i in 2:50) wss[i] <- sum(kmeans(comp, centers=i, nstart=25, iter.max=1000,algorithm="MacQueen")$withinss)
+plot(1:50, wss, type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares", main="K-means: Identify optimal number of clusters",xaxt="n")
+axis(1, at=1:50, labels=c(1:50))
+
+# Elbow method indicates k = 10 
+
+```
+## Hierarchical-Kmeans hybrid clustering Analysis
+
+Some of the requirements for Kmeans clustering is...
+i) you must specify the number of clusters beforehand 
+ii) the initial centroids of the clusters are chosen randomly 
+
+Because the intial centroids are randomly chosen, the output of kmeans clusters can vary between runs.
+To get around this issue, we can implement a hybrid of hierarchical/kmean algorithm.
+
+1) The algorithm computes hierarchical clustering and cuts the tree into k-clusters (we can use the elbow method K=8-11 candidates).
+Hierarchical clustering is a method that builds a tree by grouping similar data points (step wise) into groups by using a pairwise similarity matrix between observations. 
+2) then it identifies the centroid by computing the mean of of the clusters.  
+3) finally, Kmeans clustering is then implemented using the cluster centers defined in 2) as initial cluster centers.
+
+## Analysis
+1) To estimate the optimal number of clusters, I used the elbow method and ran a k-means clustering algorithm for k= 1 to k= 50 clusters to the within groups sum of squares for k = i.
+
+## Results
+
+Identifying the optimal number of clusters is a hard problem to solve. While there are a variety of methods that we can be used to identify the optimal number of clusters, for our first attempt at clustering, we can just use the simplest approach, the elbow method. This method looks at the variability of within groups (within groups sum of squares) as a function of the number of clusters. The goal is to strike a balance between minizing the variation within clusters and not dividing users into too many groups that don't make much sense. 
+
+The elbow of the curve gives us an estimate of the optimal number of clusters, which is k = 8 - 11 clusters. As seen here, this method cannot always unambigiously identify the optimal number of clusters particularly for data with overlapping clusters. Based on the PCA results, we can see that the observations are densely packed and the clusters in this data set could potentially have a relatively high degree of overlap. As a result, we'll use another method to identify test this range of k values to determine the best number of clusters.
+
+```{r hierarchical kmeans hybrid clustering analysis for k clusters }
+
+# Note that the cluster numbers are assigned randomly and will be different each time you rerun the clustering analysis so you will have look at the data to determine the cluster behaviors and its corresponding cluster number. 
+
+# k=7
+res.hc <- eclust(comp, "hclust", k = 7,
+                 method = "ward.D2", graph = FALSE) 
+grp <- res.hc$cluster
+# Compute cluster centers
+clus.centers <- aggregate(comp, list(grp), mean)
+# Remove the first column
+clus.centers <- clus.centers[, -1]
+# Kmeans clustering using hieracrchical clustering defined cluster-centers
+km.res2_7 <- eclust(comp, "kmeans", k = clus.centers, graph = FALSE)
+fviz_silhouette(km.res2_7)
+
+# k=8
+res.hc <- eclust(comp, "hclust", k = 8,
+                 method = "ward.D2", graph = FALSE) 
+grp <- res.hc$cluster
+# Compute cluster centers
+clus.centers <- aggregate(comp, list(grp), mean)
+# Remove the first column
+clus.centers <- clus.centers[, -1]
+# Kmeans clustering using hieracrchical clustering defined cluster-centers
+km.res2_8 <- eclust(comp, "kmeans", k = clus.centers, graph = FALSE)
+fviz_silhouette(km.res2_8)
+
+
+#k=9
+res.hc <- eclust(comp, "hclust", k = 9,
+                 method = "ward.D2", graph = FALSE) 
+grp <- res.hc$cluster
+# Compute cluster centers
+clus.centers <- aggregate(comp, list(grp), mean)
+# Remove the first column
+clus.centers <- clus.centers[, -1]
+# Kmeans clustering using hieracrchical clustering defined cluster-centers
+km.res2_9 <- eclust(comp, "kmeans", k = clus.centers, graph = FALSE)
+fviz_silhouette(km.res2_9)
+
+#k=10
+res.hc <- eclust(comp, "hclust", k = 10,
+                 method = "ward.D2", graph = FALSE) 
+grp <- res.hc$cluster
+# Compute cluster centers
+clus.centers <- aggregate(comp, list(grp), mean)
+# Remove the first column
+clus.centers <- clus.centers[, -1]
+# Kmeans clustering using hieracrchical clustering defined cluster-centers
+km.res2_10 <- eclust(comp, "kmeans", k = clus.centers, graph = FALSE)
+fviz_silhouette(km.res2_10)
+
+#k=11
+res.hc <- eclust(comp, "hclust", k = 11,
+                 method = "ward.D2", graph = FALSE) 
+grp <- res.hc$cluster
+# Compute cluster centers
+clus.centers <- aggregate(comp, list(grp), mean)
+# Remove the first column
+clus.centers <- clus.centers[, -1]
+# Kmeans clustering using hieracrchical clustering defined cluster-centers
+km.res2_11 <- eclust(comp, "kmeans", k = clus.centers, graph = FALSE)
+fviz_silhouette(km.res2_11)
+
+# fviz_silhouette(km.res2_7)
+# fviz_silhouette(km.res2_8)
+# fviz_silhouette(km.res2_9)
+# fviz_silhouette(km.res2_10)
+# fviz_silhouette(km.res2_11)
+
+```
+## Silohuette plots 
+
+Silohuette plots is another method of evaluating the optimal K value and determining the quality of the clusters. Silohouette widths provides information on the goodness of clustering
+-high positive values correspond to users that match well to a cluster and poorly with the neighboring clusters
+-negative values correspond to users that do not have a high degree of membership confidence and are users that fall on the boardline of clusters potentially belonging to more than one cluster (reference Appendix for an example of this).
+
+As I have mentioned above, the clusters are quite dense and not clearly separated so there are clusters that overlap (reference Appendix) resulting in users belonging to more than one cluster. In the future, it would be ideal to implement a probablistic model that can assign probabilities of cluster membership to each user. But for an exploratory analysis, I think using this model will suffice and provide some useful insights on the key behavioral groups that exist within this cohort.
+
+```{r Identifying the best k value based on % total within cluster sum of squares and Examining Silohuette plots to determine the best k value}
+
+# total within cluster sum of squares is an estimate of the % within variation / total variation within clusters-- we want to minimize this number
+# here we look at the reduction of total within sum of squares to look at marginal improvements between k values
+print('% within cluster variation')
+km.res2_7$tot.withinss/km.res2_7$totss #k=7
+km.res2_8$tot.withinss/km.res2_8$totss #k=8
+km.res2_9$tot.withinss/km.res2_9$totss #k=9
+km.res2_10$tot.withinss/km.res2_10$totss #k=10
+km.res2_11$tot.withinss/km.res2_11$totss #k=11
+
+
+print('an adhoc estimate of improvement based on the differences between % within cluster variation')
+km.res2_7$tot.withinss/km.res2_7$totss - km.res2_8$tot.withinss/km.res2_8$totss
+km.res2_8$tot.withinss/km.res2_8$totss - km.res2_9$tot.withinss/km.res2_9$totss
+km.res2_9$tot.withinss/km.res2_9$totss - km.res2_10$tot.withinss/km.res2_10$totss
+km.res2_10$tot.withinss/km.res2_10$totss - km.res2_11$tot.withinss/km.res2_11$totss
+
+
+# Comparing the avg cluster widths of clusters -- note that all of the values are in sequential order k= 1 to k = i
+print('Average Silohuette width for each clusters K=9 and 10')
+km.res2_7$silinfo$clus.avg.widths
+km.res2_8$silinfo$clus.avg.widths
+km.res2_9$silinfo$clus.avg.widths
+km.res2_10$silinfo$clus.avg.widths
+km.res2_11$silinfo$clus.avg.widths
+
+```
+## Results 
+Identifying the optimal k value to settle for is a difficult problem and it ends up being a judgement call based on the patterns that emerge from the data and how the clusters split from one K value to the next. I spent a lot of time looking into the data to assess the patterns that emerged from the features across clusters and how the clusters split when the I added another k value to the model. I also looked at % within cluster variation and the corresponding changes between k-values as well as the overall avg silouette widths to judge whether adding another cluster to the model improved the clustering.
+
+Because average silohuette width gives us an estimate of the performance of the clusters, I compared the avg silohuette widths across k=7 - k=11 model. I found that there were some improvements in the k=9,10,11 model relative to k=7 and k=8. 
+
+I looked at the features and how it relates to differentiating the clusters (reference the barplots below) for k = 9 and k=10. 8 clusters show consistent behavioral patterns between k=9 and k=10 (i.e. secondary spenders, barely active users, international travelers, holding account, spaces power users, primary account, unconvinced, euro/international travelers, cash26ers). K=10 extracted a 10th group that corresponds to low activity friend referal users... which I thought was an interesting group.
+
+I also looked into k=11 and didn't really see any meaningful groups arise from dividing the data into an additional cluster.
+
+As a result, I settled for k=10.
+
+ 
+```{r Evaluating cluster results }
+
+# k = 9
+# names(km.res2_9)
+# hk.df <- data.frame(km.res2_9$cluster)
+# colnames(hk.df) <- c("cluster")
+
+names(km.res2_10)
+hk.df <- data.frame(km.res2_10$cluster)
+colnames(hk.df) <- c("cluster")
+
+########### barplots for mean values of clusters
+merged.df <- transform(merge(df,hk.df,by=0), row.names=Row.names, Row.names=NULL)
+merged.df[,141]<-as.factor(merged.df[,141])
+merged.df$round <- merged.df$round/100
+library(dplyr)
+merged.df$sau_cat <- case_when(merged.df$months_sau > 0 ~ 'SAU',
+                               merged.df$months_sau == 0 ~ 'NON-SAU')
+
+head(merged.df)
+
+demo.df <- merged.df[,c(4:9,12:13,136:142)]
+
+
+```
+
+```{r FEATURE BARPLOTS FOR A SPECIFIC K VALUE}
+library('reshape2')
+library('reshape')
+library('tidyr')
+library('dplyr')
+library(ggplot2)
+
+library(ggplot2)
+
+cluster.freq<- as.data.frame(table(merged.df[,141]))
+cluster.freq['percent'] <- cluster.freq[,2]/200
+cluster.freq
+
+p <- ggplot(cluster.freq, aes(y=percent,x=as.factor(Var1),fill=as.factor(Var1))) +
+  geom_bar(position="stack", stat="identity") + xlab("Clusters") + ylab("Percent") +
+  theme(
+    #legend.title = element_text(color = "black", size = 16),
+    #legend.text = element_text(color = "black", size = 10,face="bold"),
+    #legend.position='top',
+    axis.text=element_text(size=16,face="bold")
+  ) + geom_text(aes(label = round(percent,2), y = percent + 0.40), position = position_dodge(0.9),format_string='{:.1f}% ') 
+
+p + scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+
+# Evaluating the mean/median value of the features across clusters 
+mydata = melt(merged.df[,c(14:25,141)],id=c('cluster'))
+
+mean_df10 = as.data.frame(mydata %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+med_df10 = as.data.frame(mydata %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("median"))
+#mean_df10[,1] <- factor(mean_df10[,1],levels=c(7,1,3,9,5,6,4,8,2,10))
+
+ggplot(mean_df10, aes(x=as.factor(cluster), y=value,fill=as.factor(cluster))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25)+
+  facet_grid(variable ~ ., scales = "free_y") + theme(legend.position = "none")
+
+ggplot(mean_df10[mean_df10[,2] %in% c('weeks_wau_txn','mau_txn','mau_act','months_sau'),], aes(x=as.factor(cluster), y=value,fill=as.factor(cluster))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25) + theme(legend.position = "none",axis.text=element_text(size=16,face="bold")) +
+  facet_grid(variable ~ ., scales = "free_y") + scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+mydata = melt(merged.df[,c(21:33,139,141)],id=c('cluster'))
+
+mean_df10 = as.data.frame(mydata %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+#mean_df10[,1] <- factor(mean_df10[,1],levels=c(7,1,3,9,5,6,4,8,2,10))
+
+med_df10 = as.data.frame(mydata %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("median"))
+
+ggplot(mean_df10, aes(x=as.factor(cluster), y=value,fill=variable)) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25)+
+  facet_grid(variable ~ ., scales = "free_y") + theme(legend.position = "none")
+
+
+mydata = melt(merged.df[,c(34:48,141)],id=c('cluster'))
+
+mean_df10 = as.data.frame(mydata %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+#mean_df10[,1] <- factor(mean_df10[,1],levels=c(7,1,3,9,5,6,4,8,2,10))
+
+ggplot(mean_df10, aes(x=as.factor(cluster), y=value,fill=variable)) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25)+
+  facet_grid(variable ~ ., scales = "free_y") + theme(legend.position = "none")
+
+mydata = melt(merged.df[,c(56:68,141)],id=c('cluster'))
+
+mean_df10 = as.data.frame(mydata %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+#mean_df10[,1] <- factor(mean_df10[,1],levels=c(7,1,3,9,5,6,4,8,2,10))
+
+ggplot(mean_df10, aes(x=as.factor(cluster), y=value,fill=variable)) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25)+
+  facet_grid(variable ~ ., scales = "free_y") + theme(legend.position = "none")
+
+
+mydata = melt(merged.df[,c(69:82,141)],id=c('cluster'))
+
+mean_df10 = as.data.frame(mydata %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+#mean_df10[,1] <- factor(mean_df10[,1],levels=c(7,1,3,9,5,6,4,8,2,10))
+
+ggplot(mean_df10, aes(x=as.factor(cluster), y=value,fill=variable)) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25)+
+  facet_grid(variable ~ ., scales = "free_y") + theme(legend.position = "none")
+
+
+
+
+mean_df10 = as.data.frame(mydata %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+#mean_df10[,1] <- factor(mean_df10[,1],levels=c(7,1,3,9,5,6,4,8,2,10))
+
+ggplot(mean_df10, aes(x=as.factor(cluster), y=value,fill=variable)) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25)+
+  facet_grid(variable ~ ., scales = "free_y") + theme(legend.position = "none")
+
+mydata = melt(merged.df[,c(96:108,141)],id=c('cluster'))
+mean_df10 = as.data.frame(mydata %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+#mean_df10[,1] <- factor(mean_df10[,1],levels=c(7,1,3,9,5,6,4,8,2,10))
+
+ggplot(mean_df10, aes(x=as.factor(cluster), y=value,fill=variable)) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25)+
+  facet_grid(variable ~ ., scales = "free_y") + theme(legend.position = "none")
+
+
+mydata = melt(merged.df[,c(109:124,141)],id=c('cluster'))
+mean_df10 = as.data.frame(mydata %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+#mean_df10[,1] <- factor(mean_df10[,1],levels=c(7,1,3,9,5,6,4,8,2,10))
+
+ggplot(mean_df10, aes(x=as.factor(cluster), y=value,fill=variable)) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25)+
+  facet_grid(variable ~ ., scales = "free_y") + theme(legend.position = "none")
+
+mydata = melt(merged.df[,c(125:134,141)],id=c('cluster'))
+mean_df10 = as.data.frame(mydata %>% 
+                            group_by(cluster,variable) %>%
+                            summarise_all("mean"))
+
+#mean_df10[,1] <- factor(mean_df10[,1],levels=c(7,1,3,9,5,6,4,8,2,10))
+
+ggplot(mean_df10, aes(x=as.factor(cluster), y=value,fill=variable)) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25)+
+  facet_grid(variable ~ ., scales = "free_y") + theme(legend.position = "none")
+
+
+sau <- melt(table(merged.df[,c(141,142)]))
+sau <- cast(melt(table(merged.df[,c(142,141)])),cluster~sau_cat)
+sau['percent'] <- round(sau[,3]/(sau[,2]+sau[,3])*100,1)
+#sau$cluster <- factor(sau[,1],levels=c(7,1,3,9,5,6,4,8,2,10)) # reorder factor levels 
+
+ggplot(sau, aes(y=percent,x=as.factor(cluster),fill=as.factor(cluster))) + theme(legend.position = "none",axis.text=element_text(size=16,face="bold"))+
+  geom_bar(position="stack", stat="identity") + xlab("Clusters- SAU's") + ylab("Percent SAU's") +
+  theme(
+    #legend.title = element_text(color = "black", size = 16),
+    #legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold") + scale_fill_manual(values=c("#48AC98", "#E5C3C7", "#CAD7CA","#266678","#C8D7E5","#CDA35F","#F5D5B9"))
+  ) + scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2")) + geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+
+
+```
+
+
+
+```{r APPENDIX: Identifying users with negative silohuette width that are within the boundaries of clusters (overlapping clusters) and potentially belong to more than one cluster}
+
+# EXAMPLE OF INTERNATIONAL AND SECONDARY SPENDER OVERLAPPING CLUSTERS 
+# Note that the cluster numbers are assigned randomly and will be different each time you rerun the clustering analysis so you will have look at the data to determine the cluster behaviors. 
+# in this clustering example, cluster 8 = international travelers and cluster 6 = secondary spenders
+
+# Information on cluster neighbors and silohuette widths for each user
+silo8 <- km.res2_8$silinfo$widths
+silo9 <- km.res2_9$silinfo$widths
+silo10 <- km.res2_10$silinfo$widths
+silo11 <- km.res2_11$silinfo$widths
+
+# users with negative silohuette values are located on the boarder of neighboring cluster
+silo10.neg <-silo10[silo10[,3] < 0,] 
+head(silo10.neg) # users with negative cluster widths and corresponding neighboring clusters
+
+# example of negative width values for international travelers cluster
+# ~65% of these users are neighbors with users from Secondary spender cluster 
+table(silo10.neg[silo10.neg[,1] == 8,2]) #change cluster number accordingly
+length(silo10.neg[silo10.neg[,1] == 8,2])
+
+# in this clustering example, cluster 8 = international travelers and cluster 6 = secondary spenders
+idx <- rownames(silo10.neg[(silo10.neg[,1] == 8) & (silo10.neg[,2] == 6),])
+m.pc <- transform(merge(pc,hk.df,by=0), row.names=Row.names, Row.names=NULL)
+pc.overlap <- m.pc[(m.pc[,35]==8) | (m.pc[,35]==6),]
+pc.overlap$colors <- case_when(rownames(pc.overlap) %in% idx ~ "#E69F00", #overlap (yellow)
+                             (!rownames(pc.overlap) %in% idx) & (pc.overlap$cluster == 8) ~ "#999999", #international travelers (grey)
+                              pc.overlap$cluster == 6 ~ "#56B4E9" #secondary spenders (blue)
+                             )
+
+pc.overlap$cluster1 <- case_when(rownames(pc.overlap) %in% idx ~ "overlap", #overlap (yellow)
+                             (!rownames(pc.overlap) %in% idx) & (pc.overlap$cluster == 8) ~ "inter_traveler", #international travelers (grey)
+                              pc.overlap$cluster == 6 ~ "secondary_spender" #secondary spenders (blue)
+                             )
+
+# SCATTER PLOT OF THE CLUSTER OVERLAP
+library(scatterplot3d)
+scatterplot3d(pc.overlap[,c(1,3,2)], pch=6, color=pc.overlap$colors)
+legend("topleft", legend=c("Inter-Travelers", "Secondary-Spenders","Overlapping users"),
+       col=c("#999999", "#56B4E9","#E69F00"), cex=1,pch=6)
+scatterplot3d(pc.overlap[,c(2,3,1)], pch=6, color=pc.overlap$colors)
+legend("topleft", legend=c("Inter-Travelers", "Secondary-Spenders","Overlapping users"),
+       col=c("#999999", "#56B4E9","#E69F00"), cex=1,pch=6)
+scatterplot3d(pc.overlap[,c(3,2,1)], pch=6, color=pc.overlap$colors)
+legend("topleft", legend=c("Inter-Travelers", "Secondary-Spenders","Overlapping users"),
+       col=c("#999999", "#56B4E9","#E69F00"), cex=1,pch=6)
+scatterplot3d(pc.overlap[,c(1,2,3)], pch=6, color=pc.overlap$colors)
+legend("topleft", legend=c("Inter-Travelers", "Secondary-Spenders","Overlapping users"),
+       col=c("#999999", "#56B4E9","#E69F00"), cex=1,pch=6)
+
+
+plot(pc.overlap[,1],pc.overlap[,2],col=pc.overlap$colors,pch=20,xlab='dim1',ylab='dim2')
+legend("topleft", legend=c("Inter-Travelers", "Secondary-Spenders","Overlapping users"),
+       col=c("#999999", "#56B4E9","#E69F00"), cex=1,pch=20)
+
+
+# Lets take a look at the differences between these 3 groups 
+feature.df <- transform(merge(df,pc.overlap,by=0), row.names=Row.names, Row.names=NULL)
+
+features <- feature.df[,colnames(feature.df) %in% c("weeks_wau_txn","pt_dom_sum","pt_inter_sum","cluster1","colors")]
+features <- melt(features,id=c('cluster1',"colors"))
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster1,colors,variable) %>%
+                            summarise_all("mean"))
+
+ggplot(mean_df10, aes(x=as.factor(cluster1), y=value,fill=as.factor(cluster1))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25) + theme(legend.position = "none",axis.text=element_text(size=16,face="bold")) +
+  facet_grid(variable ~ ., scales = "free_y") + scale_fill_manual(values=c("inter_traveler"="#999999","overlap" = "#E69F00", "secondary_spender"="#56B4E9")) 
+
+
+
+```
+## Results
+
+Note that the cluster numbers are assigned randomly and will be different each time you rerun the clustering analysis so you will have look at the data to determine the cluster behaviors. 
+
+The yellow dots are the users with negative width values from the cluster corresponding to international travelers (grey). These users are located next to the secondary spender cluster (blue). This suggests that these users may exhibit behavior that are intermediate between the two groups. The overlapping customers use our product for both international travel and domestic spending and seem to be more active than users that are using the app primarily for international spend. 
+
+
+

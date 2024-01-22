@@ -1,0 +1,20 @@
+---
+title: "In App User Behavior and Information Architecture"
+author: "Wendy Vu"
+region: "EU"
+date: "2022-05-15"
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+  pdf_document:
+    toc: yes
+tags: "engage, engagement, in app, IA, information architecture, product, behavior"
+summary: "Ever wonder what users are doing when they login to the App? Tune in to find out how we can leverage In App data to understand how much time users spend on our App and what they do based on their financial behaviour"
+link: "https://docs.google.com/presentation/d/10q7l45qK_ztjLVI6O9JaI_HYGEXMoUjupEDhcP4rN9c/edit?usp=sharing"
+  
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+

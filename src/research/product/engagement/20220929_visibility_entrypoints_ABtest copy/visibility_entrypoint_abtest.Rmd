@@ -1,0 +1,361 @@
+---
+title: "Visibility Toggle Setting Entry Point AB test"
+author: "Wendy Vu"
+region: "EU"
+date: "2022-09-29"
+summary: "In this experiment we tested two different entry points for visibility toggle to understand which entry point increases a users’ discoverability of this feature. We hypothesize that moving the location of the visibility toggle to App Settings from Personal Information will result in an increase of users discovering the visibility settings and the number of users who are visible to their friends. Overall, the results suggests that the visibility toggle located in App Settings increases user discoverability but it might come with a trade-off as users tend to turn off their visibility via this entry point. It is unclear whether the name/category of entry point influences a users’ decision to set themselves visible."
+
+tags: "visbility,visibility toggle, engagement, engage, serenity,ab test, experimentation"
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+  pdf_document:
+    toc: yes
+link: "https://docs.google.com/presentation/d/1zK4lRWzUtyP_qHQEPWuqqTj-Q6W5UntzMFic2Ic6EZQ/edit?usp=sharing"
+  
+  
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+library(RColorBrewer)
+library(ggplot2)
+set2 <- brewer.pal(8,"Set2")
+color <- brewer.pal(12,"Set3")
+color <- append(color, c("#1A659E","#EED7C5"))
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/analysis/20220929_visibility_entrypoints_ABtest/visibility_entrypoint_abtest.RData"))
+su <- as.data.frame(summary_users)
+vs <- as.data.frame(visibility_setting)
+
+
+```
+
+
+```{r}
+
+ggplot(su, aes(fill=groups, y=perc_viewed_vis_changed, x=as.factor(platform))) + 
+  geom_bar(stat="identity",position="dodge") +
+  scale_y_continuous(labels=scales::percent) + 
+  ylab("% Users") + xlab("Platform") +
+  ggtitle("% of Users Toggled Visibility having Viewed Entry Points") +
+  #facet_grid(cluster_new ~ .,scales = "free") +
+  geom_text(aes(label=perc_viewed_vis_changed*100), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 15, #angle = 45
+                           ),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 15, angle = 45
+                           ),
+        axis.title.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, #angle = 45
+                           ),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+  )
+        ) +
+  scale_fill_manual(values = color[9:14],
+                    name = "Exp. Group\nEntry Point", 
+                    labels = c("Control-Personal Info","Test-App Settings")
+                    )
+
+
+
+ggplot(su, aes(fill=groups, y=perc_log_entry_viewed, x=as.factor(platform))) + 
+  geom_bar(stat="identity",position="dodge") +
+  scale_y_continuous(labels=scales::percent) + 
+  ylab("% Users") + xlab("Platform") +
+  ggtitle("% of Users Viewing Entry Points of all users who entered the experiment") +
+  #facet_grid(cluster_new ~ .,scales = "free") +
+  geom_text(aes(label=perc_log_entry_viewed*100), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 15, #angle = 45
+                           ),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 15, angle = 45
+                           ),
+        axis.title.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, #angle = 45
+                           ),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+  )
+        ) +
+  scale_fill_manual(values = color[9:14],
+                    name = "Exp. Group\nEntry Point", 
+                    labels = c("Control-Personal Info","Test-App Settings")
+                    )
+
+
+ggplot(vs, aes(fill=groups, y=perc_vis, x=as.factor(platform))) + 
+  geom_bar(stat="identity",position="dodge") +
+  scale_y_continuous(labels=scales::percent) + 
+  ylab("% Users") + xlab("Platform") +
+  ggtitle("% of Users who interacted with Visibility settings and Toggled to Visible") +
+  #facet_grid(cluster_new ~ .,scales = "free") +
+  geom_text(aes(label=perc_vis*100), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 15, #angle = 45
+                           ),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 15, angle = 45
+                           ),
+        axis.title.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, #angle = 45
+                           ),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+  )
+        ) +
+  scale_fill_manual(values = color[9:14],
+                    name = "Exp. Group\nEntry Point", 
+                    labels = c("Control-Personal Info","Test-App Settings")
+                    )
+
+
+
+```
+
+```{r - test differences of visibility toggle user discovery among entry points }
+
+DF <- su[,c(1,4,5)]
+exp <- unique(su$platform)
+
+for (i in exp) {
+  test = filter(DF,platform == i)
+  print(unique(test$platform))
+  print(as.matrix(test[,2:3]))
+  results = prop.test(as.matrix(test[,2:3]))
+  print(results)
+}
+
+
+
+```
+
+```{r}
+
+DF <- vs[,c(1,3,4)]
+exp <- unique(su$platform)
+
+for (i in exp) {
+  test = filter(DF,platform == i)
+  print(unique(test$platform))
+  print(as.matrix(test[,2:3]))
+  results = prop.test(as.matrix(test[,2:3]))
+  print(results)
+}
+
+#aggregate platform users
+
+agg <- as.data.frame(
+  vs %>% group_by(groups) %>% 
+  summarise(
+  n_tot_users = sum(n_tot_users),
+  n_users_visible = sum(n_users_visible)
+) %>% mutate(
+  perc_vis = round(n_users_visible/n_tot_users,3)
+))
+
+prop.test(as.matrix(agg[,2:3]))
+
+# aggregate platform and add to main vs table 
+
+agg_ <- data.frame(platform = rep('iOS+Android',2),agg)
+
+vs_ <- rbind(vs,agg_)
+
+ggplot(vs_, aes(fill=groups, y=perc_vis, x=as.factor(platform))) + 
+  geom_bar(stat="identity",position="dodge") +
+  scale_y_continuous(labels=scales::percent) + 
+  ylab("% Users") + xlab("Platform") +
+  ggtitle("% of Users who interacted with Visibility settings and Toggled to Visible") +
+  #facet_grid(cluster_new ~ .,scales = "free") +
+  geom_text(aes(label=perc_vis*100), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 15, #angle = 45
+                           ),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 15, angle = 45
+                           ),
+        axis.title.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, #angle = 45
+                           ),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+  )
+        ) +
+  scale_fill_manual(values = color[9:14],
+                    name = "Exp. Group\nEntry Point", 
+                    labels = c("Control-Personal Info","Test-App Settings")
+                    )
+
+
+```
+
+```{r}
+
+vv <- su[,c(1,2,4,5,8)]
+
+agg <- as.data.frame(
+  vv %>% group_by(groups) %>% 
+  summarise(
+  n_users_viewed_entry = sum(n_users_viewed_entry),
+  n_users_vis_changed = sum(n_users_vis_changed)
+) %>% mutate(
+  perc_viewed_vis_changed = round(n_users_vis_changed/n_users_viewed_entry,3)
+))
+
+prop.test(as.matrix(agg[,2:3]))
+
+# aggregate platform and add to main vs table 
+
+agg_ <- data.frame(platform = rep('iOS+Android',2),agg)
+
+vv_ <- rbind(vv,agg_)
+
+ggplot(vv_, aes(fill=groups, y=perc_viewed_vis_changed, x=as.factor(platform))) + 
+  geom_bar(stat="identity",position="dodge") +
+  scale_y_continuous(labels=scales::percent) + 
+  ylab("% Users") + xlab("Platform") +
+  ggtitle("% of Users who interacted with Visibility settings and changed visibility state") +
+  #facet_grid(cluster_new ~ .,scales = "free") +
+  geom_text(aes(label=perc_viewed_vis_changed*100), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 15, #angle = 45
+                           ),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 15, angle = 45
+                           ),
+        axis.title.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, #angle = 45
+                           ),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+  )
+        ) +
+  scale_fill_manual(values = color[9:14],
+                    name = "Exp. Group\nEntry Point", 
+                    labels = c("Control-Personal Info","Test-App Settings")
+                    )
+```
+
+```{r}
+
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

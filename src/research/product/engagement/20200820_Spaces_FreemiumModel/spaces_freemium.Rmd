@@ -1,0 +1,1559 @@
+---
+title: "Spaces Monetization Strategy Analysis"
+author: "Wendy Vu"
+region: "EU"
+date: "2020-07-30"
+summary: "Can we leverage spaces to entice our users to upgrade to premium tiers and help our new customers find value in our product through spaces? This research addresses the following questions. Are Spaces users more likely to be financially active? What percentage of new users find value in spaces? How can we monetize spaces effectively? What is the sweet spot for charging users while still attracting new ones?"
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+  pdf_document:
+    toc: yes
+link: "https://docs.google.com/presentation/d/1ZT_2U0i1RNbyxDqcdHU2v2cFJCIxOeRSoAmdIGMECXI/edit?usp=sharing"
+tags: "engage, spaces, membership, tiering, clusters, segmentation, transactions, retention, monetize"
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/Engage_Analysis/Spaces_FreemiumModel/spaces_freemium.RData"))
+pr <- as.data.frame(pnl_retention)
+prm <- as.data.frame(pnl_retention_membership)
+ret <- as.data.frame(retention)
+retm <- as.data.frame(retention_membership)
+st <- as.data.frame(spaces_txns)
+sa <- as.data.frame(spaces_accts)
+sd <- as.data.frame(spaces_data)
+cl <- as.data.frame(clusters)
+kyc <- as.data.frame(kyc_cohort_spaces)
+ret.sp <- as.data.frame(spaces_retention)
+tr <- as.data.frame(travel)
+ps <- as.data.frame(pnl_segment)
+po <- as.data.frame(pnl_onboarding)
+
+#df$user_certified <- as.Date(df$user_certified)
+dim(sd)
+str(sd)
+head(sd)
+
+sd %>% summarise_all(n_distinct)
+
+```
+
+```{r}
+library('reshape2')
+library('reshape')
+library('tidyr')
+library('ggplot2')
+
+# What % of users are Premium users?
+sa$month <- as.Date(sa$month)
+
+s_m <- unique(as.data.frame(sa %>% group_by(month) %>% 
+  mutate(
+    tot_users = tot_std_users + tot_prem_users,
+    per_std = tot_std_users/tot_users,
+    per_prem = tot_prem_users/tot_users,
+    per_std_funded = tot_std_users_funded/tot_std_users,
+    per_prem_funded = tot_prem_users_funded/tot_prem_users
+    )))
+
+percent <- distinct(s_m[,c("month","tot_users","per_std","per_prem","per_std_funded","per_prem_funded"
+                           )])
+
+
+# Colorblind Color pallete
+# The palette with grey:
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+# The palette with black:
+cbbPalette <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+# To use for fills, add
+  scale_fill_manual(values=cbPalette)
+
+# To use for line and point colors, add
+  scale_colour_manual(values=cbPalette)
+
+
+ggplot(filter(percent, month >= '2020-01-01'), aes(x=as.factor(month), 
+                                                   y = tot_users,
+                                                   #fill=as.factor(month)
+                                                   )
+       ) + scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) +
+  geom_bar(stat="identity", width=0.5,fill = "#009E73") +
+  ylab("Total Spaces Users") + xlab("Months") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=14,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) #+
+  scale_fill_brewer(palette = cbPalette)
+
+# pivoting Long: convert columns to rows
+percent_piv <- as.data.frame( 
+  percent %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("per"), # column name starts with string
+      names_to = "membership", # new column name of column names after pivot
+      values_to = "percent", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+ggplot(filter(percent_piv, month >= '2020-01-01', membership %in% c("per_prem","per_std")), 
+       aes(x=as.factor(month), 
+           y = percent,
+           fill=as.factor(membership),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Spaces Users") + xlab("Months") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=12,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard"))
+
+ggplot(filter(percent_piv, month >= '2020-01-01', membership %in% c("per_prem_funded","per_std_funded")), 
+       aes(x=as.factor(month), 
+           y = percent,
+           fill=as.factor(membership),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Spaces Users") + xlab("Months") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=12,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium_funded","Standard_funded"))
+
+
+```
+
+```{r}
+# Are premium Space user taking advantage of the 10 space accounts?
+
+s_a <- as.data.frame(
+  sa %>% group_by(month,n_spaces) %>%
+  summarise(cumsum = prem_users_cs/tot_prem_users,
+            cumsum_funded = prem_users_funded_cs/tot_prem_users_funded)
+)
+
+ggplot(filter(s_a, month >= '2020-01-01'), 
+       aes(x=as.factor(n_spaces), 
+           y = cumsum,
+           fill=as.factor(month),
+           )
+       ) +
+  geom_point(size=2, shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Cumulative Share of Spaces Users") + xlab("Number of Active Spaces") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=12,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_fill_manual(values = cbPalette,
+                    name = "Month", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+ggplot(filter(s_a, month >= '2020-01-01'), 
+       aes(x=as.factor(n_spaces), 
+           y = cumsum_funded,
+           fill=as.factor(month),
+           )
+       ) +
+  geom_point(size=2, shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Cumulative Share of Spaces Users") + xlab("Number of Active Spaces") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=12,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_fill_manual(values = cbPalette,
+                    name = "Month", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+# for any given month, what is the avg number of spaces would have split by standard and premium
+# Colorblind Color pallete
+# The palette with grey:
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+# The palette with black:
+cbbPalette <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+avg_sp <- as.data.frame(
+  sd %>% group_by(month,membership) %>%
+  summarise(avg_space = round(mean(n_spaces)),
+            avg_funded = round(mean(n_spaces_funded)),
+            med_space = median(n_spaces),
+            med_funded = median(n_spaces_funded))
+)
+
+ggplot(avg_sp, 
+       aes(x=as.factor(month), 
+           y = avg_funded,
+           fill=as.factor(membership),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Number of Funded Spaces") + xlab("Months") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=12,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_fill_manual(values = c("#009E73", "#F0E442"),
+                    name = "Membership", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+```
+
+```{r}
+
+# Spaces Transactions: distribution of users 
+
+s_t <- as.data.frame(
+  st %>% group_by(month,txns) %>%
+  summarise(
+    std = std_users/tot_std_users,
+    prem = premium_users/tot_prem_users,
+    std_funded = std_users_funded/tot_std_users_funded,
+    prem_funded = premium_users_funded/tot_prem_users_funded
+  )
+)
+
+std_piv <- as.data.frame( 
+  s_t[,c(1,2,3,5)] %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("std"), # column name starts with string
+      names_to = "type", # new column name of column names after pivot
+      values_to = "percent", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+prem_piv <- as.data.frame( 
+  s_t[,c(1,2,4,6)] %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("prem"), # column name starts with string
+      names_to = "type", # new column name of column names after pivot
+      values_to = "percent", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+
+ggplot(filter(std_piv,month >= '2020-01-01'), 
+       aes(x=as.factor(txns), 
+           y = percent,
+           fill=as.factor(month),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(aes(label = round(percent*100), group = month), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Standard Space Users") + xlab("Number of Spaces Transactions per Month") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 15,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(~type) +
+  scale_fill_manual(values = cbPalette,
+                    name = "Month", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+ggplot(filter(prem_piv,month >= '2020-01-01'), 
+       aes(x=as.factor(txns), 
+           y = percent,
+           fill=as.factor(month),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(aes(label = round(percent*100), group = month), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Premium Space Users") + xlab("Number of Spaces Transactions per Month") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=15,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(~type) +
+  scale_fill_manual(values = cbPalette,
+                    name = "Month", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+```
+
+```{r}
+# how many premium users take advantage of shared spaces? Note that shared is only a premium tier service so the owner of shared spaces has to be premium but the members don't have to be 
+
+shared <- as.data.frame( 
+  sd %>% group_by(month,membership) %>%
+    summarise(shared_users = length(unique(user_id[n_shared_spaces > 0])),
+              shared_users_funded = length(unique(user_id[n_shared_spaces_funded > 0])),
+              total_users = length(unique(user_id)))
+  )
+
+shared$percent_shared <- round(shared$shared_users/shared$total_users,4)
+shared$percent_shared_funded <- round(shared$shared_users_funded/shared$total_users,4)
+
+
+# % of PREMIUM SHARED SPACE OWNERS
+shared.piv <- as.data.frame( 
+  shared %>% tidyr::pivot_longer(
+    cols = starts_with("percent"),
+    names_to = 'type',
+    values_to = "percent"
+  )
+  )
+
+ggplot(filter(shared.piv,membership == 'premium'), 
+       aes(x=as.factor(month), 
+           y = percent,
+           fill=as.factor(type),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(aes(label = round(percent*100), group = month), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Premium Shared Users") + xlab("Month") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=15,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~type) +
+  scale_fill_manual(values = cbPalette,
+                    name = "Month", 
+                    labels = c("All Shared","Shared Funded")
+                    )
+
+# HOW MANY STANDARD USERS ARE MEMBERS OF A SPACE? WHAT IS THE NETWORK EFFECT OF SHARED SPACES?
+
+ggplot(filter(shared.piv,membership == 'standard'), 
+       aes(x=as.factor(month), 
+           y = percent,
+           fill=as.factor(type),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(aes(label = round(percent*100), group = month), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Standard Shared Members") + xlab("Month") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=15,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~type) +
+  scale_fill_manual(values = cbPalette,
+                    name = "Month", 
+                    labels = c("All Shared","Shared Funded")
+                    )
+
+
+
+
+
+
+```
+
+```{r}
+#PNL : considers user retention by dividing pnl sum by COHORT SIZE
+
+#MARGINAL PNL
+ggplot(filter(pnl_retention,period <= 20), 
+       aes(x=as.factor(period), 
+           y = pnl_marg_user,
+           group=as.factor(cluster_new),
+           color=as.factor(cluster_new)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Cumulative Avg PnL per User (Euro)") + xlab("Months from Sign-Up") +
+  ggtitle("Marginal PnL (includes Onboarding Cost)") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+# PNL EXCLUDING ONBOARDING COST
+ggplot(filter(pnl_retention,period <= 20), 
+       aes(x=as.factor(period), 
+           y = pnl_exob_user,
+           group=as.factor(cluster_new),
+           color=as.factor(cluster_new)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Cumulative Avg PnL per User (Euro)") + xlab("Months from Sign-Up") +
+  ggtitle("PnL (EXCLUDING Onboarding Cost)") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+####### MEMBERSHIP
+# MEMBERSHIP: MARGINAL PNL
+ggplot(filter(pnl_retention_membership,period <= 20), 
+       aes(x=as.factor(period), 
+           y = pnl_marg_user,
+           group=as.factor(cluster_new),
+           color=as.factor(cluster_new)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Cumulative Avg PnL per User (Euro)") + xlab("Months from Sign-Up") +
+  ggtitle("MEMBERSHIP: Marginal PnL (includes Onboarding Cost)") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+# Membership: PNL EXCLUDING ONBOARDING COST
+ggplot(filter(pnl_retention_membership, period <= 20), 
+       aes(x=as.factor(period), 
+           y = pnl_exob_user,
+           group=as.factor(cluster_new),
+           color=as.factor(cluster_new)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Cumulative Avg PnL per User (Euro)") + xlab("Months after Sign-up") +
+  ggtitle("MEMBERSHIP: PnL (EXCLUDING Onboarding Cost)") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+```
+
+```{r}
+## RETENTION
+
+ggplot(ret, 
+       aes(x=as.factor(month), 
+           y = retained,
+           group=as.factor(cluster_new),
+           color=as.factor(cluster_new)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Retained Users") + xlab("Months from First Top-Up") +
+  ggtitle("Retention Curve") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=12,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+## RETENTION SPLIT BY MEMBERSHIP
+
+ggplot(filter(retm, month %in% c(6,12,18)), 
+       aes(x=as.factor(month), 
+           y = retained,
+           group=as.factor(cluster_new),
+           color=as.factor(cluster_new)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Retained Users") + xlab("Months from First Top-Up") +
+  ggtitle("Retention Curve") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=20,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+
+
+
+
+
+```
+
+```{r}
+# WHAT IS THE AVG LIFETIME VALUE OF USERS AT THE END OF 12 MONTHS
+
+
+
+
+```
+
+```{r}
+
+#PNL : 
+
+# dplyr: pivoting Long: convert columns to rows
+pnl_piv <- as.data.frame( 
+  pnl_retention[,c(1,2,8:11)] %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("pnl"), # column name starts with string
+      names_to = "pnl", # new column name of column names after pivot
+      values_to = "value", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+#MARGINAL PNL marginal vs exclude onboarding cost (based on full cohort size)
+ggplot(filter(pnl_piv,pnl %in% c('pnl_marg_user','pnl_exob_user'),period <= 20), 
+       aes(x=as.factor(period), 
+           y = value,
+           group=as.factor(cluster_new),
+           color=as.factor(cluster_new)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Cumulative Avg PnL per User (Euro)") + xlab("Months from Sign-Up") +
+  ggtitle("PnL (Marginal vs Excluding Onboarding Cost)") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(~pnl) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+# PNL (based on MAU)
+ggplot(filter(pnl_piv,pnl %in% c('pnl_marg_mau','pnl_exob_mau'),period <= 20),
+       aes(x=as.factor(period), 
+           y = value,
+           group=as.factor(cluster_new),
+           color=as.factor(cluster_new)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Cumulative Avg PnL per User (Euro)") + xlab("Months from Sign-Up") +
+  ggtitle("PnL (Marginal vs. Excluding Onboarding Cost)") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(~pnl) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+
+
+####### MEMBERSHIP
+# MARGINAL PNL
+ggplot(pnl_retention_membership, 
+       aes(x=as.factor(period), 
+           y = pnl_marg_mau,
+           group=as.factor(cluster_new),
+           color=as.factor(cluster_new)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Cumulative Avg PnL per User (Euro)") + xlab("Months from Sign-Up") +
+  ggtitle("MEMBERSHIP: Marginal PnL (includes Onboarding Cost & Only considers MAU)") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+# MEMBERSHIP: PNL EXCLUDING ONBOARDING COST
+ggplot(filter(pnl_retention_membership,period <=20), 
+       aes(x=as.factor(period), 
+           y = pnl_exob_mau,
+           group=as.factor(cluster_new),
+           color=as.factor(cluster_new)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Cumulative Avg PnL per User (Euro)") + xlab("Months after Sign-up") +
+  ggtitle("MEMBERSHIP: PnL (EXCLUDING Onboarding Cost & Only considers MAUs)") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+
+
+## RETENTION
+
+ggplot(ret, 
+       aes(x=as.factor(month), 
+           y = retained,
+           group=as.factor(cluster_new),
+           color=as.factor(cluster_new)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Retained Users") + xlab("Months from First Top-Up") +
+  ggtitle("Retention Curve") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=12,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+```
+```{r}
+# WHAT IS THE AVG LIFETIME VALUE OF USERS AT THE END OF 12 MONTHS COHORT SIZE VS MAU RETAINED
+
+ggplot(clus, 
+       aes(x=as.factor(cluster_new), 
+           y = per_space_users,
+           fill=as.factor(cluster_new),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  geom_text(
+  aes(label = round(per_space_users*100), group = as.factor(cluster_new)), 
+  position = position_dodge(0.8),
+  vjust = -0.3, size = 3.5
+  ) +
+  ylab("Percent Spaces Users") + xlab("User Clusters") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+
+```
+
+```{r}
+# What types of cost and revenue are associated with the differences in PnL among the clusters?
+
+library(RColorBrewer)
+display.brewer.all()
+
+color <- brewer.pal(12,"Set3")
+
+ggplot(filter(ps, revenue_cost=='Revenue'), 
+       aes(x=as.factor(cluster_new), 
+           y = value_user/total_value_user,
+           fill=as.factor(segment),
+           )
+       ) +
+  geom_bar(position="stack",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(per_space_users*100), group = as.factor(cluster_new)), 
+  #position = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("Percent") + xlab("User Clusters") +
+  ggtitle("Revenue Breakdown by Segment")+
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_fill_manual(values = color,name="Segment")
+
+
+ggplot(filter(ps, revenue_cost=='Cost'), 
+       aes(x=as.factor(cluster_new), 
+           y = value_user/total_value_user,
+           fill=as.factor(segment),
+           )
+       ) +
+  geom_bar(position="stack",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(per_space_users*100), group = as.factor(cluster_new)), 
+  #position = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("Percent") + xlab("User Clusters") +
+  ggtitle("Cost Breakdown by Segment")+
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_fill_manual(values = color,name="Segment")
+
+
+# PnL Onboarding Breakdown
+
+ggplot(po, 
+       aes(x=as.factor(cluster_new), 
+           y = value_user/total_value_user,
+           fill=as.factor(segment),
+           )
+       ) +
+  geom_bar(position="stack",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(per_space_users*100), group = as.factor(cluster_new)), 
+  #position = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("Percent") + xlab("User Clusters") +
+  ggtitle("Onboarding Cost Breakdown by Segment")+
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_fill_manual(values = color,name="Segment")
+
+
+```
+
+
+```{r}
+po_avg <- unique(po[,c('segment','value_all_user')])
+
+ggplot(po, 
+       aes(x=as.factor(cluster_new), 
+           y = value_user,
+           fill=as.factor(cluster_new),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(per_space_users*100), group = as.factor(cluster_new)), 
+  #position = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("Avg Value per User (Euro)") + xlab("User Clusters") +
+  ggtitle("Onboarding Cost Breakdown by Segment")+
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(vars(segment),scales = "free") +
+  geom_hline(data = po_avg, aes(yintercept = value_all_user),linetype = "dashed",color='red') +
+  #scale_fill_manual(values = color,name="Segment")
+    scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+# Revenue
+ps_avg <- unique(ps[ps$revenue_cost == 'Revenue',c('segment','value_all_user')])
+ggplot(filter(ps,revenue_cost=='Revenue'), 
+       aes(x=as.factor(cluster_new), 
+           y = value_user,
+           fill=as.factor(cluster_new),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(per_space_users*100), group = as.factor(cluster_new)), 
+  #position = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("Avg Value per User (Euro)") + xlab("User Clusters") +
+  ggtitle("Revenue Breakdown by Segment")+
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(vars(segment),scales = "free") +
+  geom_hline(data = ps_avg, aes(yintercept = value_all_user),linetype = "dashed",color='red') +
+  #scale_fill_manual(values = color,name="Segment")
+    scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+# Cost
+ps_avg <- unique(ps[ps$revenue_cost == 'Cost',c('segment','value_all_user')])
+
+ggplot(filter(ps,revenue_cost=='Cost'), 
+       aes(x=as.factor(cluster_new), 
+           y = value_user,
+           fill=as.factor(cluster_new),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(per_space_users*100), group = as.factor(cluster_new)), 
+  #position = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("Avg Value per User (Euro)") + xlab("User Clusters") +
+  ggtitle("Cost Breakdown by Segment")+
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(vars(segment),scales = "free") +
+  geom_hline(data = ps_avg, aes(yintercept = value_all_user),linetype = "dashed",color='red') +
+  #scale_fill_manual(values = color,name="Segment")
+    scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+# Net profit breakdown
+
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+# What percentage of users within each cluster has a space account?
+
+clus <- as.data.frame(
+  cl %>% group_by(cluster_new,cluster_new_size) %>%
+    summarise(spaces_users = length(unique(user_id[n_space_ct > 0]))
+              ) %>%
+    drop_na()
+)
+
+clus$per_space_users <- round(clus$spaces_users/clus$cluster_new_size,2)
+
+
+ggplot(clus, 
+       aes(x=as.factor(cluster_new), 
+           y = per_space_users,
+           fill=as.factor(cluster_new),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  geom_text(
+  aes(label = round(per_space_users*100), group = as.factor(cluster_new)), 
+  position = position_dodge(0.8),
+  vjust = -0.3, size = 3.5
+  ) +
+  ylab("Percent Spaces Users") + xlab("User Clusters") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+clus.sp <- as.data.frame(
+  cl %>% group_by(user_id,cluster_new,cluster_new_size) %>%
+    mutate(n_space_txn = n_space_ct + n_space_dt,
+           avg_space_txn_user = round(n_space_txn/12),
+           type = case_when(
+             n_space_txn > 0 ~ 'space_user',
+             n_space_txn == 0 ~ 'non_space_user'
+           ),
+           txn_cat = case_when(
+             type == 'space_user' & n_space_txn == 0 ~ '0',
+             type == 'space_user' & n_space_txn > 0 & n_space_txn <= 2 ~ '1-2',
+             type == 'space_user' & n_space_txn > 2 & n_space_txn <= 5 ~ '3-5',
+             type == 'space_user' & n_space_txn >= 6 ~ '6+'
+           ))
+    
+  
+)
+
+
+sp <- as.data.frame(
+  filter(clus.sp,type=='space_user') %>% group_by(cluster_new,cluster_new_size,txn_cat) %>%
+    summarise(sp_users = length(unique(user_id)))
+)
+
+sp$percent <- round(sp$sp_users/sp$cluster_new_size,2)
+
+# Colorblind Color pallete
+# The palette with grey:
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+# The palette with black:
+cbbPalette <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2")
+
+ggplot(sp, 
+       aes(x=as.factor(txn_cat), 
+           y = percent,
+           fill=as.factor(txn_cat),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  geom_text(
+  aes(label = round(percent*100), group = as.factor(txn_cat)), 
+  position = position_dodge(0.8),
+  vjust = -0.3, size = 3.5
+  ) +
+  ylab("Percent Spaces Users") + xlab("User Clusters") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    axis.text.x=element_blank(),
+    strip.background = element_rect(
+      color="black", 
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    #strip.text.y = element_text(
+    #    size = 12, color = "red", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(~cluster_new) +
+  scale_fill_manual(values = cbPalette,
+                    name = "Avg No. Spaces Txns \nper Month", 
+                    #labels = c("Premium","Standard")
+                    ) 
+
+ ## RETENTION SPLIT BY SPACERS VS NON-SPACERS
+
+ggplot(filter(ret.sp, month %in% c(6,12,18)), 
+       aes(x=as.factor(month), 
+           y = retained,
+           group=as.factor(cluster_new),
+           color=as.factor(cluster_new)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Retained Users") + xlab("Months from First Top-Up") +
+  ggtitle("Retention Curve") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=20,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(~space_cat) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+# Percent of space users 
+sp_users <- length(ret.sp[ret.sp$space_cat == 'space_user',1])/length(ret.sp[,1])
+
+```
+
+```{r}
+
+### Looking at other cohorts for spaces, do we see the same patterns in the user clusters analysis?
+
+head(kyc)
+
+kyc <- as.data.frame(
+  kyc %>% group_by(kycc_cohort) %>%
+  mutate(txn_cat = case_when(
+             n_spaces_txn == 0 ~ '0',
+             n_spaces_txn > 0 & n_spaces_txn <= 2 ~ '1-2',
+             n_spaces_txn > 2 & n_spaces_txn <= 5 ~ '3-5',
+             n_spaces_txn >= 6 ~ '6plus'
+           ),
+    
+         )
+)
+
+sp <- as.data.frame(
+  kyc %>% group_by(kycc_cohort,ftmau_size,txn_cat) %>%
+    summarise(sp_users = length(user_created[n_spaces_acct > 0]),
+              ) %>% group_by(kycc_cohort) %>%
+    mutate(total_sp_users = sum(sp_users)))
+
+
+```
+
+
+```{r}
+# TRAVELING
+tr$month <- as.Date(tr$month)
+
+# pivoting Long: convert columns to rows
+tr_piv <- as.data.frame( 
+  tr[,c(1,2,3,4,6,7,8,9)] %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("avg"), # column name starts with string
+      names_to = "txn_type", # new column name of column names after pivot
+      values_to = "avg_txn", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+
+# CARD SPEND ACROSS ALL USER CLUSTERS SPLIT BY DOMESTIC/INTERNATION/INTRANATION SPEND
+ggplot(filter(tr_piv,month >= '2019-07-01'), 
+       aes(x=as.factor(month), 
+           y = avg_txn,
+           group=as.factor(cluster_new),
+           color=as.factor(cluster_new)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Avg No. Transactions") + xlab("Month") +
+  ggtitle("Card Spend") +
+    theme(
+    legend.title = element_text(color = "black", size = 20),
+    legend.text = element_text(color = "black", size = 20,face="bold"),
+    legend.key.size = unit(1, "cm"),
+    axis.text=element_text(size=14,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(~txn_type) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+library(RColorBrewer)
+
+# CARD SPEND AMONG TRAVELERS
+display.brewer.all()
+color <- brewer.pal(12,"Set3")
+
+
+ggplot(filter(tr_piv,cluster_new %in% c(4,5)), 
+       aes(x=as.factor(month), 
+           y = avg_txn,
+           group=as.factor(txn_type),
+           color=as.factor(txn_type)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Avg No. Transactions") + xlab("Month") +
+  ggtitle("Card Spend") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(2, "cm"),
+    axis.text=element_text(size=14,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(~cluster_new) +
+  scale_color_manual(values = color,
+                    name = "Card Txn Type", 
+                    labels = c("Domestic","Ecommerce","International","Euro\n(w/in Europe)")
+                    )
+
+# How many users are still retained as of July 2020?
+
+mau <- filter(tr_piv, month >= '2020-07-01',txn_type =='avg_inter')
+mau$retained <- round(mau$mau/mau$cluster_new_size,2)
+
+ggplot(mau, 
+       aes(x=as.factor(cluster_new), 
+           y = retained,
+           fill=as.factor(cluster_new),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  geom_text(
+  aes(label = round(retained*100), group = as.factor(cluster_new)), 
+  position = position_dodge(0.8),
+  vjust = -0.3, size = 3.5
+  ) +
+  ylab("% MAU") + xlab("User Clusters") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=18,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+

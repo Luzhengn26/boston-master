@@ -1,0 +1,28 @@
+---
+postgres-us:
+  host: 
+  port: 
+  database: 
+  username: 
+  password: 
+
+postgres-eu:
+  host: 
+  port: 
+  database: 
+  username: 
+  password: 
+
+redshift-eu:
+  host: 
+  port: 
+  database: 
+  username: 
+  password: 
+
+redshift-us:
+  host: 
+  port: 
+  database: 
+  username: 
+  password: 

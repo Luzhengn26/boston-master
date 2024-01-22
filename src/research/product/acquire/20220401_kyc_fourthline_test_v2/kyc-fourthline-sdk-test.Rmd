@@ -1,0 +1,10 @@
+---
+title: "KYC Fourthline SDK A/B Test Phase 1.2"
+author: "Claudia Dai"
+region: "EU"
+date: "2022-04-01"
+link: "https://docs.google.com/presentation/d/1K2CsJDdyGBKAW4jRdLoQWE_5tXq2NKkhZwHRSr3pNc4/"
+tags: "acquire, kyc, fourthline, ab test, cs contact, conversion"
+research_type: "Data Deep Dives"
+summary: "This slide deck serves to summarize the results from the Phase 1.2 monitoring dashboard on Metabase, such that the information does not get lost when the dashboard is archived. For more information on this test, please refer to the slide deck for the Fourthline SDK A/B Test Phase 1.1."
+---

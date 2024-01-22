@@ -1,0 +1,9 @@
+---
+title: "Summary of the discrepancies between total visits in A/B tests from Optimizely and Snowplow FE tracking"
+author: "Joao Fernandes"
+region: "EU"
+date: "2022-11-29"
+tags: "acquire, data quality, snowplow, ab test, optimizely, upper funnel"
+research_type: "Data Deep Dives"
+summary: "Optimizely counts many more visitors than we see in Snowplow. Some difference is to be expected due to adblockers and data loss at the Snowplow enricher, but this seems excessive. This discrepancy is not stable across experiments, but instead varies quite significantly. We also see that for some users (as identified by domain_userid) we are sending events to optimizely with more than one uniqueDeviceToken - this likely leads to overcounting by Optimizely, but happens too rarely to fully explain the discrepancies observed."
+---

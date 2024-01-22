@@ -1,0 +1,823 @@
+---
+title: "Who are our Users? Part 2"
+author: "Wendy Vu"
+region: "EU"
+date: "2020-08-27"
+summary: "The 10 emergent mature user clusters fall into 3 broad activity bands: high, moderate and low activity. Clusters are created by unsupervised machine learning using first 12 months of user’s data. This research shows some key cluster insights on user retention and profitability and user overlaps between clusters."
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+  pdf_document:
+    toc: yes
+link: "https://docs.google.com/presentation/d/1-LIe5qnk-H5lNfO3mkBPqwr-TClfUMZ6dfCK5gLqAi8/edit?usp=sharing"
+tags: "user behavior, segmentation, engage, transactions, cluster, financial behavior, retention, pnl, cost, revenue, spend"
+  
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/Mature_User_Cluster_Part2.RData"))
+pr <- as.data.frame(pnl_retention)
+pl <- as.data.frame(pnl_labels)
+plo <- as.data.frame(pnl_labels_onboarding_avg_user)
+dm <- as.data.frame(dau_mau)
+sp <- as.data.frame(spend)
+spt <- as.data.frame(spend_type)
+tr <- as.data.frame(travel_overlap)
+tt <- as.data.frame(travel_time)
+
+# DATE reformat
+dm$month <- format(as.Date(dm$month),format="%Y-%m")
+sp$month <- format(as.Date(sp$month),format="%Y-%m")
+spt$month <- format(as.Date(spt$month),format="%Y-%m")
+
+
+#df$user_certified <- as.Date(df$user_certified)
+dim(pl)
+str(pl)
+head(pl)
+
+pl %>% summarise_all(n_distinct)
+
+```
+
+
+```{r}
+library(data.table)   
+library(ggplot2)
+library('reshape2')
+library('reshape')
+library('tidyr')
+library('ggplot2')
+library(tidyverse)
+library(scales)
+
+# REVENUE CLUSTER 1-6
+top5_rev = as.data.table(filter(pl,rank <= 5, revenue_cost == "Revenue"))
+top5_rev <- as.data.table(
+  top5_rev %>%
+  mutate(
+    label_new = case_when(
+      label == "Fees_DDR" ~ "Direct Debit Reversal Fee",
+      label == "Treasury_Treasury" ~ "Treasury",
+      label == "Payments_Consumer" ~ "Card Payment EEA IC",
+      label == "Payments_International" ~ "Card Payment International IC",
+      label == "Memberships_Metal" ~ "Subscription Metal",
+      label == "Memberships_You" ~ "Subscription YOU",
+      label == "payments_youptphysicalcardinter_fee" ~ "YOU Card International IC",
+      label == "Fees_FX Markup" ~ "FX International ATM Markup Fees",
+      label == "Fees_Cash26" ~ "Cash26 Fees",
+      label == "Memberships_Flex" ~ "Subscription Flex",
+      label == "Fees_Reorders" ~ "Reorder Express Fees",
+      label == "Banking_Overdraft" ~ "Bank Overdraft Fees"
+    )
+)
+)
+
+top5_rev[, ord := sprintf("%02i", frank(top5_rev, cluster_new, -rank, ties.method = "first"))]
+
+ggplot(filter(top5_rev,cluster_new %in% c(1:6)),aes(x=ord, y=perc_rev_cost, fill=as.factor(cluster_new)  )) + 
+    #geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00") +
+    geom_col() +
+    ylab("% Total Revenue per Cluster") + xlab("Top 5 Revenue Types") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=18,face="bold",#angle=90
+                           ),
+    axis.text.x=element_text(size=18,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    #axis.text.x=element_blank(),
+    strip.background = element_rect(
+      color="black", 
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 20, 
+        #color = "red", 
+        face = "bold"
+        ),
+    #strip.text.y = element_text(
+    #    size = 12, color = "red", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  coord_flip() +
+  facet_grid(rows = vars(cluster_new), scales = "free_y", switch = "x", space = "free_y") +
+  #facet_grid(rows = vars(cluster_new), 
+   #          scales="free_x",
+             #ncol = 1 ,
+             #nrow = 1,
+    #         drop=TRUE
+     #        ) + #coord_flip() +
+  #facet_grid(vars(label),scales = "free") +
+  # use named character vector to replace x-axis labels
+  scale_x_discrete(labels = top5_rev[, setNames(as.character(label_new), ord)]) + 
+  # replace x-axis title
+  theme(legend.position = "none") +
+    scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    #name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    ) 
+
+# REVENUE CLUSTER 7:10
+ggplot(filter(top5_rev,cluster_new %in% c(7:10)),aes(x=ord, y=perc_rev_cost, fill=as.factor(cluster_new)  )) + 
+    #geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00") +
+    geom_col() +
+    ylab("% Total Revenue per Cluster") + xlab("Top 5 Revenue Types") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=18,face="bold",#angle=90
+                           ),
+    axis.text.x=element_text(size=18,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    #axis.text.x=element_blank(),
+    strip.background = element_rect(
+      color="black", 
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 20, 
+        #color = "red", 
+        face = "bold"
+        ),
+    #strip.text.y = element_text(
+    #    size = 12, color = "red", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  coord_flip() +
+  facet_grid(rows = vars(cluster_new), scales = "free_y", switch = "x", space = "free_y") +
+  #facet_grid(vars(label),scales = "free") +
+  # use named character vector to replace x-axis labels
+  scale_x_discrete(labels = top5_rev[, setNames(as.character(label_new), ord)]) + 
+  # replace x-axis title
+  theme(legend.position = "none") +
+    scale_fill_manual(values = c(#"#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5",
+                                 "#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    #name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    ) 
+
+
+
+
+# Cost (excluding onboarding)
+top5_cost = as.data.table(filter(pl,rank <= 5, revenue_cost == "Cost"))
+top5_cost <- as.data.table(
+  top5_cost %>%
+  mutate(
+    label_new = case_when(
+      label == "ATM_Consumer" ~ "Consumer ATM EEA Fee",
+      label == "Customer Service_Customer Service" ~ "Customer Service",
+      label == "Memberships_Metal" ~ "Membership Metal Cost", 
+      label == "Memberships_Flex" ~ "Membership Flex Cost",
+      label == "Memberships_You" ~ "Membership YOU",
+      label == "Fees_Reorders" ~ "Card Reorders",
+      label == "ATM_International" ~ "ATM International Fee",
+      label == "Fees_FX Markup" ~ "FX Markup WriteOffs/Refund/IC-fees",
+      label == "Defaults_Defaults" ~ "Defaults Account Write-Offs",
+      label == "Banking_Overdraft" ~ "Banking Overdraft",
+      label == "Payments_Mobile" ~ "Mobile Payments IC Fees",
+      label == "Fees_Cash26" ~ "Cash26 Fees"
+    )
+)
+)
+
+
+top5_cost[, ord := sprintf("%02i", frank(top5_cost, cluster_new, -rank, ties.method = "first"))]
+
+ggplot( filter(top5_cost,cluster_new %in% c(1:6)), aes(x=ord, y=perc_rev_cost, fill=as.factor(cluster_new)  )) + 
+    #geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00") +
+    geom_col() +
+    ylab("% Total Cost per Cluster \n(Excl. Onboarding)") + xlab("Top 5 Costs Types") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=18,face="bold",#angle=90
+                           ),
+    axis.text.x=element_text(size=18,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    #axis.text.x=element_blank(),
+    strip.background = element_rect(
+      color="black", 
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 20, 
+        #color = "red", 
+        face = "bold"
+        ),
+    #strip.text.y = element_text(
+    #    size = 12, color = "red", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  coord_flip() +
+  facet_grid(rows = vars(cluster_new), scales = "free_y", switch = "x", space = "free_y") +
+  #facet_grid(vars(label),scales = "free") +
+  # use named character vector to replace x-axis labels
+  scale_x_discrete(labels = top5_cost[, setNames(as.character(label_new), ord)]) + 
+  # replace x-axis title
+  theme(legend.position = "none") +
+    scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5",
+                                 "#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    #name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    ) 
+
+
+ggplot( filter(top5_cost,cluster_new %in% c(7:10)), aes(x=ord, y=perc_rev_cost, fill=as.factor(cluster_new)  )) + 
+    #geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00") +
+    geom_col() +
+    ylab("% Total Cost per Cluster \n(Excl. Onboarding)") + xlab("Top 5 Costs Types") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=18,face="bold",#angle=90
+                           ),
+    axis.text.x=element_text(size=18,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    #axis.text.x=element_blank(),
+    strip.background = element_rect(
+      color="black", 
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 20, 
+        #color = "red", 
+        face = "bold"
+        ),
+    #strip.text.y = element_text(
+    #    size = 12, color = "red", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  coord_flip() +
+  facet_grid(rows = vars(cluster_new), scales = "free_y", switch = "x", space = "free_y") +
+  #facet_grid(vars(label),scales = "free") +
+  # use named character vector to replace x-axis labels
+  scale_x_discrete(labels = top5_cost[, setNames(as.character(label_new), ord)]) + 
+  # replace x-axis title
+  theme(legend.position = "none") +
+    scale_fill_manual(values = c(#"#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5",
+                                 "#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    #name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    ) 
+
+
+# ONBOARDING COST
+
+top5_cost <- as.data.table(
+  plo %>%
+  mutate(
+    label_new = case_when(
+      labels == "Onboarding_Signup" ~ "Onboarding Signup",
+      labels == "Onboarding_Onboarding Card" ~ "Onboarding Card",
+      labels == "Onboarding_Re Onboarding Card" ~ "Re-Onboarding Card"
+    )
+)
+)
+
+
+#top5_cost[, ord := sprintf("%02i", frank(top5_cost, cluster_new, -rank, ties.method = "first"))]
+dummy2 <- unique(top5_cost[,c("label_new","avg_value_all_user")])
+ggplot( top5_cost, aes(x=as.factor(cluster_new), y=avg_value_cluster_user, fill=as.factor(cluster_new)  )) + 
+    #geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00") +
+    geom_col() +
+    ylab("Avg Onboarding Cost per User (Euro)") + xlab("Mature User Clusters") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=18,face="bold",#angle=90
+                           ),
+    axis.text.x=element_text(size=18,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    #axis.text.x=element_blank(),
+    strip.background = element_rect(
+      color="black", 
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 12, 
+        #color = "red", 
+        face = "bold"
+        ),
+    #strip.text.y = element_text(
+    #    size = 12, color = "red", face = "bold.italic"),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #coord_flip() +
+  facet_grid(rows = vars(label_new), scales = "free_y", #switch = "x", space = "free_y"
+             ) +
+  geom_hline(data = dummy2, aes(yintercept = avg_value_all_user),linetype = "dashed",color="red") +
+  #facet_grid(vars(label),scales = "free") +
+  # use named character vector to replace x-axis labels
+  #scale_x_discrete(labels = top5_cost[, setNames(as.character(label_new), ord)]) + 
+  # replace x-axis title
+  theme(legend.position = "none") +
+    scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5",
+                                 "#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    #name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    ) 
+
+
+```
+
+```{r}
+# Avg Contribution Margin per User
+
+rc_user_avg <- as.data.frame(
+  pl %>% group_by(cluster_new,cluster_new_size,revenue_cost) %>%
+  summarise(rc_sum = round(sum(value_cluster)/100,2)
+  ) %>% 
+    mutate(avg_user = round(rc_sum/cluster_new_size,2))
+  )
+
+rc_marg_avg <- as.data.frame(
+  rc_user_avg %>% group_by(cluster_new,revenue_cost) %>%
+    select(-cluster_new_size,-rc_sum) %>%
+    dplyr::mutate(i1 = row_number()) %>% 
+    spread(revenue_cost,avg_user) %>%
+    select(-i1) %>%
+    mutate(margin = Cost + Revenue,
+           revenue_cost = rep("Margin",times=1))
+  )
+
+library(RColorBrewer)
+display.brewer.all()
+
+color <- brewer.pal(12,"Set3")
+color1 <- brewer.pal(8,"Set2")
+
+ggplot() + 
+    #geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00") +
+    geom_col(data =rc_user_avg , 
+             mapping = aes(x=revenue_cost, y=avg_user, fill=as.factor(revenue_cost)),
+             #position = position_dodge()
+             ) +
+    ylab("Avg Value Per User (Euro)") + xlab("Mature User Clusters") +
+  ggtitle("Avg Contribution Margin per User") +
+    theme(
+    legend.title = element_text(color = "black", size = 18),
+    legend.text = element_text(color = "black", size = 18,face="bold"),
+    axis.text=element_text(size=18,face="bold",#angle=90
+                           ),
+    #axis.text.x=element_text(size=14,face="bold",angle=90),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    axis.text.x=element_blank(),
+    strip.background = element_rect(
+      color="black", 
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    #strip.text.y = element_text(
+    #    size = 12, color = "red", face = "bold.italic"),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_wrap(~cluster_new, 
+             scales="free_x",
+             nrow = 1 ,
+             drop=TRUE
+             ) +
+  geom_hline(data = rc_marg_avg, aes(yintercept = margin),linetype = "solid",color="#8DA0CB",size=1.5) +
+  #coord_flip() +
+  #facet_grid(vars(label),scales = "free") +
+  # use named character vector to replace x-axis labels
+  #scale_x_discrete(labels = top5_cost[, setNames(as.character(label_new), ord)]) + 
+  # replace x-axis title
+  #theme(legend.position = "none") 
+  scale_fill_manual(
+    values = c("#66C2A5", "#FC8D62"),
+    name = "Key", 
+    #labels = c("Premium_funded","Standard_funded"
+  )
+
+
+  
+
+```
+
+```{r}
+
+# DAU/MAU
+ggplot(filter(dm,month >= "2018-11-01"),
+       aes(x=as.factor(month), 
+           y = dau_mau,
+           group=as.factor(cluster_new),
+           color=as.factor(cluster_new)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("DAU/MAU Ratio") + xlab("Month") + ylim(0,0.58) +
+  ggtitle("DAU/MAU") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 15,face='bold'),
+    axis.title.y = element_text(size=15,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~cluster_new) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+# Are users spending differently over time?
+sp_piv <- as.data.frame( 
+  sp[,c(1,2,3,6,7)] %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("avg"), # column name starts with string
+      names_to = "type", # new column name of column names after pivot
+      values_to = "avg_amt", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+# Spend
+ggplot(filter(sp_piv,month >= "2019-06",
+              #cluster_new %in% c(1:7)
+              ),
+       aes(x=as.factor(month), 
+           #y = avg_n_txn,
+           y = avg_amt,
+           group=as.factor(type),
+           color=as.factor(type)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Monthly Avg Spend per User (Euro)") + xlab("Month") +
+  ggtitle("Spending Behavior Across Clusters") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=14,face="bold",angle=90),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    #strip.text.y = element_text(
+    #    size = 12, color = "red", face = "bold.italic"),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_wrap(~cluster_new,
+             nrow = 2) +
+  scale_color_manual(values = c("#80B1D3","#BC80BD"),
+                    name = "Spend Type", 
+                    labels = c("Grocery/Market","Restaurant/Bars")
+                    )
+
+# Spend type Avg amount
+
+spt_piv <- as.data.frame( 
+  spt[,c(1,2,3,5,7,9)] %>% 
+    tidyr::pivot_longer(
+      cols = ends_with("_amt"),
+      #cols = starts_with("avg"), # column name starts with string
+      names_to = "type", # new column name of column names after pivot
+      values_to = "avg_amt", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+ggplot(filter(spt_piv,month >= "2019-06",
+              #cluster_new %in% c(1:7)
+              ),
+       aes(x=as.factor(month), 
+           #y = avg_n_txn,
+           y = avg_amt,
+           group=as.factor(type),
+           color=as.factor(type)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Monthly Avg Spend per User (Euro)") + xlab("Month") +
+  ggtitle("Spending Behavior Across Clusters") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=14,face="bold",angle=90),
+    axis.title.x = element_text(size= 14,face='bold'),
+    axis.title.y = element_text(size=14,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    #strip.text.y = element_text(
+    #    size = 12, color = "red", face = "bold.italic"),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_wrap(~cluster_new,
+             nrow = 2) +
+  scale_color_manual(values = color,
+                    name = "Spend Type", 
+                    labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+
+
+# Spend type Number of users
+
+spt_piv <- as.data.frame( 
+  spt %>% 
+    tidyr::pivot_longer(
+      cols = ends_with("_users"),
+      #cols = starts_with("avg"), # column name starts with string
+      names_to = "type", # new column name of column names after pivot
+      values_to = "avg_amt", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+ggplot(filter(spt_piv,month >= "2019-06",
+              #cluster_new %in% c(1:7)
+              ),
+       aes(x=as.factor(month), 
+           #y = avg_n_txn,
+           y = avg_amt,
+           group=as.factor(type),
+           color=as.factor(type)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users completing 1+ card txns") + xlab("Month") +
+  --geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("Spending Behavior Across Clusters") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=14,face="bold",angle=90),
+    axis.title.x = element_text(size= 14,face='bold'),
+    axis.title.y = element_text(size=14,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    #strip.text.y = element_text(
+    #    size = 12, color = "red", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  facet_wrap(~cluster_new,
+             nrow = 2) +
+  scale_color_manual(values = color,
+                    name = "Spend Type", 
+                    labels = c("ATM","Card Present","Ecommerce")
+                    )
+
+
+```
+
+```{r}
+
+# are there international travelers in other clusters apart from travel cluster?
+
+ggplot(tr, 
+       aes(x=as.factor(cluster_new), 
+           y = perc_users,
+           fill=as.factor(cluster_new),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(aes(label = round(percent*100), group = month), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users Traveling Internationally") + xlab("Cluster") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=15,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~type) +
+  scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+# Among users that travel, How many months out of the year do users travel?
+
+ggplot(tt, 
+       aes(x=as.factor(cluster_new), 
+           y = avg_months_year,
+           fill=as.factor(cluster_new),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(aes(label = round(percent*100), group = month), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Avg No. Months 1+ International \nTxn out of a Year") + xlab("Cluster") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=15,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~type) +
+  scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

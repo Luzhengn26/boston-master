@@ -1,0 +1,494 @@
+---
+title: "Spaces IBAN Deep Dive"
+author: "Wendy Vu"
+region: "EU"
+date: "2021-08-10"
+summary: "In this analysis, we explore how our customers are using Spaces IBAN accounts by examining user transactional behavior and leverage reference text, spaces names and merchant names to infer potential use cases for spaces IBAN accounts. Overall, Spaces IBAN users show transactional behavior indicative of Recurring Bill Pay and Spending and high levels of internal money transfers between main and spaces account suggests that users are partition/budgeting their funds."
+tags: "engage, engagement, spaces, iban, intention, usage"
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+  pdf_document:
+    toc: yes
+link: "https://docs.google.com/presentation/d/1VGhLrw66tlrZBzdOi8VooI7megfH99fhNxWfOiZkvVI/edit?usp=sharing"
+  
+  
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+library(RColorBrewer)
+library(ggplot2)
+set2 <- brewer.pal(8,"Set2")
+color <- brewer.pal(12,"Set3")
+color <- append(color, c("#1A659E","#EED7C5"))
+color_mature <- c("#48AC98","#E5C3C7","#CB7C7A","#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678","#F5D5B9","#737373",
+                                "#997B66", "#F4A259","#CAA7BD","#F4E285",
+                                #"#D3D3D3","#999999",
+                               "#8DA290",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2")
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/analysis/20230215_spaces_iban_deepdive/spaces_iban_deepdive.RData"))
+
+#imt <- as.data.frame(iban_median_txn)
+it <- as.data.frame(iban_txn_activity)
+itt <- as.data.frame(iban_txn_type)
+ts <- as.data.frame(text_sepa)
+ti <- as.data.frame(text_internal)
+
+```
+
+```{r - Directionality of transactions - pie chart }
+
+library(lessR) # https://r-charts.com/part-whole/donut-chart/#values
+#http://colorspace.r-forge.r-project.org/articles/approximations.html
+
+itd <- as.data.frame(iban_txn_direction)
+
+
+gen <-rbind(data.frame(share = rep('Main Acct to\nSpaces IBAN',times=61)),
+             data.frame(share = rep("Spaces IBAN to\nMain Acct",times=31)),
+             data.frame(share = rep("Spaces IBAN to\nOther Spaces",times=8))
+             )
+
+cols <- hcl.colors(length(unique(gen$share)), "Zissou 1")
+cols <- hcl.colors(length(unique(gen$share)), "Temps")
+
+PieChart(share, data = gen,
+         main = NULL,
+         fill=cols,values_size = 2.0,hole = 0.3,cex=1.5
+         )
+```
+
+
+```{r - how many users with with spaces iban accounts are transactionally active 1+ sepa spaces txns}
+
+itt$month <- as.Date(itt$month)
+
+piv <- as.data.frame( 
+    itt %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("spaces"), # column name starts with string
+      names_to = "cat", # new column name of column names after pivot
+      values_to = "percent", # new column for values,
+      #names_prefix = "per_",
+      #na.rm=TRUE,
+    )
+  )
+ggplot(filter(piv,month >= '2022-01-01'), 
+       aes(x=as.factor(month), 
+           y = percent,
+           group=as.factor(cat),
+           color=as.factor(cat)
+           )
+       ) +
+  geom_line(size=2.0)+
+  geom_point(size=2.5, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0.5, linetype="dashed", color = "red",size=1) +
+  geom_text(aes(label = round(percent*100), group = cat), position = position_dodge(0.8),vjust = -0.3, size = 5.5) +
+  ylab("% IBAN Accounts") + xlab("Month") +
+  ggtitle("% IBAN Accounts w/ 1+ txns split by transaction type") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 14,face="bold"),
+    axis.text.y=element_text(size=18,face="bold",angle=45
+                           ),
+    axis.text.x=element_text(size=18,face="bold",angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    legend.key.size = unit(1.75, "cm"),
+        strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=2.0, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 18, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 18, 
+        #color = "red", 
+        face = "bold"
+  )) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~act_referrer) + #theme_bw() +
+  scale_color_manual(values=color[4:10],
+                    name = "Spaces Sepa Type", 
+                    labels = c("1+ Sepa\nTopup"
+                               ,"1+ Sepa\nDirect Debit"
+                               ,"1+ Sepa\nDirect Transfer")
+                    )
+
+
+```
+
+```{r - how many users with with spaces iban accounts are transactionally active }
+
+it$month <- as.Date(it$month)
+
+piv <- as.data.frame( 
+    it %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("perc"), # column name starts with string
+      names_to = "cat", # new column name of column names after pivot
+      values_to = "percent", # new column for values,
+      #names_prefix = "per_",
+      #na.rm=TRUE,
+    )
+  )
+
+ggplot(filter(piv,month >= '2022-01-01'), 
+       aes(x=as.factor(month), 
+           y = percent,
+           group=as.factor(cat),
+           color=as.factor(cat)
+           )
+       ) +
+  geom_line(size=2.0)+
+  geom_point(size=2.5, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0.5, linetype="dashed", color = "red",size=1) +
+  geom_text(aes(label = round(percent*100), group = cat), position = position_dodge(0.8),vjust = -0.3, size = 5.5) +
+  ylab("% IBAN Accounts") + xlab("Month") +
+  ggtitle("% IBAN Accounts w/ 1+ txns split by transaction type") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 14,face="bold"),
+    axis.text.y=element_text(size=18,face="bold",angle=45
+                           ),
+    axis.text.x=element_text(size=18,face="bold",angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    legend.key.size = unit(1.75, "cm"),
+        strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=2.0, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 18, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 18, 
+        #color = "red", 
+        face = "bold"
+  )) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~act_referrer) + #theme_bw() +
+  scale_color_manual(values=set2,
+                    name = "Txn Category", 
+                    labels = c("1+ Sepa \n+Internal txns","1+ Sepa\ntxns","1+ Internal\ntxns")
+                    )
+
+
+```
+
+```{r}
+ggplot(piv, aes(fill=cat, y=percent, x=as.factor(month))) + 
+  geom_bar(stat="identity") +
+  scale_y_continuous(labels=scales::percent) + ylab("% Users") + xlab("Spaces IBAN created Month") + 
+  #facet_grid(early_cluster ~ .,scales = "free") +
+  # geom_text(aes(label=perc_users*100), 
+  #           #vjust=1.6,
+  #           vjust= 0.5,
+  #           color="black", 
+  #           size=3.5) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 11.5, angle = 90),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 11.5, angle = 45),
+        axis.title.y = element_text(face = "bold", #color = "#993333", 
+                           size = 15, #angle = 45
+                           ),
+    legend.key.size = unit(1.75, "cm"),
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+  )
+        ) +
+  scale_fill_manual(values = color[2:3],
+                    name = "Spaces IBAN\nTxn Activity", 
+                    #labels = c("1+ Txn","No Txn")
+                    )
+
+ggplot(ib, aes(fill=spaces_bal, y=perc_users, x=as.factor(month))) + 
+  geom_bar(stat="identity") +
+  scale_y_continuous(labels=scales::percent) + ylab("% Users") + xlab("Spaces IBAN created Month") + 
+  #facet_grid(early_cluster ~ .,scales = "free") +
+  # geom_text(aes(label=perc_users*100), 
+  #           #vjust=1.6,
+  #           vjust= 0.5,
+  #           color="black", 
+  #           size=3.5) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 11.5, angle = 90),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 11.5, angle = 45),
+        axis.title.y = element_text(face = "bold", #color = "#993333", 
+                           size = 15, #angle = 45
+                           ),
+    legend.key.size = unit(1.75, "cm"),
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+  )
+        ) +
+  scale_fill_manual(values = color[4:5],
+                    name = "Spaces IBAN\nBalance", 
+                    labels = c("Positive\nBalance","Zero\nBalance")
+                    )
+```
+
+```{r - SPACES IBAN WORD CLOUD DIRECT DEBITS PARTNER NAME}
+
+library(tm)
+
+ts <- as.data.frame(text_sepa)
+ti <- as.data.frame(text_internal)
+rts <- as.data.frame(ref_text_sepa)
+tpdt <- as.data.frame(top_partner_dt)
+rdt <- as.data.frame(top_reftext_dt)
+rct <- as.data.frame(top_reftext_ct)
+pct <- as.data.frame(top_partner_ct)
+
+names <- pct
+
+corpus <- iconv(names$partner_name)
+
+#corpus <- iconv(filter(names,app_lang == 'de')$space_name)
+
+corpus <- Corpus(VectorSource(corpus))
+inspect(corpus[1:5])
+
+corpus <- tm_map(corpus, tolower)
+inspect(corpus[1:5])
+
+corpus <- tm_map(corpus, removePunctuation)
+inspect(corpus[1:5])
+
+corpus <- tm_map(corpus, removeNumbers)
+inspect(corpus[1:50])
+
+#remove specific words
+corpus <- tm_map(corpus, removeWords, c("gmbh","europe","deutschland","cie","sca","sarl","deutsche","sa","rl","et","ag","germany","swv","ltd","ard","zdf"))
+inspect(corpus[1:50])
+
+cleanset <- tm_map(corpus, removeWords, stopwords('english'))
+
+cleanset <- tm_map(corpus, removeWords, stopwords('german'))
+inspect(cleanset[1:50])
+
+removeURL <- function(x) gsub('http[[:alnum:]]*', '', x)
+removeEmoji <- function(x) gsub("[^\x01-\x7F]", "", x)
+cleanset <- tm_map(cleanset, content_transformer(removeURL))
+cleanset <- tm_map(cleanset, content_transformer(removeEmoji))
+cleanset <- tm_map(cleanset, stripWhitespace)
+inspect(cleanset[1:500])
+
+tdm <- TermDocumentMatrix(cleanset)
+tdm <- as.matrix(tdm)
+w <- rowSums(tdm)
+
+w <- subset(w, w>=25)
+barplot(w,
+        las = 2,
+        col = rainbow(50))
+
+library(wordcloud2)
+w <- data.frame(names(w), w)
+colnames(w) <- c('word', 'freq')
+wordcloud2(w,
+           size = 1.25,
+           shape = 'triangle',
+           rotateRatio = 0.5,
+           minSize = 1)
+
+
+
+library(wordcloud)
+w <- sort(rowSums(tdm), decreasing = TRUE)
+set.seed(222)
+wordcloud(words = names(w),
+          freq = w,
+          max.words = 150,
+          random.order = F,
+          min.freq = 5,
+          colors = brewer.pal(8, 'Dark2'),
+          scale = c(5, 0.3),
+          rot.per = 0.7)
+
+
+
+```
+
+
+```{r - SPACES IBAN WORD CLOUD NAMES}
+
+library(tm)
+
+names <- read.csv("/Users/wendyvu/Documents/analysis/20230215_spaces_iban_deepdive/iban_spaces_names.csv")
+
+corpus <- iconv(filter(names,app_lang == 'en')$space_name)
+
+corpus <- iconv(filter(names,app_lang == 'de')$space_name)
+
+corpus <- Corpus(VectorSource(corpus))
+inspect(corpus[1:5])
+
+corpus <- tm_map(corpus, tolower)
+inspect(corpus[1:5])
+
+corpus <- tm_map(corpus, removePunctuation)
+inspect(corpus[1:5])
+
+corpus <- tm_map(corpus, removeNumbers)
+inspect(corpus[1:50])
+
+cleanset <- tm_map(corpus, removeWords, stopwords('english'))
+cleanset <- tm_map(corpus, removeWords, stopwords('german'))
+inspect(cleanset[1:50])
+
+removeURL <- function(x) gsub('http[[:alnum:]]*', '', x)
+removeEmoji <- function(x) gsub("[^\x01-\x7F]", "", x)
+cleanset <- tm_map(cleanset, content_transformer(removeURL))
+cleanset <- tm_map(cleanset, content_transformer(removeEmoji))
+cleanset <- tm_map(cleanset, stripWhitespace)
+inspect(cleanset[1:500])
+
+tdm <- TermDocumentMatrix(cleanset)
+tdm <- as.matrix(tdm)
+w <- rowSums(tdm)
+
+w <- subset(w, w>=25)
+barplot(w,
+        las = 2,
+        col = rainbow(50))
+
+library(wordcloud2)
+w <- data.frame(names(w), w)
+colnames(w) <- c('word', 'freq')
+wordcloud2(w,
+           size = 1.25,
+           shape = 'triangle',
+           rotateRatio = 0.5,
+           minSize = 1)
+
+
+
+library(wordcloud)
+w <- sort(rowSums(tdm), decreasing = TRUE)
+set.seed(222)
+wordcloud(words = names(w),
+          freq = w,
+          max.words = 150,
+          random.order = F,
+          min.freq = 5,
+          colors = brewer.pal(8, 'Dark2'),
+          scale = c(5, 0.3),
+          rot.per = 0.7)
+
+
+
+```
+
+```{r}
+select
+    space_id,
+    space_name,
+    locale as app_lang
+from etl_reporting.w_space_aud s
+join w_activity_log wal
+    on wal.space_id = s.id
+	and activity_type = 'SPACE_EXTERNAL_ID_ADDED' --IBAN account - cannot be shared atm
+	and wal.created::date >= s.rev_timestamp::date
+join cmd_user_preferences using(user_created)
+where status = 'ACTIVE'
+group by 1,2,3
+;
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

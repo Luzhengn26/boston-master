@@ -1,0 +1,108 @@
+---
+title: "Does having a Rule set up on a Space influence the lapse rate"
+author: "Dani Mermelstein"
+date: "2020-09-17"
+region: "EU"
+summary: "Here we look at whether there is a correlational relationship between rules and the 8-week lapse rate. Causal impact is only feasible with an A/B test, but we can still gauge a potential relationship between funding behavior and lapse rate. We looked at MAUs who signed up after March 01, 2020, and flagged users who eventually used Rules. We then categorized users into the following groups based on whether they lapsed and reactivated."
+link:
+tags: "correlations, rules, spaces, lapse rate, salary"
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(kableExtra)
+library(bayesAB)
+library(ggplot2)
+library(scales)
+
+# load the data
+load(paste0("data/rules_data.RData"))
+
+# need this up here to use in the Results section
+# flag users who have made an rules transaction in their first 8 weeks
+mau_rules$rules_flag <- ifelse(mau_rules$rules_user <= mau_rules$eight_weeks, 1, 0)
+mau_rules[is.na(mau_rules$rules_flag),]$rules_flag <- 0
+
+# aggregate 
+rules_groups <- mau_rules[,.(cnt=.N), by=.(mau_group,rules_flag)][order(rules_flag,mau_group),] 
+rules_groups <- merge(rules_groups, rules_groups[,.(total=sum(cnt)), by=.(rules_flag)], all.x=TRUE, by="rules_flag")
+rules_groups$rate <- rules_groups$cnt/rules_groups$total
+
+# calculate prop test just to have
+test_output <- prop.test(as.matrix(rules_groups[mau_group=='unbroken_mau',c("cnt","total")]))
+
+```
+
+# Context and definitions
+Here we look at whether there is a correlational relationship between rules and the 8-week lapse rate. Causal impact is only feasible with an A/B test, but we can still gauge a potential relationship between funding behavior and lapse rate.
+
+We looked at MAUs who signed up after March 01, 2020, and flagged users who eventually used Rules. We then categorized users into the following groups based on whether they lapsed and reactivated:
+
+ - **full_lapse**: User became MAU, lapsed, did not reactivate, and ended the 8-week period as a lapsed user
+ - **reactivated**: User became MAU, lapsed, and reactivated. These users may or may not have ended the 8-week period as MAU
+ - **unbroken_mau**: User became MAU and did not lapse in their first 8 weeks
+
+# High-level behavior
+
+It would appear that users who used rules have a lower `full_lapse` rate and a higher `unbroken_mau` rate:
+
+```{r, echo=FALSE}
+
+kable(rules_groups)%>%
+  kable_styling(full_width = FALSE)
+
+```
+
+# Results
+
+There `r ifelse(test_output$p.value <= 0.05, "does", "does not")` appear to be a meaningful relationship between use of rules and whether a user doesn't lapse in their first 8 weeks at N26. We have to caution that this analysis does NOT determine a causal relationship, as there could be additional factors driving the output we see here.
+
+# Statistical significance of the relationship  {.tabset .tabset-fade .tabset-pills} 
+
+## Bayesian Stats
+
+NOTE: for this test we needed to make the size of our two groups equal, so the below numbers in the "Users" and "Outcomes" columns are a random sample of the users available for this analysis:
+
+```{r, echo=FALSE}
+
+# set outcome
+bayes_rules <- mau_rules
+bayes_rules$outcome <- ifelse(mau_rules$mau_group=='unbroken_mau',1,0)
+
+# get outcome vectors
+no_rules <- as.integer(bayes_rules[rules_flag==0,]$outcome)
+yes_rules <- as.integer(bayes_rules[rules_flag==1,]$outcome)
+
+# control for sample size differences
+no_rules <- sample(no_rules, size=length(yes_rules))
+
+AB1 <- bayesTest(yes_rules, no_rules, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+kable(data.frame("Variants"=c("no_rules","yes_rules"), 
+           "Users"=c(length(no_rules), length(yes_rules)), 
+           "Outcomes"=c(sum(no_rules), sum(yes_rules)),
+           "Rate"=c(sum(no_rules)/length(no_rules), sum(yes_rules)/length(yes_rules)))) %>%
+  kable_styling(full_width = F)
+
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("yes_rules","no_rules"))
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+
+```
+
+### 90% Confidence Interval:
+
+```{r, echo=FALSE}
+summary(AB1)$interval$Probability
+
+```
+
+### Estimated Lift: 
+`r percent(mean(c(summary(AB1)$interval$Probability)))`

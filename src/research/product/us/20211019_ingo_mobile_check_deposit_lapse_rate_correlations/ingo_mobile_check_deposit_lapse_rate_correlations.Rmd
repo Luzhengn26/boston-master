@@ -1,0 +1,104 @@
+---
+title: "Correlation between being an Ingo Money user and retention"
+author: "Dani Mermelstein"
+date: "2021-10-19"
+region: "US"
+summary: "Here we look at whether there is a correlational relationship between using Ingo Money (mobile check deposit) and lapsing within the first 8 weeks after becoming MAU. Causal impact is only feasible with an A/B test, but we can still gauge a potential relationship between funding behavior and lapse rate."
+tags: "ingo, lapse rate, mau, reactivation, mobile check deposit, check"
+link:
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(kableExtra)
+library(bayesAB)
+library(ggplot2)
+library(scales)
+
+# load the data
+load(paste0("data/ingo_mau_data.RData"))
+
+# need this up here to use in the Results section
+# flag users who have made an Ingo check deposit in their first 8 weeks
+ingo_mau$ingo_mau_flag <- ifelse(ingo_mau$ingo_user <= ingo_mau$eight_weeks, 1, 0)
+ingo_mau[is.na(ingo_mau$ingo_mau_flag),]$ingo_mau_flag <- 0
+
+# aggregate 
+ingo_groups <- ingo_mau[,.(cnt=.N), by=.(mau_group,ingo_mau_flag)][order(ingo_mau_flag,mau_group),] 
+ingo_groups <- merge(ingo_groups, ingo_groups[,.(total=sum(cnt)), by=.(ingo_mau_flag)], all.x=TRUE, by="ingo_mau_flag")
+ingo_groups$rate <- ingo_groups$cnt/ingo_groups$total
+```
+
+# Context and definitions
+Here we look at whether there is a correlational relationship between using Ingo Money to deposit a check and the 8-week lapse rate. Causal impact is only feasible with an A/B test. We have to caution that this analysis does NOT determine a causal relationship, as there could be additional factors driving the output we see here.
+
+We looked at users who became MAU after January 01, 2020, and flagged users who made a Ingo check deposit at any point during their tenure. All users must have an open account at N26 as of October 19, 2021. We then categorized users into the following groups based on whether they lapsed and reactivated within their first 8 weeks as an MAU:
+
+ - **unbroken_mau**: User became MAU and did not lapse in their first 8 weeks
+ - **reactivated**: User became MAU, lapsed, and reactivated within their first 8 weeks
+ - **lapsed**: User became MAU and lapsed within their first 8 weeks, did not reactivate within that period
+
+# High-level behavior
+
+It would appear that users who have made a check deposit via Ingo have a lower `lapsed` rate and a higher `unbroken_mau` rate:
+
+```{r, echo=FALSE}
+
+kable(ingo_groups)%>%
+  kable_styling(full_width = FALSE)
+
+```
+
+# Results
+
+```{r, echo=FALSE}
+
+# set outcome
+bayes_ingo <- ingo_mau
+bayes_ingo$outcome <- ifelse(ingo_mau$mau_group=='unbroken_mau',1,0)
+
+# get outcome vectors
+no_ingo <- as.integer(bayes_ingo[ingo_mau_flag==0,]$outcome)
+yes_ingo <- as.integer(bayes_ingo[ingo_mau_flag==1,]$outcome)
+
+AB1 <- bayesTest(yes_ingo, no_ingo, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+```
+
+
+```{r, echo=FALSE}
+kable(data.frame("Samples"=c("no_ingo","yes_ingo"), 
+           "Users"=c(length(no_ingo), length(yes_ingo)), 
+           "Outcomes"=c(sum(no_ingo), sum(yes_ingo)),
+           "Rate"=c(sum(no_ingo)/length(no_ingo), sum(yes_ingo)/length(yes_ingo)))) %>%
+  kable_styling(full_width = F)
+```
+
+## TL;DR Results
+
+There **`r ifelse(abs(1-summary(AB1)$probability$Probability)<0.05 & !(summary(AB1)$interval$Probability[1] < 0 & 0 < summary(AB1)$interval$Probability[2]), "does", "does NOT")`** appear to be a meaningful relationship between use of Ingo check deposit to fund and whether a user lapses in their first 8 weeks at N26.
+
+## Estimated Lift: **`r percent(mean(c(summary(AB1)$interval$Probability)))`**
+
+## 90% Confidence Interval: **(`r summary(AB1)$interval$Probability`)**
+ 
+## Charts {.tabset .tabset-fade .tabset-pills}
+
+### Outcome Distribution
+
+```{r, echo=FALSE}
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("yes_ingo","no_ingo"))
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+```
+
+### Likelihood of Improvement
+
+```{r, echo=FALSE}
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+```

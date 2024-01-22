@@ -1,0 +1,20 @@
+version: "3.4"
+
+services:
+  notebook:
+    build:
+      context: ../../../
+      args:
+        - PIP_EXTRA_INDEX_URL=${N26_PIP_INDEX_URL}
+    environment:
+      - N26_REGION=fra
+      - REDSHIFT_USER=${REDSHIFT_USER}
+      - REDSHIFT_PASSWORD=${REDSHIFT_PASSWORD}
+      - JUPYTER_CONFIG_DIR=/usr/local/lib/python3.9/site-packages/datalib/jupyter/
+    volumes:
+      - ../../:/app
+    ports:
+      - "8888:8888"
+    command: [ jupyter, lab, --port=8888, --allow-root ]
+    labels:
+      service: "boston"

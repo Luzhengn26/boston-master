@@ -1,0 +1,14 @@
+---
+title: "Drivers of Our Recent Balance Sheet Increase"
+author: "Dani Mermelstein"
+date: "2020-06-11"
+region: "US"
+summary: "This short investigation was spurred in part because we’ve seen a rapid increase in our balance sheet from about April 14 to June 11 (when this analysis was conducted). During this time we have also seen an increase in unemployment insurance fraud, and it was important to determine whether the balance sheet increase was due to this fraud. We are seeing topline deposits increase, but topline spending is not increasing equally rapidly (ie users are saving more). Deposit increases are coming from stimulus and unemployment payments - these income sources are impermanent and it is as yet unclear what form they will take after July 31."
+link: "https://docs.google.com/presentation/d/1nOGM6-05IJawWDrvMbQ0Oyok9UP71UEvZhHpoJJD1fw/edit#slide=id.g88bbde85fa_0_0"
+tags: "balance sheet, deposits, stimulus checks, tax returns, unemployment"
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+

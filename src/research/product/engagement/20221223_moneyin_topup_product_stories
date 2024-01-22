@@ -1,0 +1,36 @@
+{
+ "metadata": {
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": 3
+  },
+  "orig_nbformat": 4
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2,
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "title: Top Up Product Stories\n",
+    "author: Leticia Takahara\n",
+    "date: 2022-12-23\n",
+    "region: EU\n",
+    "link: https://docs.google.com/presentation/d/1Z5M8-94M8zXAejTDn0bptzsI7LoRAfCIf0Q2vDxPCDY/edit#slide=id.gb0a5380750_0_449\n",
+    "tags: engagement, onboarding, top up, product stories.\n",
+    "summary: The Money In team launched an experiment that aims to evaluate whether exposing the user to a Product Stories helps user to complete the top up flow and/or increases the amount topped up."
+   ]
+  }
+ ]
+}

@@ -1,0 +1,921 @@
+---
+title: "Custody Fees"
+author: "Wendy Vu"
+region: "EU"
+date: "2020-08-06"
+summary: "Are Users with >=50K balance just parking their money here? Or are they active users?"
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+  pdf_document:
+    toc: yes
+link: "https://docs.google.com/presentation/d/1a4MIMWBtR5ssS2WL1cIWuyzy1ehEdMGWcXnUakhKHBc/edit?usp=sharing"
+tags: "engage,custody,fee,balance,spaces,primary,user, behavior, clusters, segmentation"
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/custody_fee_20200806.RData"))
+tx <- as.data.frame(txns)
+
+
+#df$user_certified <- as.Date(df$user_certified)
+dim(tx)
+str(tx)
+head(tx)
+
+tx %>% summarise_all(n_distinct)
+
+```
+
+
+```{r}
+
+data.frame(table(tx$gender)) -> gender
+gender$total_users <- sum(gender[,2])
+gender$percent <- gender$Freq/gender$total_users
+
+
+data.frame(table(tx$expat)) -> expat
+expat$total_users <- sum(expat[,2])
+expat$percent <- expat$Freq/expat$total_users
+
+data.frame(table(tx$age_group)) -> age
+age$total_users <- sum(age[,2])
+age$percent <- age$Freq/age$total_users
+
+data.frame(table(tx$business)) -> bus
+bus$total_users <- sum(bus[,2])
+bus$percent <- bus$Freq/bus$total_users
+
+data.frame(table(tx$membership)) -> prem
+prem$total_users <- sum(prem[,2])
+prem$percent <- prem$Freq/prem$total_users
+
+ggplot(age, 
+       aes(x=Var1, 
+           y = percent,
+           fill=Var1,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  geom_text(
+  aes(label = round(percent*100), group = Var1), 
+  Eposition = position_dodge(0.8),
+  vjust = -0.3, size = 3.5
+  ) +
+  ylab("% Users") + xlab("Age Group") +
+  ggtitle("Age group of Users with at least 1 monthly balance of >=50K Euros") +
+    theme(
+    legend.title = element_text(color = "black", size = 20),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=18,face="bold",angle=45),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Age Group", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+ggplot(expat, 
+       aes(x=Var1, 
+           y = percent,
+           fill=Var1,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  geom_hline(yintercept=0.31, linetype="dashed", 
+                color = "red", size=2) + 
+  geom_text(
+  aes(label = round(percent*100), group = Var1), 
+  Eposition = position_dodge(0.8),
+  vjust = -0.3, size = 3.5
+  ) +
+  ylab("% Users") + xlab("Residency Type") +
+  ggtitle("Residency Status of Users with at least 1 monthly balance of >=50K Euros") +
+    theme(
+    legend.title = element_text(color = "black", size = 20),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=18,face="bold",angle=45),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Residency Type", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+ggplot(gender, 
+       aes(x=Var1, 
+           y = percent,
+           fill=Var1,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  geom_hline(yintercept=0.32, linetype="dashed", 
+                color = "red", size=2) + 
+  geom_text(
+  aes(label = round(percent*100), group = Var1), 
+  Eposition = position_dodge(0.8),
+  vjust = -0.3, size = 3.5
+  ) +
+  ylab("% Users") + xlab("Gender") +
+  ggtitle("Gender of Users with at least 1 monthly balance of >=50K Euros") +
+    theme(
+    legend.title = element_text(color = "black", size = 20),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=18,face="bold",angle=45),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Gender", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+# business
+ggplot(bus, 
+       aes(x=Var1, 
+           y = percent,
+           fill=Var1,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  geom_hline(yintercept=0.08, linetype="dashed", 
+                color = "red", size=2) + 
+  geom_text(
+  aes(label = round(percent*100), group = Var1), 
+  Eposition = position_dodge(0.8),
+  vjust = -0.3, size = 3.5
+  ) +
+  ylab("% Users") + xlab("Membership") +
+  ggtitle("% of Business Users with at least 1 monthly balance of >=50K Euros") +
+    theme(
+    legend.title = element_text(color = "black", size = 20),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=18,face="bold",angle=45),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Membership", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+# premium
+ggplot(prem, 
+       aes(x=Var1, 
+           y = percent,
+           fill=Var1,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  geom_hline(yintercept=0.04, linetype="dashed", 
+                color = "red", size=2) + 
+  geom_text(
+  aes(label = round(percent*100), group = Var1), 
+  Eposition = position_dodge(0.8),
+  vjust = -0.3, size = 3.5
+  ) +
+  ylab("% Users") + xlab("Membership") +
+  ggtitle("% of Premium Users with at least 1 monthly balance of >=50K Euros") +
+    theme(
+    legend.title = element_text(color = "black", size = 20),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=18,face="bold",angle=45),
+    axis.title.x = element_text(size= 20,face='bold'),
+    axis.title.y = element_text(size=20,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Membership", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+```
+
+```{r}
+
+tx$cv_bal <- round(tx$sd_tot_bal/tx$avg_tot_bal,2)
+
+df1 <- tx[,c("act_ratio","ratio_50kbal","avg_space_bal","avg_primary","avg_tot_bal","cv_bal", "avg_logins","avg_act_txns")]
+df1 <- df1[!is.na(df1$cv_bal),] # remove all new users that have only been with us for 1 month N=37 users (there are N=132 users that have been with us for < 2 months)
+
+# Data cleaning 
+df_fin <- df1
+df_fin[(df_fin[,4]) < 0,] <- 0 # replace negative balance with zero
+df_fin[is.na(df_fin$avg_space_bal),] <- 0
+
+
+# N= 8870 for analysis
+
+# Data Normalization
+df_fin[,c("avg_space_bal","avg_primary","avg_tot_bal","avg_logins","avg_act_txns")] <- df_fin[,c("avg_space_bal","avg_primary","avg_tot_bal","avg_logins","avg_act_txns")] + 1
+df_fin[,c("avg_space_bal","avg_primary","avg_tot_bal","avg_logins","avg_act_txns")] <- log(df_fin[,c("avg_space_bal","avg_primary","avg_tot_bal","avg_logins","avg_act_txns")])
+
+# PCA
+
+library("FactoMineR")
+library("factoextra")
+
+res.pca <- PCA(df_fin, graph=FALSE,ncp=50, scale.unit=T)
+eig.val <- get_eigenvalue(res.pca)
+head(eig.val,20)
+
+# variance explained by each dimension/component
+# ~40% of variance is explained by the first 3 components
+fviz_eig(res.pca, addlabels = T, ylim=c(0,70))
+var <- get_pca_var(res.pca)
+
+# PCA correlation plot of features relative to the dimensions
+library("corrplot")
+corrplot(var$cos2, is.corr=FALSE,tl.cex=0.80)
+
+library(scatterplot3d)
+pc <- res.pca$ind$coord
+scatterplot3d(pc[,1:3], pch=3, color="blue")
+plot(eig.val[,3], xlab='Dimensions',ylab='Cumulative Variance',pch=19)
+
+
+```
+
+```{r}
+
+# biplot with variables and individuals
+
+# biplot for dim 1 and 2
+fviz_pca_biplot(res.pca, repel = T,geom.ind = "point", axes=c(1,2),
+                col.var = 'black', # Variables color
+                col.ind = 'grey'  # Individuals color         
+)
+
+# biplot for dim 1 and 3
+fviz_pca_biplot(res.pca, repel = T,geom.ind = "point", axes=c(1,3),
+                col.var = 'black', # Variables color
+                col.ind = 'grey'  # Individuals color         
+)
+
+# biplot for dim 2 and 3
+fviz_pca_biplot(res.pca, repel = T,geom.ind = "point", axes=c(2,3),
+                col.var = 'black', # Variables color
+                col.ind = 'grey'  # Individuals color         
+)
+
+# biplot for dim 2 and 5
+fviz_pca_biplot(res.pca, repel = T,geom.ind = "point", axes=c(2,4),
+                col.var = 'black', # Variables color
+                col.ind = 'grey'  # Individuals color         
+)
+
+```
+
+
+```{r}
+
+# PAIRWISE CORRELATION PLOT OF FEATURES: A NICE SUPPLEMENT FOR THE BIPLOTS AND PCA FEAUTRE CORRELATION PLOT
+
+# compute correlation matrix and rm NA's
+
+df.scaled = scale(df_fin, center=TRUE, scale=TRUE)
+res.cor <- cor(df.scaled)
+
+library('corrplot')
+corrplot(res.cor, type="upper", order="hclust", 
+         tl.col="black", 
+         tl.srt=45,
+         diag=FALSE,
+         tl.cex=1,
+         #addCoef.col="black"
+         )
+
+```
+
+```{r}
+
+# CLUSTERING PC 1-5 (accounts for 95% of variance): DETERMINE THE OPTIMAL NUMBER OF CLUSTERS USING WITHIN SUM OF SQUARES (WSS) ELBOW METHOD
+pc <- res.pca$ind$coord
+
+# KMEANS CLUSTERING
+library(factoextra)
+comp <- pc[,1:4]
+
+# K-means clustering
+# Determine the correct number of clusters via weighted within sum of squares
+gc() # Garbage collect
+wss <- (nrow(comp)-1)*sum(apply(comp,2,var))
+for (i in 2:50) wss[i] <- sum(kmeans(comp, centers=i, nstart=25, iter.max=1000,algorithm="MacQueen")$withinss)
+plot(1:50, wss, type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares", main="K-means: Identify optimal number of clusters",xaxt="n")
+axis(1, at=1:50, labels=c(1:50))
+
+```
+
+```{r}
+# SILHOUETTE PLOTS VIA HIERARCHICAL KMEANS HYBRID CLUSTERING ANALYSIS FOR K = 6-7 CLUSTERS
+
+
+# Note that the cluster numbers are assigned randomly and will be different each time you rerun the clustering analysis so you will have look at the data to determine the cluster behaviors and its corresponding cluster number. 
+
+# k=2
+res.hc <- eclust(comp, "hclust", k = 2,
+                 method = "ward.D2", graph = FALSE) 
+grp <- res.hc$cluster
+# Compute cluster centers
+clus.centers <- aggregate(comp, list(grp), mean)
+# Remove the first column
+clus.centers <- clus.centers[, -1]
+# Kmeans clustering using hieracrchical clustering defined cluster-centers
+km.res2_2 <- eclust(comp, "kmeans", k = clus.centers, graph = FALSE)
+fviz_silhouette(km.res2_2)
+
+
+# k=3
+res.hc <- eclust(comp, "hclust", k = 3,
+                 method = "ward.D2", graph = FALSE) 
+grp <- res.hc$cluster
+# Compute cluster centers
+clus.centers <- aggregate(comp, list(grp), mean)
+# Remove the first column
+clus.centers <- clus.centers[, -1]
+# Kmeans clustering using hieracrchical clustering defined cluster-centers
+km.res2_3 <- eclust(comp, "kmeans", k = clus.centers, graph = FALSE)
+fviz_silhouette(km.res2_3)
+
+
+# k=4
+res.hc <- eclust(comp, "hclust", k = 4,
+                 method = "ward.D2", graph = FALSE) 
+grp <- res.hc$cluster
+# Compute cluster centers
+clus.centers <- aggregate(comp, list(grp), mean)
+# Remove the first column
+clus.centers <- clus.centers[, -1]
+# Kmeans clustering using hieracrchical clustering defined cluster-centers
+km.res2_4 <- eclust(comp, "kmeans", k = clus.centers, graph = FALSE)
+fviz_silhouette(km.res2_4)
+
+
+# k=5
+res.hc <- eclust(comp, "hclust", k = 5,
+                 method = "ward.D2", graph = FALSE) 
+grp <- res.hc$cluster
+# Compute cluster centers
+clus.centers <- aggregate(comp, list(grp), mean)
+# Remove the first column
+clus.centers <- clus.centers[, -1]
+# Kmeans clustering using hieracrchical clustering defined cluster-centers
+km.res2_5 <- eclust(comp, "kmeans", k = clus.centers, graph = FALSE)
+fviz_silhouette(km.res2_5)
+
+
+```
+```{r}
+# EVALUATING CLUSTER RESULTS FROM K CLUSTERS
+library('reshape2')
+library('reshape')
+library('tidyr')
+library('dplyr')
+library(ggplot2)
+library(dplyr)
+
+# K = 10 clusters
+names(km.res2_4)
+hk.df <- data.frame(km.res2_4$cluster)
+colnames(hk.df) <- c("cluster")
+
+merged.df <- transform(merge(tx,hk.df,by=0), row.names=Row.names, Row.names=NULL)
+#merged.df[,21:29][is.na(merged.df[,21:29])] <- 0
+
+merged.df[,29]<-as.factor(merged.df[,29]) #cluster column
+
+merged.df$cluster_new <- case_when( 
+  merged.df$cluster == 2 ~ 1,
+  merged.df$cluster == 3 ~ 2,
+  merged.df$cluster == 1 ~ 3,
+  merged.df$cluster == 4 ~ 4
+  )
+merged.df[,30]<-as.factor(merged.df[,30]) #cluster column
+#write.csv(merged.df,file="/Users/wendyvu/Documents/custody_fee_clustering_results.csv")
+
+
+```
+
+```{r}
+
+# Percent of users within each cluster
+cluster.freq<- as.data.frame(table(merged.df[,30]))
+cluster.freq['percent'] <- cluster.freq[,2]/sum(cluster.freq$Freq)
+cluster.freq
+
+# K = 9 reorder factor levels
+#k4 <- c(1,2,3,4) 
+#cluster.freq$Var1 <- factor(cluster.freq$Var1, levels = k4)
+
+ggplot(cluster.freq, aes(y=percent,x=as.factor(Var1),fill=as.factor(Var1))) +
+  geom_bar(position="stack", stat="identity") + xlab("Clusters") + ylab("Percent Users in Cluster") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=20,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 18,face='bold'),
+    axis.title.y = element_text(size=18,face='bold')
+  ) +
+  geom_text(aes(label = round(percent*100), y = percent + 0.01), position = position_dodge(0.9),format_string='{:.1f}% ')  +
+  scale_y_continuous(labels=scales::percent) +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"))
+
+
+features <- merged.df[,c(14:20,30)]
+features <- reshape2::melt(features,id=c('cluster_new'))
+features[, 3][is.na(features[, 3])] <- 0
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster_new,variable) %>%
+                            summarise_all("mean"))
+
+# K = 9 reorder factor levels
+#k10 <- c(9,5,4,10,3,7,8,1,6,2)
+#mean_df10$cluster <- factor(mean_df10$cluster, levels = k10)
+
+
+ggplot(mean_df10, aes(x=as.factor(cluster_new), y=value,fill=as.factor(cluster_new))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25) + theme(legend.position = "none",axis.text=element_text(size=16,face="bold")) +
+  facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2")) #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9)) 
+
+
+features <- merged.df[,c(21:28,30)]
+features <- reshape2::melt(features,id=c('cluster_new'))
+features[, 3][is.na(features[, 3])] <- 0
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster_new,variable) %>%
+                            summarise_all("mean"))
+
+# K = 9 reorder factor levels
+#k10 <- c(9,5,4,10,3,7,8,1,6,2)
+#mean_df10$cluster <- factor(mean_df10$cluster, levels = k10)
+
+
+ggplot(mean_df10, aes(x=as.factor(cluster_new), y=value,fill=as.factor(cluster_new))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value)), position=position_dodge(width=0.9), vjust=-0.25) + theme(legend.position = "none",axis.text=element_text(size=16,face="bold")) +
+  facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2")) #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9)) 
+
+
+features <- merged.df[,c("avg_tot_bal","ratio_50kbal","cv_bal","cluster_new")]
+features <- reshape2::melt(features,id=c('cluster_new'))
+features[, 3][is.na(features[, 3])] <- 0
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster_new,variable) %>%
+                            summarise_all("mean"))
+
+# K = 9 reorder factor levels
+#k10 <- c(9,5,4,10,3,7,8,1,6,2)
+#mean_df10$cluster <- factor(mean_df10$cluster, levels = k10)
+
+
+ggplot(mean_df10, aes(x=as.factor(cluster_new), y=value,fill=as.factor(cluster_new))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value,2)), position=position_dodge(width=0.9), vjust=-0.25) + theme(legend.position = "none",axis.text=element_text(size=20,face="bold")) +
+    xlab("Clusters") + ylab("Value") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=20,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 18,face='bold'),
+    axis.title.y = element_text(size=18,face='bold')
+  ) +
+  facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2")) #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9)) 
+
+
+# spaces and primary account balance
+features <- merged.df[,c("avg_space_bal","avg_n_spaces","avg_primary","cluster_new")]
+features <- reshape2::melt(features,id=c('cluster_new'))
+features[, 3][is.na(features[, 3])] <- 0
+
+mean_df10 = as.data.frame(features %>% 
+                            group_by(cluster_new,variable) %>%
+                            summarise_all("mean"))
+
+# K = 9 reorder factor levels
+#k10 <- c(9,5,4,10,3,7,8,1,6,2)
+#mean_df10$cluster <- factor(mean_df10$cluster, levels = k10)
+
+
+ggplot(mean_df10, aes(x=as.factor(cluster_new), y=value,fill=as.factor(cluster_new))) + 
+  geom_bar(stat="identity") + geom_text(aes(label=round(value,2)), position=position_dodge(width=0.9), vjust=-0.25) + theme(legend.position = "none",axis.text=element_text(size=20,face="bold")) +
+    xlab("Clusters") + ylab("Value") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=20,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 18,face='bold'),
+    axis.title.y = element_text(size=18,face='bold')
+  ) +
+  facet_grid(variable ~ ., scales = "free_y") + 
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2")) #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9)) 
+```
+
+```{r}
+
+# What is the distribution of avg balance across clusters?
+ggplot(merged.df, aes(x=cluster_new, y=avg_tot_bal, fill=cluster_new)) + 
+  geom_boxplot() + ylim(0,100000) +
+  xlab("Clusters") + ylab("Avg Monthly Balance") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=20,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 18,face='bold'),
+    axis.title.y = element_text(size=18,face='bold')
+  ) +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2")) #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9)) 
+
+# How many months of 50K+ account balances out of all the months since first top-up across clusters
+
+ggplot(merged.df, aes(x=cluster_new, y=ratio_50kbal, fill=cluster_new)) + 
+  geom_boxplot() + ylim(0,1) +
+  xlab("Clusters") + ylab("Ratio: # Months Total Balance >=50K / Total Months Since First Top-Up") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=20,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 18,face='bold'),
+    axis.title.y = element_text(size=18,face='bold')
+  ) +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2")) #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9)) 
+
+# How old are these users across clusters?
+ggplot(merged.df, aes(x=cluster_new, y=ft_ct_months, fill=cluster_new)) + 
+  geom_boxplot() + #ylim(0,1) +
+  xlab("Clusters") + ylab("Months since First Top-Up") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=20,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 18,face='bold'),
+    axis.title.y = element_text(size=18,face='bold')
+  ) +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2")) #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9)) 
+
+
+ggplot(merged.df, aes(x=cluster_new, y=avg_act_txns, fill=cluster_new)) + 
+  geom_boxplot() + ylim(0,100) +
+  xlab("Clusters") + ylab("Avg Txns per Month") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=20,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 18,face='bold'),
+    axis.title.y = element_text(size=18,face='bold')
+  ) +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2")) #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9)) 
+
+# how variable are the monthly balances across clusters
+ggplot(merged.df, aes(x=cluster_new, y=cv_bal, fill=cluster_new)) + 
+  geom_boxplot() + ylim(0,6) +
+  xlab("Clusters") + ylab("Coefficient of Variation:\nMagnitude of Monthly Balance Fluctuation") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=20,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 18,face='bold'),
+    axis.title.y = element_text(size=18,face='bold')
+  ) +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2")) #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9)) 
+
+
+
+
+```
+
+```{r}
+# Most Users are highly active
+
+hist(tx$act_ratio,breaks=100, xlab = "Number of Months Active / Total Months since First CT")
+
+ggplot(tx, aes(x=act_ratio)) + 
+ geom_histogram(aes(y=..density..), colour="black", fill="white")+
+ geom_density(alpha=.8, fill="#48AC98") +
+  xlab("RATIO = Months Active (1+ Txn per Month) / Total Months Since First Top-Up") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  )
+
+
+# how long have the users been with N26?
+
+ggplot(tx, aes(ft_ct_months)) + stat_ecdf(geom = "step") +
+  xlab("Months Since First Top-Up") +
+  ylab("% Cumulative Share of Users") +
+  scale_y_continuous(labels=scales::percent) +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  )
+
+# what is the distribution of txn activity?
+
+ggplot(tx, aes(x=avg_act_txns)) + 
+ geom_histogram(aes(y=..density..), colour="black", fill="white")+
+ geom_density(alpha=.8, fill="#48AC98") +
+  xlab("RATIO = Months Active (1+ Txn per Month) / Total Months Since First Top-Up") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  )
+
+ggplot(merged.df, aes(y=avg_act_txns)) + 
+  geom_boxplot() + ylim(0,100) +
+  ylab("Avg Number of Monthly Txns per User") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    axis.ticks.x=element_blank(),
+    axis.text.x=element_blank(),
+  ) +
+  scale_fill_manual(values=c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2")) #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9)) 
+
+```
+
+```{r}
+
+# is there a correlation between Logins and transactional activity?
+cor.test(df.scaled[,7], df.scaled[,8])
+
+ggplot(as.data.frame(df.scaled), aes(x=avg_logins, y=avg_act_txns)) +
+  geom_point(col="#CB7C7A") + 
+  geom_smooth(method=lm, se=FALSE, fullrange=TRUE) +
+  xlab("Avg Logins per Month (scaled values)") + ylab("Avg Txns per Month (Scaled)") +
+  geom_smooth(method=lm,  linetype="dashed",
+             color="black", 
+             fill="black") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  )
+
+
+# How financially active are these users on avg per month?
+
+
+
+
+
+```
+
+
+
+```{r}
+
+# What is the proportion of business users across clusters
+
+bus <- as.data.frame(table(merged.df[,c("cluster","business")]))
+
+ggplot(bus, aes(fill=business, y=Freq, x=cluster)) + 
+    geom_bar(position="fill", stat="identity")
+
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

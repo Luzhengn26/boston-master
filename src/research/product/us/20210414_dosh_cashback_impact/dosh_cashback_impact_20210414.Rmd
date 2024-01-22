@@ -1,0 +1,240 @@
+---
+title: "Measuring the Dosh Cashback Product Launch"
+author: "Dani Mermelstein"
+date: "2021-04-14"
+region: "US"
+link:
+tags: "dosh, cashback, retention, ft mau, card spend"
+summary: "Here we look at whether there is a correlational relationship between Dosh Cashback and a few behaviors. Causal impact is only feasible with an A/B test, but we can still gauge potential connections. Cashback users: (1) have better 8-week retention (~89% vs ~47%) than non-cashback users, (2) have better KYCC -> FT_MAU within 14 days rates (~18% vs ~15%), (3) make higher value Card transactions (~$13 vs ~$11.70 per txn), (4) make more Card transactions within 14 days of FT_MAU (~13 vs ~7), (5) have higher total Card spend within 14 days of FT_MAU (~$240 vs ~$80). We recommend highlighting Cashback as a market differentiator and trying to get as many users as possible to be aware of the program."
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(kableExtra)
+library(bayesAB)
+library(ggplot2)
+library(scales)
+
+```
+
+# Context and definitions
+Here we look at whether there is a correlational relationship between Dosh Cashback and a few behaviors. Causal impact is only feasible with an A/B test, but we can still gauge potential connections.
+
+# TL;DR
+
+Cashback users:
+
+ - have better 8-week retention (~89% vs ~47%) than non-cashback users
+ - have better _KYCC -> FT_MAU within 14 days_ rates (~18% vs ~15%)
+ - make higher value Card transactions (~`r dollar(13)` vs ~`r dollar(11.7)` per txn)
+ - make more Card transactions within 14 days of FT_MAU (~13 vs ~7)
+ - have higher total Card spend within 14 days of FT_MAU (~`r dollar(240)` vs ~`r dollar(80)`)
+
+We recommend highlighting Cashback as a market differentiator and trying to get as many users as possible to be aware of the program.
+
+# Analysis {.tabset .tabset-fade .tabset-pills} 
+
+## Retention
+
+```{r, echo=FALSE}
+# load the data
+load(paste0("data/cashback_data.RData"))
+
+# need this up here to use in the Results section
+# flag users who have made an dir_dep transaction in their first 8 weeks
+retention$cashback_flag <- ifelse(retention$cashback_user <= retention$eight_weeks, 1, 0)
+retention[is.na(retention$cashback_flag),]$cashback_flag <- 0
+
+# aggregate 
+cashback_groups <- retention[,.(cnt=.N), by=.(mau_group,cashback_flag)][order(cashback_flag,mau_group),] 
+cashback_groups <- merge(cashback_groups, cashback_groups[,.(total=sum(cnt)), by=.(cashback_flag)], all.x=TRUE, by="cashback_flag")
+cashback_groups$rate <- cashback_groups$cnt/cashback_groups$total
+
+# calculate prop test just to have
+test_output <- prop.test(as.matrix(cashback_groups[mau_group=='unbroken_mau',c("cnt","total")]))
+
+```
+
+
+We looked at MAUs who signed up after February 15, 2021, and flagged users who made a cashback-eligible transaction. We then categorized users into the following groups based on whether they lapsed and reactivated within their first 8 weeks as an MAU:
+
+ - **full_lapse**: User became MAU, lapsed, did not reactivate, and ended the 8-week period as a lapsed user
+ - **reactivated**: User became MAU, lapsed, and reactivated. These users may or may not have ended the 8-week period as MAU
+ - **unbroken_mau**: User became MAU and did not lapse in their first 8 weeks
+
+### High-level behavior
+
+Users who made a cashback-eligible txn have a higher retention rate (`unbroken_mau`)
+
+```{r, echo=FALSE}
+
+kable(cashback_groups)%>%
+  kable_styling(full_width = FALSE)
+
+```
+
+### Results
+
+There **`r ifelse(test_output$p.value <= 0.05, "does", "does not")`** appear to be a meaningful relationship between making cashback-eligible transactions and whether a user lapses in their first 8 weeks at N26. We have to caution that this analysis does NOT determine a causal relationship, as there could be additional factors driving the output we see here.
+
+### Statistical significance of the relationship
+
+NOTE: for this test we needed to make the size of our two groups equal, so the below numbers in the "Users" and "Outcomes" columns are a random sample of the users available for this analysis:
+
+
+```{r, echo=FALSE}
+
+# set outcome
+bayes_cashback <- retention
+bayes_cashback$outcome <- ifelse(retention$mau_group=='unbroken_mau',1,0)
+
+# get outcome vectors
+no_cashback <- as.integer(bayes_cashback[cashback_flag==0,]$outcome)
+yes_cashback <- as.integer(bayes_cashback[cashback_flag==1,]$outcome)
+
+# control for sample size differences
+no_cashback <- sample(no_cashback, size=length(yes_cashback))
+
+AB1 <- bayesTest(yes_cashback, no_cashback, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+kable(data.frame("Variants"=c("no_cashback","yes_cashback"), 
+           "Users"=c(length(no_cashback), length(yes_cashback)), 
+           "Outcomes"=c(sum(no_cashback), sum(yes_cashback)),
+           "Rate"=c(sum(no_cashback)/length(no_cashback), sum(yes_cashback)/length(yes_cashback)))) %>%
+  kable_styling(full_width = F)
+
+```
+
+### 90% Confidence Interval:
+
+```{r, echo=FALSE}
+summary(AB1)$interval$Probability
+
+```
+
+### Estimated Lift: 
+`r percent(mean(c(summary(AB1)$interval$Probability)))`
+
+```{r, echo=FALSE}
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("yes_cashback","no_cashback"))
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+
+```
+
+## FT_MAU
+
+Are cashback users more likely to become MAU? This is a pre-post analysis, so take it with a grain of salt. It is possible external factors could have affected this analysis. Here we look at the FT_MAU rate within 14 days of KYCC for users who signed up between Feb 1 and Feb 28 2021.
+
+```{r, echo=FALSE}
+
+# set outcome
+bayes_cashback <- activity
+bayes_cashback$outcome <- activity$mau
+
+# get outcome vectors
+no_cashback <- as.integer(bayes_cashback[group=='pre',]$outcome)
+yes_cashback <- as.integer(bayes_cashback[group=='post',]$outcome)
+
+# control for sample size differences
+no_cashback <- sample(no_cashback, size=length(yes_cashback))
+
+AB1 <- bayesTest(yes_cashback, no_cashback, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+kable(data.frame("Variants"=c("no_cashback","yes_cashback"), 
+           "Users"=c(length(no_cashback), length(yes_cashback)), 
+           "Outcomes"=c(sum(no_cashback), sum(yes_cashback)),
+           "Rate"=c(sum(no_cashback)/length(no_cashback), sum(yes_cashback)/length(yes_cashback)))) %>%
+  kable_styling(full_width = F)
+
+```
+
+When looking at FT_MAU rate within 14 days of KYC Complete, cashback users **`r ifelse(abs(1-summary(AB1)$probability$Probability)<5 & !(summary(AB1)$interval$Probability[1] < 0 & 0 < summary(AB1)$interval$Probability[2]), "are", "are NOT")`** more likely to become FT_MAU.
+
+### 90% Confidence Interval:
+
+```{r, echo=FALSE}
+summary(AB1)$interval$Probability
+
+```
+
+### Estimated Lift: 
+`r percent(mean(c(summary(AB1)$interval$Probability)))`
+
+```{r, echo=FALSE}
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("yes_cashback","no_cashback"))
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+
+```
+
+## Card Spend {.tabset .tabset-fade .tabset-pills} 
+
+We looked at users who have signed up since the Cashback launch on Feb. 15 2021, completed KYC, and funded their accounts. We further control behavior by looking at card spend within 14 days of FT_MAU.
+
+```{r, echo=FALSE}
+
+transactions$cashback_flag <- ifelse(!is.na(transactions$cashback_user),1,0)
+transactions$amount <- transactions$amount*-1
+transactions$cashback <- ifelse(transactions$cashback_flag==1,"yes", "no")
+
+higher_txn_amounts <- wilcox.test(transactions[cashback_flag==0,]$amount,
+            transactions[cashback_flag==1,]$amount,
+            alternative=c("two.sided"), 
+            conf.level=.9, 
+            correct=TRUE, 
+            paired = FALSE)
+
+txn_agg <- transactions[,.(spend=sum(amount)), by=.(user_id, cashback_flag, cashback)]
+
+higher_spending_per_user <- wilcox.test(txn_agg[cashback_flag==0,]$spend,
+            txn_agg[cashback_flag==1,]$spend,
+            alternative=c("two.sided"), 
+            conf.level=.9, 
+            correct=TRUE, 
+            paired = FALSE)
+
+```
+
+### Higher Spend per Txn
+
+```{r, echo=FALSE}
+kable(transactions[, .(med_txn_size = median(amount), users=length(unique(user_id)), txns=.N, txns_per_user=round(.N/length(unique(user_id)),2)),by = .(cashback)][order(cashback),] ) %>%
+  kable_styling(full_width = F)
+
+```
+
+Cashback users **`r ifelse(higher_txn_amounts$p.value < 0.05, "do", "do not")`** spend higher amounts per txn than non-cashback users.
+
+```{r, echo=FALSE}
+ggplot(transactions, aes(x=amount, fill=cashback)) +
+  geom_density(alpha=.65) +
+  xlim(0, 100)
+
+```
+
+### Higher Spend per User
+
+```{r, echo=FALSE}
+kable(txn_agg[, .(med_spend = median(spend), users=length(unique(user_id))),by = .(cashback)][order(cashback),] ) %>%
+  kable_styling(full_width = F)
+
+```
+
+Cashback users **`r ifelse(higher_spending_per_user$p.value < 0.05, "do", "do not")`** spend higher amounts via card in their first 14 days of spending than non-cashback users.
+
+```{r, echo=FALSE}
+ggplot(txn_agg, aes(x=spend, fill=cashback)) +
+  geom_density(alpha=.65) +
+  xlim(0, 1000)
+
+```

@@ -1,0 +1,16 @@
+---
+title: "Upfront Payments post-launch evaluation"
+author: "Mihai Hopirtean"
+region: "EU"
+date: "2022-01-14"
+summary: "This analysis was performed in order to extract insights on the potential impact the launch of Upfront Payments has on premium conversion, premium users activation and further premium users' health metrics. Data shows so far no notable effect on premium conversion, but it does show certain improvements for premium customers' health metrics such as MAU retention and arrears status"
+tags: "memberships, acquisition, upfront payments, premium, subscriptions, discounts, smart, you, metal"
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+  pdf_document:
+    toc: yes
+link: "https://docs.google.com/presentation/d/1ABNqhxve4zj7Kw8MIfOVTslAhd3QzBz3tqHhdAdftfw/edit?usp=sharing"
+
+---

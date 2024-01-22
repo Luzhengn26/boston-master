@@ -1,0 +1,2396 @@
+---
+title: "PAU: Early Top-Up Behavior that are associated with Retention and Financial Activity"
+author: "Wendy Vu"
+region: "EU"
+date: "2021-01-10"
+summary: "In this analysis, we identify early user behaviors within the first 35 days of Ft-MAU that are potentially predictive of long-term user engagement and retention as well as rank them by importance."
+link: "https://docs.google.com/presentation/d/1Xjm14R_v9Ka4XB9xqvKDd7KIhKc7bs93N7nama2DAQU/edit?usp=sharing"
+tags: "engage, retention, early user behavior, first 35 days, ft-mau, engagement"
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+  pdf_document:
+    toc: yes
+
+  
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+setwd('/Users/wendyvu/Documents/')
+library(n26)
+library(data.table)
+
+
+query <- queryDB("
+--identify Ft-MAU cohort
+drop table if exists cohort;
+create temp table cohort as 
+select 
+	user_id,
+	z.user_created,
+	kyc_first_completed as kycc,
+	ft_mau,
+	ft_mau_act,
+	tnc_country_group,
+	is_expat,
+	case when is_mau is true then 1 else 0 end as mau_now,
+	is_premium,
+	product_id as current_membership,
+	to_Char(date_trunc('months',ft_mau),'YYYY-MM') as ft_cohort,
+	count(z.user_created) over (partition by ft_cohort) as ft_cohort_size,
+	datediff('days',kycc::date,ft_mau::date) as kyc_ftmau_days
+from dbt.zrh_users z 
+left join (select user_created, min(act_date) as ft_mau_act from dbt.zrh_act_day where n_act_txns > 0 group by 1) as act
+	on z.user_created = act.user_created
+where ft_mau between '2019-12-01'::date and '2020-02-29'::date
+	and closed_at is null
+;
+
+
+-- Txns within the First 35 days of Ft-MAU
+drop table if exists txn_35;
+create temp table txn_35 as 
+select 
+	c.*,
+	sum(round(amount_cents_pt::float/100,2)) as amt_pt_35,
+	sum(round(amount_cents_dt::float/100,2)) as amt_dt_35,
+	sum(round(amount_cents_ft::float/100,2)) as amt_ft_35,
+	sum(round(amount_cents_dd::float/100,2)) as amt_dd_35,
+	sum(round(amount_cents_tub::float/100,2)) as amt_tub_35,
+	sum(round(amount_cents_ct::float/100,2)) as amt_ct_35,
+	sum(round(amount_cents_cash26::float/100,2)) as amt_cash26_35,
+	sum(round(amount_cents_stripetopup_in::float/100,2)) as amt_stripe_35,
+	sum(round(amount_cents_card_atm::float/100,2)) as amt_atm_35,
+	sum(round(amount_cents_card_ecomm::float/100,2)) as amt_eccom_35,
+	sum(round(amount_cents_card_cardpresent::float/100,2)) as amt_cardpres_35,
+	sum(round((amount_cents_card_apple + amount_cents_card_google)::float/100,2)) as amt_mobile_35,
+	sum(round(amount_cents_act_total::float/100,2)) as amt_act_35,
+	sum(n_act_total) as n_act_35,
+	sum(round(amount_cents_spaces::float/100,2)) as amt_spaces_35,
+	sum(n_spaces) as n_spaces_35,
+	sum(round(amount_cents_ext_total_out::float/100,2)) as amt_ext_out_35,
+	sum(round(amount_cents_ext_total_in::float/100,2)) as amt_ext_in_35,
+	(amt_atm_35 + amt_eccom_35 + amt_cardpres_35) as amt_card_all_35
+from cohort c 
+left join dbt.zrh_txn_day t 
+	on c.user_created = t.user_created
+	--and txn_date between ft_mau_act::date and ft_mau_act::date + interval '35 days' 
+	and txn_date between ft_mau::date and ft_mau::date + interval '35 days' 
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13
+;
+
+-- Activity and total deposits across 35 days periods
+drop table if exists periods_dep;
+create temp table periods_dep as 
+select 
+	c.user_created,
+	datediff('days',c.ft_mau::date,t.txn_date::date) as ft_txn_days,
+	case when ceil(ft_txn_days::float/35) = 0 then 1 else ceil(ft_txn_days::float/35) end as period,
+	sum(n_act_total) as n_act,
+	sum(round(amount_cents_act_total::float/100,2)) as amt_act,
+	sum(round(amount_cents_ext_total_in::float/100,2)) as amt_ext_in,
+	sum(round(amount_cents_ext_total_out::float/100,2)) as amt_ext_out,
+	sum(n_act_total) as n_act_txns
+from cohort c 
+left join dbt.zrh_txn_day t 
+	on c.user_created = t.user_created 
+	and txn_date between ft_mau::date and ft_mau::date + interval '210 days' -- 6 months
+	and n_act_total > 0
+group by 1,2,3
+;
+
+select * 
+from dbt.zrh_txn_day limit 500;
+
+-- number of mau periods period
+drop table if exists period;
+create temp table period as 
+select 
+	user_created,
+	count(distinct period) as num_period_mau
+from periods_dep
+group by 1
+;
+
+--select * from periods_dep limit 500;
+
+-- pivot table to add periods 2 and 3 for activity and total monthly deposits
+drop table if exists period_2_3;
+create temp table period_2_3 as 
+select 
+	user_created,
+	sum(case when period = 2 then n_act end) as n_act_2,
+	sum(case when period = 2 then amt_act end) as amt_act_2,
+	sum(case when period = 2 then amt_ext_in end) as amt_ext_in_2,
+	sum(case when period = 2 then amt_ext_out end) as amt_ext_out_2,
+	sum(case when period = 3 then n_act end) as n_act_3,
+	sum(case when period = 3 then amt_act end) as amt_act_3,
+	sum(case when period = 3 then amt_ext_in end) as amt_ext_in_3,
+	sum(case when period = 3 then amt_ext_out end) as amt_ext_out_3
+from periods_dep
+where period in (2,3)
+group by 1
+order by 1;
+
+--select * from period_2_3 limit 500;
+
+-- 1,2/1,2,3 consecutive monthly period maus
+create temp table consec_month as 
+select user_created,
+	case when period = 1 then 1 else 0 end as period_1,
+	case when period = 2 then 1 else 0 end as period_2,
+	case when period = 3 then 1 else 0 end as period_3,
+	case when period = 4 then 1 else 0 end as period_4,
+	case when period = 5 then 1 else 0 end as period_5,
+	case when period = 6 then 1 else 0 end as period_6
+from periods_dep 
+group by 1,2,3,4,5,6,7
+order by user_created;
+
+drop table if exists consec_month_fin;
+create temp table consec_month_fin as 
+select 
+	user_created,
+	sum(period_1) as period_1,
+	sum(period_2) as period_2,
+	sum(period_3) as period_3,
+	sum(period_4) as period_4,
+	sum(period_5) as period_5,
+	sum(period_6) as period_6
+from consec_month
+group by 1;
+
+
+select t.*,
+	p.num_period_mau,
+	n_act_2,
+	amt_act_2,
+	amt_ext_in_2,
+	amt_ext_out_2,
+	n_act_3,
+	amt_act_3,
+	amt_ext_in_3,
+	amt_ext_out_3,
+	case when amt_ext_in_35 >= 500 then 1
+		else 0 end as dep_35_500,
+	case when amt_ext_in_35 >= 600 then 1
+		else 0 end as dep_35_600,
+	case when amt_ext_in_35 >= 700 then 1
+		else 0 end as dep_35_700,
+	case when amt_ext_in_35 >= 500 and amt_ext_in_2 >= 500 and amt_ext_in_3 >= 500 then 1
+		else 0 end as dep_123_500,
+	case when amt_ext_in_35 >= 600 and amt_ext_in_2 >= 600 and amt_ext_in_3 >= 600 then 1
+		else 0 end as dep_123_600,
+	case when amt_ext_in_35 >= 700 and amt_ext_in_2 >= 700 and amt_ext_in_3 >= 700 then 1
+		else 0 end as dep_123_700,
+	period_1, period_2, period_3,
+	case when period_1 = 1 and period_2 = 0 and period_3 = 0 and period_4 = 0 and period_5 = 0 
+    and period_6 = 0 then 1 else 0 end as consec_period_1,
+	case when period_1 = 1 and period_2 = 1 then 1 else 0 end as consec_period_1_2,
+	case when period_1 = 1 and period_2 = 1 and period_3 = 1 then 1 else 0 end as consec_period_1_3,
+	case when period_1 = 1 and period_2 = 1 and period_3 = 1 and period_4 = 1 then 1 else 0 end as consec_period_1_4,
+	case when period_1 = 1 and period_2 = 1 and period_3 = 1 and period_4 = 1 and period_5 = 1 then 1 else 0 end as consec_period_1_5,
+  case when period_1 = 1 and period_2 = 1 and period_3 = 1 and period_4 = 1 and period_5 = 1 
+    and period_6 = 1 then 1 else 0 end as consec_period_1_6,
+	case when amt_ext_in_35 >= 500 and amt_ext_in_2 >= 500 then 1
+		else 0 end as dep_12_500,
+	case when amt_ext_in_35 >= 600 and amt_ext_in_2 >= 600 then 1
+		else 0 end as dep_12_600,
+	case when amt_ext_in_35 >= 700 and amt_ext_in_2 >= 700 then 1
+		else 0 end as dep_12_700,
+	case when amt_spaces_35 > 0 then 1 else 0 end as spaces_user,
+	case when amt_mobile_35 > 0 then 1 else 0 end as mobile_user,
+	case when amt_cash26_35 > 0 then 1 else 0 end as cash26_user,
+	case when n_act_35 >= 10 then 1 else 0 end as n_act_10_user,
+	case when amt_stripe_35 > 1 then 1 else 0 end as stripe_user,
+	case when n_act_35 >= 10 and n_act_2 >= 10 and n_act_3 >= 10 then 1 else 0 end as n_act10_123,
+	case when n_act_35 >= 10 and n_act_2 >= 10 then 1 else 0 end as n_act10_12
+from txn_35 t
+join period p 
+	on t.user_created = p.user_created
+left join period_2_3 pp 
+	on t.user_created = pp.user_created
+join consec_month_fin cp
+	on t.user_created = cp.user_created;
+	
+" , "redshift-eu")
+
+retention <- queryDB("
+--identify Ft-MAU cohort
+drop table if exists cohort;
+create temp table cohort as 
+select 
+	user_id,
+	z.user_created,
+	kyc_first_completed as kycc,
+	ft_mau,
+	ft_mau_act,
+	tnc_country_group,
+	is_expat,
+	case when is_mau is true then 1 else 0 end as mau_now,
+	is_premium,
+	product_id as current_membership,
+	to_Char(date_trunc('months',ft_mau),'YYYY-MM') as ft_cohort,
+	count(z.user_created) over (partition by ft_cohort) as ft_cohort_size,
+	datediff('days',kycc::date,ft_mau::date) as kyc_ftmau_days
+from dbt.zrh_users z 
+left join (select user_created, min(act_date) as ft_mau_act from dbt.zrh_act_day where n_act_txns > 0 group by 1) as act
+	on z.user_created = act.user_created
+where ft_mau between '2019-12-01'::date and '2020-02-29'::date
+	and closed_at is null
+;
+
+drop table if exists activity;
+create temp table activity as 
+select c.user_id,
+	c.user_created,
+	c.tnc_country_group,
+	c.ft_mau,
+	c.ft_cohort,
+	c.ft_cohort_size,
+	datediff('days',c.ft_mau::date,t.txn_date::date) as ft_txn_days,
+	ceil(ft_txn_days::float/35) as period,
+	t.n_act_total,
+	t.amount_cents_ext_total_in,
+	t.n_spaces,
+	t.n_stripetopup_in
+from cohort c 
+left join dbt.zrh_txn_day t
+	on c.user_created = t.user_created 
+	and t.txn_date::date between c.ft_mau::date and c.ft_mau::date + interval '420 days'
+	and t.n_act_total > 0 
+;
+
+
+drop table if exists periods;
+create temp table periods as
+select 
+	user_id,
+	user_created,
+	tnc_country_group,
+	ft_mau,
+	ft_cohort,
+	ft_cohort_size,
+	case when period = 0 then 1 else period end as period,
+	sum(n_act_total) as n_act,
+	round(sum(amount_cents_ext_total_in)::float/100,2) as topup_amt,
+	sum(n_spaces) as n_spaces,
+	sum(n_stripetopup_in) as n_stripe
+from activity 
+group by 1,2,3,4,5,6,7
+;
+
+drop table if exists pivot;
+create temp table pivot as 
+select 
+	user_id,
+	user_created,
+	tnc_country_group,
+	ft_mau,
+	ft_cohort,
+	ft_cohort_size,
+	sum(case when period = 1 then n_act end) as act_1,
+	sum(case when period = 2 then n_act end) as act_2,
+	sum(case when period = 3 then n_act end) as act_3,
+	sum(case when period = 1 then topup_amt end) as tp_amt_1,
+	sum(case when period = 2 then topup_amt end) as tp_amt_2,
+	sum(case when period = 3 then topup_amt end) as tp_amt_3,
+	sum(case when period = 1 then n_spaces end) as spaces_1,
+	sum(case when period = 1 then n_stripe end) as stripe_1
+from periods
+group by 1,2,3,4,5,6
+;
+
+
+drop table if exists fin;
+create temp table fin as 
+select
+	user_id,
+	user_created,
+	tnc_country_group,
+	ft_mau,
+	ft_cohort,
+	ft_cohort_size,
+	case when act_1 > 10 then 1 else 0 end as txn10_1,
+	case when spaces_1 > 0 then 1 else 0 end as spaces_1,
+	case when stripe_1 > 0 then 1 else 0 end as stripe_1,
+	case when tp_amt_1 > 500 then 1 else 0 end as tp_500_1,
+	case when act_1 > 10 and act_2 > 10 and act_3 > 10 then 1 else 0 end as txn10_123,
+	case when tp_amt_1 > 500 and tp_amt_2 > 500 and tp_amt_3 > 500 then 1 else 0 end as tp_123
+from pivot;
+
+
+select 
+	p.user_id,
+	p.user_created,
+	p.tnc_country_group,
+	p.ft_mau,
+	p.ft_cohort,
+	p.ft_cohort_size,
+	p.period,
+	p.n_act,
+	txn10_1,
+	spaces_1,
+	stripe_1,
+	tp_500_1,
+	txn10_123,
+	tp_123
+from periods p 
+join fin f 
+	on p.user_id = f.user_id 
+order by 2,period
+;
+
+                     ","redshift-eu")
+
+save(query,
+     file = file.path("PAU_Early_TopUp_Behavior_Retention_Activity_Jan102021.RData"))
+
+```
+```{r}
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+
+# load the data
+DF <- load(paste0("/Users/wendyvu/Documents/PAU_Early_TopUp_Behavior_Retention_Activity_Jan102021.RData"))
+df <- as.data.frame(query)
+rt <- as.data.frame(retention)
+
+
+#df$user_certified <- as.Date(df$user_certified)
+#dim(sd)
+#str(sd)
+#head(sd)
+
+df %>% summarise_all(n_distinct)
+
+```
+
+```{r}
+library(ggplot2)
+library(RColorBrewer)
+
+#display.brewer.all()
+color <- brewer.pal(12,"Set3")
+
+
+# dplyr: pivoting Long: convert columns to rows
+piv <- as.data.frame( 
+  rt %>% 
+    tidyr::pivot_longer(
+      cols = c(contains("_1"),contains("_123")), # column name starts with string
+      names_to = "user_type", # new column name of column names after pivot
+      values_to = "value", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+
+
+
+rt_agg <- 
+  piv %>% group_by(ft_cohort,ft_cohort_size,
+                   period) %>%
+  summarize(users = length(unique(user_id))) %>% 
+  mutate(
+    perc_users = round(users/ft_cohort_size,2) 
+  )
+
+ggplot(filter(rt_agg,period < 11) , 
+       aes(x=as.factor(period), 
+           y =perc_users,
+           group=as.factor(ft_cohort),
+           color=as.factor(ft_cohort)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users Retained") + xlab("Months after Ft-MAU") +
+  ggtitle("Retention by Ft-MAU Cohort") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    legend.key.size = unit(2, "cm")
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~ft_cohort) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Type", 
+                    #labels = c("Spaces-35 days","Stripe-35 days",
+                    #           "500+ Top-Up-3 Months","500+ Top-Up -35 days",
+                    #           "10+ Txn-35 days","10+ Txn-3 Months")
+                    )
+
+
+rt_agg <- 
+  piv %>% group_by(ft_cohort, user_type, value) %>%
+  mutate(tot_users_type = length(unique(user_id))) %>% group_by(ft_cohort,ft_cohort_size,user_type,value, tot_users_type,period) %>%
+  summarize(users = length(user_id)) %>% group_by(ft_cohort,ft_cohort_size,user_type,value,tot_users_type) %>%
+  mutate(
+    perc_users = round(users/tot_users_type,2)
+)
+
+
+ggplot(filter(rt_agg,value == 1, period < 11) , 
+       aes(x=as.factor(period), 
+           y =perc_users,
+           group=as.factor(user_type),
+           color=as.factor(user_type)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users Retained") + xlab("Months after Ft-MAU") +
+  ggtitle("Retention across activity types") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    legend.key.size = unit(2, "cm")
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(~ft_cohort) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Type", 
+                    labels = c("Spaces-35 days","Stripe-35 days",
+                               "500+ Top-Up-3 Months","500+ Top-Up -35 days",
+                               "10+ Txn-35 days","10+ Txn-3 Months")
+                    )
+
+
+
+
+rt_agg <- 
+  piv %>% group_by(ft_cohort, user_type, value) %>%
+  mutate(tot_users_type = length(unique(user_id))) %>% group_by(ft_cohort,ft_cohort_size,user_type,value, tot_users_type,period) %>%
+  summarize(users = length(user_id)) %>% group_by(ft_cohort,ft_cohort_size,user_type,value,tot_users_type) %>%
+  mutate(
+    perc_users = round(users/tot_users_type,2)
+)
+
+
+ggplot(filter(rt_agg,value == 1, period < 11, user_type %in% c("txn10_1","spaces_1","stripe_1","tp_500_1")) , 
+       aes(x=as.factor(period), 
+           y =perc_users,
+           group=as.factor(user_type),
+           color=as.factor(user_type)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users Retained") + xlab("Months after Ft-MAU") + coord_cartesian(ylim = c(0.3, 1)) +
+  ggtitle("Retention - First 35 days Ft-MAU") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    legend.key.size = unit(2, "cm")
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(~ft_cohort) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Type", 
+                    labels = c("Spaces-35 days","Stripe-35 days",
+                               "500+ Top-Up -35 days",
+                               "10+ Txn-35 days" #,"500+ Top-Up-3 Months","10+ Txn-3 Months"
+                               )
+                    )
+
+
+
+ggplot(filter(rt_agg,value == 1, period < 11, user_type %in% c("txn10_123","tp_123")) , 
+       aes(x=as.factor(period), 
+           y =perc_users,
+           group=as.factor(user_type),
+           color=as.factor(user_type)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users Retained") + xlab("Months after Ft-MAU") + coord_cartesian(ylim = c(0.3, 1)) +
+  ggtitle("Retention - 3 consecutive MAU Months") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    legend.key.size = unit(2, "cm")
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(~ft_cohort,scales = "free") +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Type", 
+                    labels = c("500+ Top-Up-3 Months","10+ Txn-3 Months"
+                               )
+                    )
+
+
+```
+
+
+
+```{r}
+
+df$tnc_country_group <- trimws(df$tnc_country_group, which=c("both")) 
+
+df <- df %>% 
+  mutate( 
+    market = case_when(
+      tnc_country_group %in% c("NEuro","Other") ~ 0, 
+      tnc_country_group == "AUT" ~ 1,
+      tnc_country_group == "GBR" ~ 2,
+      tnc_country_group == "ESP" ~ 3,
+      tnc_country_group == "GrE" ~ 4,
+      tnc_country_group == "ITA" ~ 5,
+      tnc_country_group == "DEU" ~ 6,
+      tnc_country_group == "FRA" ~ 7
+    ),
+    premium = case_when(
+      is_premium == "FALSE" ~ 0,
+      is_premium == "TRUE" ~ 1
+    ),
+    expat = case_when(
+      is_expat == "FALSE" ~ 0,
+      is_expat == "TRUE" ~ 1
+    )
+    )
+
+
+```
+
+```{r}
+
+library(ggplot2)
+library(RColorBrewer)
+
+#display.brewer.all()
+color <- brewer.pal(12,"Set3")
+
+ft_cohort <- unique(df[,c("ft_cohort","ft_cohort_size")])
+ggplot(ft_cohort, aes(y=ft_cohort_size,x=as.factor(ft_cohort),fill=as.factor(ft_cohort))) +
+  geom_bar(position="dodge", stat="identity") + xlab("Ft-MAU Cohort Month") + ylab("Ft-MAU Cohort Size") +
+  #scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(ft_cohort_size)), position=position_dodge(width=0.9), vjust=-0.25) +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold"),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+
+cohort <- df %>% group_by(ft_cohort,ft_cohort_size,num_period_mau) %>%
+  summarise(
+    users = length(unique(user_id)),
+    users_mau_now = length(unique(user_id[mau_now == 1])),
+    users_premium = length(unique(user_id[is_premium == 'TRUE'])),
+    users_spaces = length(unique(user_id[n_spaces_35 > 0]))
+  ) %>%
+  mutate( 
+    perc_per_grp = round(users/ft_cohort_size,2),
+    perc_per_grp_mau_now = round(users_mau_now/users,2),
+    perc_per_grp_premium = round(users_premium/users,2),
+    perc_per_grp_spaces = round(users_spaces/users,2)
+    )
+
+# Percent ft-mau cohort user split by Total number of MAU periods
+ggplot(cohort, aes(y=perc_per_grp,x=as.factor(num_period_mau),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Total Number of 35 day periods MAU") + ylab("% Users") +
+  scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_per_grp*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold"),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+
+# Number ft-mau cohort user split by Total number of MAU periods
+ggplot(cohort, aes(y=users,x=as.factor(num_period_mau),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Total Number of 35 day periods MAU") + ylab("No.Users") +
+  #scale_y_continuous(labels=scales::percent) +
+  #geom_text(aes(label=round(users)), position=position_dodge(width=0.9), vjust=-0.25) +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold"),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+# Percent ft-mau cohort PREMIUM user split by Total number of MAU periods
+ggplot(cohort, aes(y=perc_per_grp_premium,x=as.factor(num_period_mau),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Total Number of 35 day periods MAU") + ylab("% Premium Users") +
+  scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_per_grp_premium*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold"),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+
+color = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2")
+
+# Percent ft-mau cohort Currently MAU NOW (Jan 2021) user split by Total number of MAU periods
+ggplot(cohort, aes(y=perc_per_grp_mau_now,x=as.factor(num_period_mau),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Total Number of 35 day periods MAU") + ylab("% Retained Users (Jan. 2021)") +
+  scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_per_grp_mau_now*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold"),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9)) 
+
+
+
+
+
+  
+```
+
+```{r}
+# PCA 
+
+library("FactoMineR")
+library("factoextra")
+
+dff <- df[,c(8,13:41,51:55)]
+dff[is.na(dff)] = 0
+
+names(dff[,c(3:15,17,19:21,24:26,28:30)])
+
+dff[,c(3:15,17,19:21,24:26,28:30)] <- dff[,c(3:15,17,19:21,24:26,28:30)] + 1
+dff[,c(3:15,17,19:21,24:26,28:30)] <- log(dff[,c(3:15,17,19:21,24:26,28:30)])
+
+
+res.pca <- PCA(dff, graph=FALSE,ncp=50, scale.unit=T)
+eig.val <- get_eigenvalue(res.pca)
+#head(eig.val,20)
+
+# variance explained by each dimension/component
+# ~40% of variance is explained by the first 3 components
+fviz_eig(res.pca, addlabels = T, ylim=c(0,70))
+var <- get_pca_var(res.pca)
+
+# PCA correlation plot of features relative to the dimensions
+library("corrplot")
+corrplot(var$cos2, is.corr=FALSE,tl.cex=0.80)
+
+# Biplot of of variables and individuals 
+# biplot for dim 1 and 2
+fviz_pca_biplot(res.pca, repel = T,geom.ind = "point", axes=c(1,2),
+                col.var = 'black', # Variables color
+                col.ind = 'grey'  # Individuals color         
+)
+
+```
+
+```{r}
+
+## INCLUDING CONSECUTIVE 10 TXNS, MARKET, PREMIUM, EXPAT
+
+library("FactoMineR")
+library("factoextra")
+
+dff <- df[,c(8,13:47,49:69)]
+dff[is.na(dff)] = 0
+
+names(dff[,c(3:15,17,19:21,24:26,28:30)])
+
+dff[,c(3:15,17,19:21,24:26,28:30)] <- dff[,c(3:15,17,19:21,24:26,28:30)] + 1
+dff[,c(3:15,17,19:21,24:26,28:30)] <- log(dff[,c(3:15,17,19:21,24:26,28:30)])
+
+
+res.pca <- PCA(dff, graph=FALSE,ncp=50, scale.unit=T)
+eig.val <- get_eigenvalue(res.pca)
+#head(eig.val,20)
+
+# variance explained by each dimension/component
+# ~40% of variance is explained by the first 3 components
+fviz_eig(res.pca, addlabels = T, ylim=c(0,70))
+var <- get_pca_var(res.pca)
+
+# PCA correlation plot of features relative to the dimensions
+library("corrplot")
+corrplot(var$cos2, is.corr=FALSE,tl.cex=0.80)
+
+# Biplot of of variables and individuals 
+# biplot for dim 1 and 2
+fviz_pca_biplot(res.pca, repel = T,geom.ind = "point", axes=c(1,2),
+                col.var = 'black', # Variables color
+                col.ind = 'grey'  # Individuals color         
+)
+
+
+
+```
+
+```{r}
+# PAIRWISE CORRELATION PLOT OF FEATURES: A NICE SUPPLEMENT FOR THE BIPLOTS AND PCA FEAUTRE CORRELATION PLOT
+
+# compute correlation matrix and rm NA's
+
+df.scaled = scale(dff, center=TRUE, scale=TRUE)
+res.cor <- cor(df.scaled)
+
+library('corrplot')
+corrplot(res.cor, type="upper", order="hclust", 
+         tl.col="black", 
+         tl.srt=45,
+         diag=FALSE,
+         tl.cex=0.8,
+         sig.level = 0.000005,
+         #method="number"
+         addCoef.col="black",
+         number.cex=0.5
+         )
+
+# set a threshold for correlations
+thresh_corr <- res.cor 
+thresh_corr[thresh_corr < -0.6 | thresh_corr > 0.6 ] = 0
+
+corrplot(thresh_corr, type="upper", order="hclust", 
+         tl.col="black", 
+         tl.srt=45,
+         diag=FALSE,
+         tl.cex=0.75,
+         sig.level = 0.000005,
+         #method="number"
+         addCoef.col="black",
+         number.cex=0.45
+         )
+
+
+```
+```{r}
+# Random sampling
+rn <- row.names(df)
+samples <- sample(rn, size = 30000, replace = F)
+
+df_samples <- filter(df,row.names(df) %in% samples)
+
+```
+
+```{r}
+dff_samp <- df_samples[,c(8,13:47,49:69)]
+dff_samp[is.na(dff_samp)] = 0
+
+names(dff_samp[,c(3:15,17,19:21,24:26,28:30)])
+
+dff_samp[,c(3:15,17,19:21,24:26,28:30)] <- dff_samp[,c(3:15,17,19:21,24:26,28:30)] + 1
+dff_samp[,c(3:15,17,19:21,24:26,28:30)] <- log(dff_samp[,c(3:15,17,19:21,24:26,28:30)])
+
+df_scaled = as.data.frame(scale(dff_samp, center=TRUE, scale=TRUE))
+
+require(stats)
+
+sp <- ggplot(data=dff_samp, aes(x=amt_ext_in_2, y= amt_ext_out_2)) + geom_point() + geom_smooth(method= "lm") +
+  xlab("Total topup Amount (Log units)") + ylab("Total Spend (Log units)")
+sp
+
+sp <- ggplot(data=df_scaled, aes(x=amt_ext_in_2, y= n_act_2)) + geom_point() + geom_smooth(method= "lm") +
+  xlab("Total Top-up Amount (Log units)") + ylab("Number of Txns (Scaled units)") + ylim(0,7) #+ xlim(0,5000)
+sp
+
+sp <- ggplot(data=dff_samp, aes(x=amt_ext_in_3, y= amt_ext_out_3)) + geom_point() + geom_smooth(method= "lm") +
+  xlab("Total topup Amount (Log units)") + ylab("Total Spend (Log units)")
+sp
+
+sp <- ggplot(data=df_scaled, aes(x=amt_ext_in_3, y= n_act_3)) + geom_point() + geom_smooth(method= "lm") +
+  xlab("Total Top-up Amount (Log units)") + ylab("Number of Txns (Scaled units)") + ylim(0,7) #+ xlim(0,5000)
+sp
+
+sp <- ggplot(data=dff_samp, aes(x=amt_ext_in_35, y= amt_ext_out_35)) + geom_point() + geom_smooth(method= "lm") +
+  xlab("Total topup Amount (Log units)") + ylab("Total Spend (Log units)")
+sp
+
+sp <- ggplot(data=df_scaled, aes(x=amt_ext_in_35, y= n_act_35)) + geom_point() + geom_smooth(method= "lm") +
+  xlab("Total Top-up Amount (Log units)") + ylab("Number of Txns (Scaled units)") + 
+  coord_cartesian(ylim = c(0, 10), xlim= c(0,5))
+sp
+  
+#plot(amt_ext_in_2~amt_ext_out_2,data=dff_samp)
+
+cor.test(df_scaled$amt_ext_in_3,df_scaled$amt_ext_out_3)
+cor.test(df_scaled$amt_ext_in_2,df_scaled$n_act_2)
+
+```
+
+```{r}
+
+boxplot(n_act_35~dep_35_500, data=df_samples,ylim=c(0,50))
+
+boxplot(amt_ext_in_2 ~ n_act10_12, data=df_samples,ylim=c(0,2000))
+
+ggplot(df_samples, aes(x=as.factor(n_act_10_user), y=amt_ext_in_35, fill=as.factor(n_act_10_user))) +
+  geom_boxplot() + coord_cartesian(ylim = c(0, 2500)) + 
+  xlab("Txn Activity Group") + ylab("Total Monthly Top-Up Amt (Euro)") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold"),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    legend.key.size = unit(1.5, "cm")
+  ) + scale_fill_manual(values=color[4:5],
+                        name="Txn Activity Group",
+                        labels= c("< 10 Txns","10+ Txns"))
+
+ggplot(df_samples, aes(x=as.factor(dep_35_500), y=n_act_35, fill=as.factor(dep_35_500))) +
+  geom_boxplot() + coord_cartesian(ylim = c(0, 50)) + 
+  xlab("Top-Up Amount Group") + ylab("Total Number of Monthly Txns") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold"),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    axis.ticks.x=element_blank(),
+    legend.key.size = unit(1.5, "cm")
+  ) + scale_fill_manual(values=color[6:7],
+                        name="Top-Up Amount Group",
+                        labels= c("< 500 Euro","500+ Euro")
+                        )
+
+
+
+
+```
+
+```{r}
+
+## MAU NOW RESPONSE VARIABLE 
+
+library(aod)
+library(ggplot2)
+library(caret)
+
+mylogit <- glm(as.factor(mau_now) ~ ft_cohort + kyc_ftmau_days + log(amt_ext_in_35+1) + 
+                log(amt_card_all_35+1) + #as.factor(consec_period_1_3) + as.factor(consec_period_1_2) + 
+                 as.factor(market) + as.factor(premium) + as.factor(expat) + 
+                as.factor(dep_123_500) + as.factor(dep_123_700) + as.factor(dep_35_500) + as.factor(dep_35_700) +
+                 as.factor(dep_12_500) + as.factor(dep_12_700) + as.factor(dep_35_500) + as.factor(dep_35_700) + as.factor(spaces_user) + as.factor(num_period_mau) +
+                 as.factor(mobile_user) + as.factor(cash26_user) + as.factor(n_act_10_user) + as.factor(stripe_user)
+               , data = df, family = "binomial")
+
+car::vif(mylogit)
+
+summary(mylogit)
+
+exp(cbind(OR = coef(mylogit), confint(mylogit)))
+
+```
+
+```{r}
+
+# logistic regression 
+mylogit <- glm(as.factor(consec_period_1_6) ~ ft_cohort + kyc_ftmau_days + log(amt_ext_in_35+1) + 
+                log(amt_card_all_35+1) + #as.factor(consec_period_1_3) + as.factor(consec_period_1_2) + 
+                as.factor(dep_123_500) + as.factor(dep_123_700) + as.factor(dep_35_500) + as.factor(dep_35_700) +
+                 as.factor(dep_12_500) + as.factor(dep_12_700) + as.factor(dep_35_500) + as.factor(dep_35_700) + as.factor(spaces_user) +
+                 as.factor(mobile_user) + as.factor(cash26_user) + as.factor(n_act_10_user) + as.factor(stripe_user)
+               , data = df, family = "binomial")
+
+#
+#+ as.factor(dep_123_600)
+#log(amt_cash26_35+1) + 
+#log(amt_act_35+1) + n_act_35
+summary(mylogit)
+car::vif(mylogit)
+exp(cbind(OR = coef(mylogit), confint(mylogit)))
+
+```
+
+```{r}
+## ADDING 10TXN CONSECUTIVE MONTHS 
+mylogit <- glm(as.factor(consec_period_1_6) ~ ft_cohort + kyc_ftmau_days + #log(amt_ext_in_35+1) + 
+                #log(amt_card_all_35+1) + #as.factor(consec_period_1_3) + as.factor(consec_period_1_2) + 
+                as.factor(dep_123_500) + as.factor(dep_123_700) + as.factor(dep_35_500) + as.factor(dep_35_700) +
+                 as.factor(dep_12_500) + as.factor(dep_12_700) + as.factor(dep_35_500) + as.factor(dep_35_700) + 
+                 as.factor(spaces_user) + as.factor(mobile_user) + as.factor(cash26_user) + as.factor(n_act_10_user) +
+                 as.factor(stripe_user) + as.factor(n_act10_123) + as.factor(n_act10_12)
+               , data = df, family = "binomial")
+
+car::vif(mylogit)
+
+summary(mylogit)
+
+exp(cbind(OR = coef(mylogit), confint(mylogit)))
+
+
+```
+
+```{r}
+
+
+table(df$dep_123_500,df$consec_period_1_6)
+
+table(df$dep_123_700,df$consec_period_1_6)
+
+table(df$dep_123_700)
+```
+
+```{r}
+## ADDING MARKET, PREMIUM, EXPAT TO 10TXN CONSECUTIVE MONTHS MODEL
+
+
+mylogit <- glm(as.factor(consec_period_1_6) ~ ft_cohort + kyc_ftmau_days + 
+                 as.factor(market) + as.factor(premium) + as.factor(expat) + 
+                as.factor(dep_123_500) + as.factor(dep_123_700) + as.factor(dep_35_500) + as.factor(dep_35_700) +
+                 #as.factor(dep_12_500) + as.factor(dep_12_700) + 
+                 as.factor(dep_35_500) + as.factor(dep_35_700) + 
+                 as.factor(spaces_user) + as.factor(mobile_user) + as.factor(cash26_user) + as.factor(n_act_10_user) +
+                 as.factor(stripe_user) + as.factor(n_act10_123) #+ as.factor(n_act10_12)
+               , data = df, family = "binomial")
+
+car::vif(mylogit)
+
+summary(mylogit)
+
+exp(cbind(OR = coef(mylogit), confint(mylogit)))
+
+
+
+
+
+```
+
+
+```{r}
+
+
+
+```
+
+```{r}
+# checking model for issues with multicolinearity
+library(caret)
+
+car::vif(mylogit)
+
+
+```
+```{r}
+
+mylogit <- glm(as.factor(mau_now) ~ ft_cohort + kyc_ftmau_days + log(amt_ext_in_35+1) + 
+                log(amt_card_all_35+1) + as.factor(consec_period_1_3) + as.factor(consec_period_1_2) + 
+                 as.factor(consec_period_1_6) + as.factor(dep_123_500) + as.factor(dep_123_700) + + as.factor(dep_35_500) +
+                 as.factor(dep_35_700) + as.factor(dep_12_500) + as.factor(dep_12_700) + as.factor(dep_35_500) + as.factor(dep_35_700) +
+                 as.factor(spaces_user) +
+                 as.factor(mobile_user) + as.factor(cash26_user) + as.factor(n_act_10_user) + as.factor(stripe_user)
+               , data = df, family = "binomial")
+
+car::vif(mylogit)
+
+exp(cbind(OR = coef(mylogit), confint(mylogit)))
+
+
+```
+
+```{r}
+
+mylogit <- glm(as.factor(consec_period_1_6) ~ ft_cohort + kyc_ftmau_days + log(amt_ext_in_35+1) + 
+                log(amt_card_all_35+1) + #as.factor(consec_period_1_3) + as.factor(consec_period_1_2) + 
+                as.factor(dep_123_500) + as.factor(dep_123_700) + as.factor(dep_35_500) + as.factor(dep_35_700) +
+                 as.factor(dep_12_500) + as.factor(dep_12_700) + as.factor(dep_35_500) + as.factor(dep_35_700) + as.factor(spaces_user) +
+                 as.factor(mobile_user) + as.factor(cash26_user) + as.factor(n_act_10_user) + as.factor(stripe_user)
+               , data = df, family = "binomial")
+
+summary(mylogit)
+
+
+```
+
+```{r}
+
+# COMPARE PREDICTIVE EFFECTS OF 10+ TXN AND 500+ TOPUP AMT
+
+tt <- df %>% group_by(consec_period_1_6,dep_123_500,dep_35_700,n_act10_123) %>%
+  summarize(
+    users = length(unique(user_id))
+  ) %>% group_by(consec_period_1_6) %>%
+  mutate(
+    total_con6 = sum(users),
+    perc = round(users/total_con6,2)
+  )
+
+
+tt10 <- df %>% group_by(n_act10_123,consec_period_1_6) %>%
+  summarize(
+    users = length(unique(user_id))
+  ) %>% group_by(n_act10_123) %>%
+  mutate(
+    total_con6 = sum(users),
+    perc = round(users/total_con6,2)
+  )
+
+t500 <- df %>% group_by(dep_123_500,consec_period_1_6) %>%
+  summarize(
+    users = length(unique(user_id))
+  ) %>% group_by(dep_123_500) %>%
+  mutate(
+    total_con6 = sum(users),
+    perc = round(users/total_con6,2)
+  )
+
+t700 <- df %>% group_by(dep_123_700,consec_period_1_6) %>%
+  summarize(
+    users = length(unique(user_id))
+  ) %>% group_by(dep_123_700) %>%
+  mutate(
+    total_con6 = sum(users),
+    perc = round(users/total_con6,2)
+  )
+
+tt10 <- df %>% group_by(consec_period_1_6,n_act10_123) %>%
+  summarize(
+    users = length(unique(user_id))
+  ) %>% group_by(consec_period_1_6) %>%
+  mutate(
+    total_con6 = sum(users),
+    perc = round(users/total_con6,2)
+  )
+
+t500 <- df %>% group_by(consec_period_1_6,dep_123_500) %>%
+  summarize(
+    users = length(unique(user_id))
+  ) %>% group_by(consec_period_1_6) %>%
+  mutate(
+    total_con6 = sum(users),
+    perc = round(users/total_con6,2)
+  )
+
+t700 <- df %>% group_by(consec_period_1_6,dep_123_700) %>%
+  summarize(
+    users = length(unique(user_id))
+  ) %>% group_by(consec_period_1_6) %>%
+  mutate(
+    total_con6 = sum(users),
+    perc = round(users/total_con6,2)
+  )
+
+```
+
+```{r}
+# MARKET EFFECTS
+
+library(ggplot2)
+
+mark <- as.data.frame(
+  df %>% group_by(tnc_country_group,n_act10_123) %>%
+  summarise(users = length(user_id)
+            ) %>% group_by(tnc_country_group) %>%
+  mutate(total = sum(users),
+         perc = round(users/total,2)
+         )
+)
+
+ggplot(filter(mark,n_act10_123 == 1), 
+       aes(x= reorder(tnc_country_group,-perc), 
+           y = perc,
+           fill=tnc_country_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% Users") + xlab("Market") +
+  ggtitle("10+ txn 3 consecutive months") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Market", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+mark <- df %>% group_by(tnc_country_group) %>%
+  summarise(users = length(user_id)) %>% 
+  mutate(total = sum(users),
+         perc = round(users/total,2))
+
+
+ggplot(mark, 
+       aes(x= reorder(tnc_country_group,-perc), 
+           y = perc,
+           fill=tnc_country_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% Users") + xlab("Market") +
+  ggtitle("Market size distribution") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Market", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+mark <- df %>% group_by(tnc_country_group,consec_period_1_6) %>%
+  summarise(users = length(user_id)) %>% group_by(tnc_country_group) %>%
+  mutate(total = sum(users),
+         perc = round(users/total,2))
+
+
+ggplot(filter(mark,consec_period_1_6 == 1), 
+       aes(x= reorder(tnc_country_group,-perc), 
+           y = perc,
+           fill=tnc_country_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% Users") + xlab("Market") +
+  ggtitle("MAU 6 Consecutive Months") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Market", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+mark <- df %>% group_by(tnc_country_group,mau_now) %>%
+  summarise(users = length(user_id)) %>% group_by(tnc_country_group) %>%
+  mutate(total = sum(users),
+         perc = round(users/total,2))
+
+
+ggplot(filter(mark,mau_now == 1), 
+       aes(x= reorder(tnc_country_group,-perc), 
+           y = perc,
+           fill=tnc_country_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% Users") + xlab("Market") +
+  ggtitle("Users currently retained (MAU- Jan 2021)") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Market", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+mark <- df %>% group_by(tnc_country_group,dep_123_500) %>%
+  summarise(users = length(user_id)) %>% group_by(tnc_country_group) %>%
+  mutate(total = sum(users),
+         perc = round(users/total,2))
+
+
+ggplot(filter(mark,dep_123_500 == 1), 
+       aes(x= reorder(tnc_country_group,-perc), 
+           y = perc,
+           fill=tnc_country_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% Users") + xlab("Market") +
+  ggtitle("500+ euro 3 consecutive months") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Market", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+```
+```{r}
+
+
+# Create Data
+data <- data.frame(
+  group=LETTERS[1:3],
+  value=c(33.33,33.33,33.33)
+)
+
+# Basic piechart
+ggplot(data, aes(x="", y=value, fill=group)) +
+  geom_bar(stat="identity", width=1) +
+  coord_polar("y", start=0) +
+scale_fill_manual(values = c("#48AC98", "#CDA35F","#CB7C7A","#E5C3C7", "#CAD7CA","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Market", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    ) + theme_void()
+
+
+# Create test data.
+data <- data.frame(
+  category=c("A", "B", "C"),
+  count=c(20, 50, 30)
+)
+ 
+# Compute percentages
+data$fraction = data$count / sum(data$count)
+
+# Compute the cumulative percentages (top of each rectangle)
+data$ymax = cumsum(data$fraction)
+
+# Compute the bottom of each rectangle
+data$ymin = c(0, head(data$ymax, n=-1))
+ 
+# Make the plot
+ggplot(data, aes(ymax=ymax, ymin=ymin, xmax=4, xmin=3, fill=category)) +
+     geom_rect() + theme_void() +
+     coord_polar(theta="y") + # Try to remove that to understand how the chart is built initially
+     xlim(c(2, 4)) + # Try to remove that to see how to make a pie chart
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Market", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+
+
+
+```
+
+```{r}
+# MARKET DISTRIBUTION OF STRIPE USERS
+
+mark <- df %>% group_by(tnc_country_group,stripe_user) %>%
+  summarise(users = length(user_id)) %>% group_by(tnc_country_group) %>%
+  mutate(total = sum(users),
+         perc = round(users/total,2))
+
+
+ggplot(filter(mark,stripe_user == 1), 
+       aes(x= reorder(tnc_country_group,-perc), 
+           y = perc,
+           fill=tnc_country_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% Users") + xlab("Market") +
+  ggtitle("Stripe Users - First 35 days") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Market", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+# MARKET EFFECTS OF MOBILE PAYEMENTS
+
+mark <- df %>% group_by(tnc_country_group,mobile_user) %>%
+  summarise(users = length(user_id)) %>% group_by(tnc_country_group) %>%
+  mutate(total = sum(users),
+         perc = round(users/total,2))
+
+
+ggplot(filter(mark,mobile_user == 1), 
+       aes(x= reorder(tnc_country_group,-perc), 
+           y = perc,
+           fill=tnc_country_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% Users") + xlab("Market") +
+  ggtitle("Mobile Users - First 35 days Ft-MAU") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Market", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+# MARKET EFFECTS OF 10 txns and spaces users 
+
+mark <- df %>% group_by(tnc_country_group,spaces_user) %>%
+  summarise(users = length(user_id)) %>% group_by(tnc_country_group) %>%
+  mutate(total = sum(users),
+         perc = round(users/total,2))
+
+
+ggplot(filter(mark,spaces_user == 1), 
+       aes(x= reorder(tnc_country_group,-perc), 
+           y = perc,
+           fill=tnc_country_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% Users") + xlab("Market") +
+  ggtitle("Spaces Users - First 35 days Ft-MAU") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "Market", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+```
+
+
+```{r}
+library(ggplot2)
+library(RColorBrewer)
+
+#display.brewer.all()
+color <- brewer.pal(12,"Set3")
+
+# How many users are retained based on the first consecutive monthly period MAUs
+
+cohort_consec <- df %>% group_by(ft_cohort,ft_cohort_size) %>%
+  summarise(period_1_2 = sum(consec_period_1_2),
+            period_1_3 = sum(consec_period_1_3),
+            period_1_4 = sum(consec_period_1_4),
+            period_1_5 = sum(consec_period_1_5),
+            period_1_6 = sum(consec_period_1_6)
+            ) %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("period"), # column name starts with string
+      names_to = "consec_period", # new column name of column names after pivot
+      values_to = "users", # new column for values,
+      #names_prefix = "per_",
+      #na.rm=TRUE,
+    ) %>% 
+  mutate(perc_users = round(users/ft_cohort_size,2))
+
+ggplot(cohort_consec, aes(y=perc_users,x=as.factor(consec_period),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("% Users") +
+  coord_cartesian(ylim=c(0.4,0.8)) +
+  scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+ggplot(cohort_consec, aes(y=users,x=as.factor(consec_period),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("Number Users") +
+  #coord_cartesian(ylim=c(0.4,0.8)) +
+  #scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(users)), position=position_dodge(width=0.9), vjust=-0.25) +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+# %Users MAU now split by consecutive periods of MAU
+
+consec_mau <- df %>% group_by(ft_cohort,ft_cohort_size,mau_now) %>%
+  summarise(period_1_2 = sum(consec_period_1_2),
+            period_1_3 = sum(consec_period_1_3),
+            period_1_4 = sum(consec_period_1_4),
+            period_1_5 = sum(consec_period_1_5),
+            period_1_6 = sum(consec_period_1_6)
+            ) %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("period"), # column name starts with string
+      names_to = "consec_period", # new column name of column names after pivot
+      values_to = "users", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    ) %>% group_by(ft_cohort,ft_cohort_size,consec_period) %>%
+  mutate(
+    tot_users_period = sum(users),
+    perc_mau_period = round(users/tot_users_period,2)
+  ) 
+
+# % REtained by period consecutive mau group size
+ggplot(filter(consec_mau,mau_now == 1), aes(y=perc_mau_period,x=as.factor(consec_period),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("% Users Retained (MAU-Jan. 2021)") +
+  coord_cartesian(ylim=c(0.40,1)) +
+  scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_mau_period*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+
+consec_mau <- consec_mau %>% 
+  mutate(
+    perc_mau_cohort = round(users/ft_cohort_size,2)
+  )
+
+# % REtained by ft-mau cohort size
+ggplot(filter(consec_mau,mau_now == 1), aes(y=perc_mau_cohort,x=as.factor(consec_period),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("% Users Retained (MAU-Jan. 2021)") + 
+  coord_cartesian(ylim=c(0.25,0.6)) +
+  scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_mau_cohort*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+# How many users are currently retained from these cohorts
+
+retain <- df %>% group_by(ft_cohort,ft_cohort_size) %>% 
+  summarise(retain_users = sum(mau_now)) %>%
+  group_by(ft_cohort) %>%
+  mutate(
+    perc_users = round(retain_users/ft_cohort_size,2))
+
+ ggplot(retain, aes(y=perc_users,x=as.factor(ft_cohort),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Ft-MAU Cohort") + ylab("% Users Retained (MAU-Jan. 2021)") + 
+  coord_cartesian(ylim=c(0.25,1)) +
+  scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+           
+
+```
+
+```{r}
+
+# How much do the consecutive period groups who are currently MAU deposit on average
+
+dep_35days <- filter(df,mau_now == 1) %>% group_by(ft_cohort,ft_cohort_size) %>%
+  summarise(
+    period_1_2 = median(amt_ext_in_35[consec_period_1_2 == 1]),
+    period_1_3 = median(amt_ext_in_35[consec_period_1_3 == 1]),
+    period_1_4 = median(amt_ext_in_35[consec_period_1_4 == 1]),
+    period_1_5 = median(amt_ext_in_35[consec_period_1_5 == 1]),
+    period_1_6 = median(amt_ext_in_35[consec_period_1_6 == 1])
+  ) %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("period"), # column name starts with string
+      names_to = "consec_period", # new column name of column names after pivot
+      values_to = "median_dep", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+
+dep_period_2 <- filter(df,mau_now == 1) %>% group_by(ft_cohort,ft_cohort_size) %>%
+  summarise(
+    period_1_2 = median(amt_ext_in_2[consec_period_1_2 == 1]),
+    period_1_3 = median(amt_ext_in_2[consec_period_1_3 == 1]),
+    period_1_4 = median(amt_ext_in_2[consec_period_1_4 == 1]),
+    period_1_5 = median(amt_ext_in_2[consec_period_1_5 == 1]),
+    period_1_6 = median(amt_ext_in_2[consec_period_1_6 == 1])
+  ) %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("period"), # column name starts with string
+      names_to = "consec_period", # new column name of column names after pivot
+      values_to = "median_dep", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+
+dep_period_3 <- filter(df,mau_now == 1) %>% group_by(ft_cohort,ft_cohort_size) %>%
+  summarise(
+    period_1_2 = median(amt_ext_in_3[consec_period_1_2 == 1],na.rm=T),
+    period_1_3 = median(amt_ext_in_3[consec_period_1_3 == 1],na.rm=T),
+    period_1_4 = median(amt_ext_in_3[consec_period_1_4 == 1],na.rm=T),
+    period_1_5 = median(amt_ext_in_3[consec_period_1_5 == 1],na.rm=T),
+    period_1_6 = median(amt_ext_in_3[consec_period_1_6 == 1],na.rm=T)
+  ) %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("period"), # column name starts with string
+      names_to = "consec_period", # new column name of column names after pivot
+      values_to = "median_dep", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+
+ggplot(dep_35days, aes(y=median_dep,x=as.factor(consec_period),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("Median Total Deposit Amt") + 
+  coord_cartesian(ylim=c(0,1000)) +
+  #scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(median_dep)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Deposit Amt First 35 days Ft-MAU") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+ggplot(dep_period_2, aes(y=median_dep,x=as.factor(consec_period),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("Median Total Deposit Amt") + 
+  coord_cartesian(ylim=c(0,1000)) +
+  #scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(median_dep)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Deposit Amt Monthly Period 2") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+ggplot(dep_period_3, aes(y=median_dep,x=as.factor(consec_period),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("Median Total Deposit Amt") + 
+  coord_cartesian(ylim=c(0,1000)) +
+  #scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(median_dep)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Deposit Amt Monthly Period 3") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+```
+
+```{r}
+# are spaces users a good indicator of future retention?
+
+sp <- filter(df, n_spaces_35 > 0)
+
+spaces <- sp %>% group_by(ft_cohort,ft_cohort_size) %>% 
+  summarise(
+    sp_users = length(user_id),
+    sp_mau_now = sum(mau_now)
+  ) %>% group_by(ft_cohort,ft_cohort_size) %>%
+  mutate(
+    perc_users = round(sp_users/ft_cohort_size,2),
+    perc_sp_mau = round(sp_mau_now/sp_users,2)
+  )
+
+ggplot(spaces, aes(y=perc_users,x=as.factor(ft_cohort),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("% Active Spaces Users (1+ txn)") + 
+  coord_cartesian(ylim=c(0,0.30)) +
+  #scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Spaces Users Ft-MAU") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+
+ggplot(spaces, aes(y=perc_sp_mau,x=as.factor(ft_cohort),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("% Spaces Users Retained") + 
+  coord_cartesian(ylim=c(0,1)) +
+  #scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_sp_mau*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Spaces Users Ft-MAU - Retention") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+# how active are spaces users in the first 6 months 
+sp_act <- sp %>% group_by(ft_cohort,ft_cohort_size,num_period_mau) %>%
+  summarise(users = length(user_id)) %>% group_by(ft_cohort,ft_cohort_size) %>%
+  mutate(
+    tot_sp_users = sum(users),
+    perc_users = round(users/tot_sp_users,2)
+  )
+
+ggplot(sp_act, aes(y=perc_users,x=as.factor(num_period_mau),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Total Number of MAU Periods (first 6 months)") + ylab("% Spaces Users") + 
+  coord_cartesian(ylim=c(0,1)) +
+  scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Spaces Users Ft-MAU - Retention") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+```
+```{r}
+
+# are stripe users a good indicator of future retention?
+
+sp <- filter(df, amt_stripe_35 > 0)
+
+spaces <- sp %>% group_by(ft_cohort,ft_cohort_size) %>% 
+  summarise(
+    sp_users = length(user_id),
+    sp_mau_now = sum(mau_now)
+  ) %>% group_by(ft_cohort,ft_cohort_size) %>%
+  mutate(
+    perc_users = round(sp_users/ft_cohort_size,2),
+    perc_sp_mau = round(sp_mau_now/sp_users,2)
+  )
+
+ggplot(spaces, aes(y=perc_users,x=as.factor(ft_cohort),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("% Stripe Users (1+ txn)") + 
+  coord_cartesian(ylim=c(0,0.30)) +
+  #scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Stripe Users Ft-MAU") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+
+ggplot(spaces, aes(y=perc_sp_mau,x=as.factor(ft_cohort),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("% Stripe Users Retained") + 
+  coord_cartesian(ylim=c(0,1)) +
+  #scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_sp_mau*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Stripe Users Ft-MAU - Retention") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+# how active are spaces users in the first 6 months 
+sp_act <- sp %>% group_by(ft_cohort,ft_cohort_size,num_period_mau) %>%
+  summarise(users = length(user_id)) %>% group_by(ft_cohort,ft_cohort_size) %>%
+  mutate(
+    tot_sp_users = sum(users),
+    perc_users = round(users/tot_sp_users,2)
+  )
+
+ggplot(sp_act, aes(y=perc_users,x=as.factor(num_period_mau),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Total Number of MAU Periods (first 6 months)") + ylab("% Stripe Users") + 
+  coord_cartesian(ylim=c(0,1)) +
+  scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("Stripe Users Ft-MAU - Retention") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+
+
+
+```
+```{r}
+
+# are stripe users a good indicator of future retention?
+
+sp <- filter(df, n_act_10_user > 0)
+
+spaces <- sp %>% group_by(ft_cohort,ft_cohort_size) %>% 
+  summarise(
+    sp_users = length(user_id),
+    sp_mau_now = sum(mau_now)
+  ) %>% group_by(ft_cohort,ft_cohort_size) %>%
+  mutate(
+    perc_users = round(sp_users/ft_cohort_size,2),
+    perc_sp_mau = round(sp_mau_now/sp_users,2)
+  )
+
+ggplot(spaces, aes(y=perc_users,x=as.factor(ft_cohort),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("% 10+ txn Users") + 
+  coord_cartesian(ylim=c(0,1)) +
+  #scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("10+ txn Users- first 35 days of Ft-MAU") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+
+ggplot(spaces, aes(y=perc_sp_mau,x=as.factor(ft_cohort),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("% 10+ txn Users Retained") + 
+  coord_cartesian(ylim=c(0,1)) +
+  #scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_sp_mau*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("10+ txn Users- first 35 days of Ft-MAU - Retention") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+# how active are spaces users in the first 6 months 
+sp_act <- sp %>% group_by(ft_cohort,ft_cohort_size,num_period_mau) %>%
+  summarise(users = length(user_id)) %>% group_by(ft_cohort,ft_cohort_size) %>%
+  mutate(
+    tot_sp_users = sum(users),
+    perc_users = round(users/tot_sp_users,2)
+  )
+
+ggplot(sp_act, aes(y=perc_users,x=as.factor(num_period_mau),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Total Number of MAU Periods (first 6 months)") + ylab("% 10+ txn Users") + 
+  coord_cartesian(ylim=c(0,1)) +
+  scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("10+ txn Users- first 35 days of Ft-MAU - Retention") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+
+```
+
+```{r}
+
+# are users that top-up 500+ euros in first 3 consecutive months a good indicator of future retention?
+
+sp <- filter(df, dep_123_500 > 0)
+
+spaces <- sp %>% group_by(ft_cohort,ft_cohort_size,dep_123_500) %>% 
+  summarise(
+    sp_users = length(user_id),
+    sp_mau_now = sum(mau_now)
+  ) %>% group_by(ft_cohort,ft_cohort_size) %>%
+  mutate(
+    perc_users = round(sp_users/ft_cohort_size,2),
+    perc_sp_mau = round(sp_mau_now/sp_users,2)
+  )
+
+ggplot(spaces, aes(y=perc_users,x=as.factor(ft_cohort),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("% User Top-Up 500+ - 3 Consecutive Months") + 
+  coord_cartesian(ylim=c(0,0.30)) +
+  #scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("User Top-Up 500+ - 3 Consecutive Months") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+
+ggplot(spaces, aes(y=perc_sp_mau,x=as.factor(ft_cohort),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("% User Top-Up 500+ - 3 Consecutive Months") + 
+  coord_cartesian(ylim=c(0,1)) +
+  #scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_sp_mau*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("User Top-Up 500+ - 3 Consecutive Months - Retention") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+# how active are spaces users in the first 6 months 
+sp_act <- sp %>% group_by(ft_cohort,ft_cohort_size,num_period_mau) %>%
+  summarise(users = length(user_id)) %>% group_by(ft_cohort,ft_cohort_size) %>%
+  mutate(
+    tot_sp_users = sum(users),
+    perc_users = round(users/tot_sp_users,2)
+  )
+
+ggplot(sp_act, aes(y=perc_users,x=as.factor(num_period_mau),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Total Number of MAU Periods (first 6 months)") + ylab("% User Top-Up 500+ - 3 Consecutive Months") + 
+  coord_cartesian(ylim=c(0,1)) +
+  scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("User Top-Up 500+ - 3 Consecutive Months - Financial Engagement 6 months") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+
+# are users that top-up 500+ euros in first 3 consecutive months a good indicator of future retention?
+
+sp <- filter(df, n_act10_123 > 0)
+
+spaces <- sp %>% group_by(ft_cohort,ft_cohort_size,n_act10_123) %>% 
+  summarise(
+    sp_users = length(user_id),
+    sp_mau_now = sum(mau_now)
+  ) %>% group_by(ft_cohort,ft_cohort_size) %>%
+  mutate(
+    perc_users = round(sp_users/ft_cohort_size,2),
+    perc_sp_mau = round(sp_mau_now/sp_users,2)
+  )
+
+ggplot(spaces, aes(y=perc_users,x=as.factor(ft_cohort),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("% User 10+ Txns - 3 Consecutive Months") + 
+  coord_cartesian(ylim=c(0,0.30)) +
+  #scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("User 10+ Txns - 3 Consecutive Months") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+
+ggplot(spaces, aes(y=perc_sp_mau,x=as.factor(ft_cohort),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("% User 10+ Txns - 3 Consecutive Months") + 
+  coord_cartesian(ylim=c(0,1)) +
+  #scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_sp_mau*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("User User 10+ Txns - 3 Consecutive Months - Retention") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+# how active are spaces users in the first 6 months 
+sp_act <- sp %>% group_by(ft_cohort,ft_cohort_size,num_period_mau) %>%
+  summarise(users = length(user_id)) %>% group_by(ft_cohort,ft_cohort_size) %>%
+  mutate(
+    tot_sp_users = sum(users),
+    perc_users = round(users/tot_sp_users,2)
+  )
+
+ggplot(sp_act, aes(y=perc_users,x=as.factor(num_period_mau),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Total Number of MAU Periods (first 6 months)") + ylab("% User 10+ Txns - 3 Consecutive Months") + 
+  coord_cartesian(ylim=c(0,1)) +
+  scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("User 10+ Txns - 3 Consecutive Months - Financial Engagement 6 months") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+
+```
+
+```{r}
+# financial engagement of users that dep < 500 euros
+sp <- filter(df, dep_123_500 == 0)
+
+spaces <- sp %>% group_by(ft_cohort,ft_cohort_size) %>% 
+  summarise(
+    sp_users = length(user_id),
+    sp_mau_now = sum(mau_now)
+  ) %>% group_by(ft_cohort,ft_cohort_size) %>%
+  mutate(
+    perc_users = round(sp_users/ft_cohort_size,2),
+    perc_sp_mau = round(sp_mau_now/sp_users,2)
+  )
+
+ggplot(sp_act, aes(y=perc_users,x=as.factor(num_period_mau),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Total Number of MAU Periods (first 6 months)") + ylab("% User Top-Up < 500 - 3 Consecutive Months") + 
+  coord_cartesian(ylim=c(0,1)) +
+  scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("User Top-Up < 500 - 3 Consecutive Months - Financial Engagement 6 months") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+```
+
+```{r}
+
+# are users that top-up 700+ euros in first 3 consecutive months a good indicator of future retention?
+
+sp <- filter(df, dep_123_700 > 0)
+
+spaces <- sp %>% group_by(ft_cohort,ft_cohort_size) %>% 
+  summarise(
+    sp_users = length(user_id),
+    sp_mau_now = sum(mau_now)
+  ) %>% group_by(ft_cohort,ft_cohort_size) %>%
+  mutate(
+    perc_users = round(sp_users/ft_cohort_size,2),
+    perc_sp_mau = round(sp_mau_now/sp_users,2)
+  )
+
+ggplot(spaces, aes(y=perc_users,x=as.factor(ft_cohort),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("% User Top-Up 700+ - 3 Consecutive Months") + 
+  coord_cartesian(ylim=c(0,0.30)) +
+  #scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("User Top-Up 700+ - 3 Consecutive Months") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+
+ggplot(spaces, aes(y=perc_sp_mau,x=as.factor(ft_cohort),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Consecutive MAU Periods") + ylab("% User Top-Up 700+ - 3 Consecutive Months") + 
+  coord_cartesian(ylim=c(0,1)) +
+  #scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_sp_mau*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("User Top-Up 700+ - 3 Consecutive Months - Retention") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+# how active are spaces users in the first 6 months 
+sp_act <- sp %>% group_by(ft_cohort,ft_cohort_size,num_period_mau) %>%
+  summarise(users = length(user_id)) %>% group_by(ft_cohort,ft_cohort_size) %>%
+  mutate(
+    tot_sp_users = sum(users),
+    perc_users = round(users/tot_sp_users,2)
+  )
+
+ggplot(sp_act, aes(y=perc_users,x=as.factor(num_period_mau),fill=as.factor(ft_cohort),group=ft_cohort)) +
+  geom_bar(position="dodge", stat="identity") + xlab("Total Number of MAU Periods (first 6 months)") + ylab("% User Top-Up 700+ - 3 Consecutive Months") + 
+  coord_cartesian(ylim=c(0,1)) +
+  scale_y_continuous(labels=scales::percent) +
+  geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ggtitle("User Top-Up 700+ - 3 Consecutive Months - Financial Engagement 6 months") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+  ) + scale_fill_manual(values=color,
+                        name="Ft-MAU Cohort") #+ geom_text(aes(label = percent, y = percent + 0.40), position = position_dodge(0.9))
+
+```
+
+```{r}
+
+sp <- filter(df, amt_cash26_35 > 0)
+sp <- filter(df,amt_mobile_35 > 0 )
+sp <- filter(df,amt_eccom_35 > 0 )
+sp <- filter(df,amt_dt_35 > 0)
+sp <- filter(df,amt_stripe_35 > 0)
+sp <- filter(df,amt_atm_35 > 0)
+sp <- filter(df,amt_tub_35 > 0)
+
+spaces <- sp %>% group_by(ft_cohort,ft_cohort_size) %>% 
+  summarise(
+    sp_users = length(user_id),
+    sp_mau_now = sum(mau_now)
+  ) %>% group_by(ft_cohort,ft_cohort_size) %>%
+  mutate(
+    perc_users = round(sp_users/ft_cohort_size,2),
+    perc_sp_mau = round(sp_mau_now/sp_users,2)
+  )
+
+```
+
+```{r}
+
+cl <- read.csv(')
+
+
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

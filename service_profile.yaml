@@ -1,0 +1,7 @@
+service:
+  name_codename: boston
+
+docker:
+  containerized: true
+  base_container: python3.9
+  build_script: docker_build.sh

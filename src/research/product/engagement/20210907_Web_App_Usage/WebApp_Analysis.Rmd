@@ -1,0 +1,839 @@
+---
+title: "Web App User Engagement Analysis"
+author: "Wendy Vu"
+region: "EU"
+date: "2021-08-10"
+summary: "In this analysis, we evaluate whether users are interested in using the web app and explore how web app usage relates to financial engagement and retention. The results suggests that users who engage with the Web App are highly engaged users who tend to stick around."
+tags: "engage, Web App, financial engagement, retention, usage, engagement"
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+  pdf_document:
+    toc: yes
+link: "https://docs.google.com/presentation/d/1MCVQ-Q6O4PDTrUVXGCqbTImf21MQkOstgD6YS4No-_A/edit?usp=sharing"
+  
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+setwd('/Users/wendyvu/Documents/WebApp_Analysis/')
+library(n26)
+library(data.table)
+
+
+login <- queryDB("
+select date_trunc('months',event_dt)::date as months, 
+	feature,
+	count(distinct user_created) as users
+from dbt.stg_main_events
+where feature in ('webapp_login','app_login')
+group by 1,2
+order by 1,2;
+                     
+" , "redshift-eu")
+
+web_upgrades <- queryDB("
+select 
+	date_trunc('months',collector_date) as month,
+	count(distinct user_created) as users,
+	count(distinct case when platform = -1 then user_created end) as web_users,
+	round(web_users::float/users,2) as perc_web_upgrade_click
+from dbt.snowplow  
+where collector_date >= '2021-01-01' and se_action = 'membership.upgrade-flow.click'
+group by 1
+order by 1
+                        ","redshift-eu")
+
+maus <- queryDB("
+with mau as (
+select
+	user_created,
+	date_trunc('months',act_date)::date as month,
+	sum(n_act_txns) as maus_txns,
+	sum(n_logins) as maus_log
+from dbt.zrh_act_day zad 
+where act_date >= '2019-01-01'::date
+group by 1,2
+), web as (
+select user_created,
+	date_trunc('months',event_dt)::date as month,
+	count(distinct event_dt) as n_days_weblogin
+from dbt.stg_main_events
+where feature in ('webapp_login')
+group by 1,2
+)
+select m.month,
+	count(distinct case when maus_txns > 0 then m.user_created end) as maus_txn,
+	count(distinct case when maus_log > 0 then m.user_created end) as maus_log,
+	count(distinct case when n_days_weblogin is not null then m.user_created end) as web_users
+from mau m  
+left join web w 
+	on m.user_created = w.user_created 
+	and m.month = w.month
+group by 1
+order by 1;
+                
+                ","redshift-eu")
+
+txn_act <- queryDB("
+with mau as (
+select
+	user_created,
+	date_trunc('months',act_date)::date as month,
+	sum(n_act_txns) as maus_txns,
+	sum(n_logins) as maus_log
+from dbt.zrh_act_day zad 
+where act_date >= '2019-01-01'::date
+group by 1,2
+), web as (
+select user_created,
+	date_trunc('months',event_dt)::date as month,
+	count(distinct event_dt) as n_days_weblogin
+from dbt.stg_main_events
+where feature in ('webapp_login')
+group by 1,2
+), mau_web as (
+select m.*,
+	case when n_days_weblogin is null then 'mobile_user' else 'web_user' end as user_type
+from mau m 
+left join web w
+	on m.user_created = w.user_created 
+	and m.month = w.month
+)
+select month,
+	user_type,
+	median(maus_txns) as med_act_txns
+from mau_web 
+group by 1,2
+order by 1,2;
+                   ","redshift-eu")
+
+txn10 <- queryDB("
+with mau as (
+select
+	user_created,
+	date_trunc('months',act_date)::date as month,
+	sum(n_act_txns) as maus_txns,
+	sum(n_logins) as maus_log
+from dbt.zrh_act_day zad 
+where act_date >= '2019-01-01'::date
+group by 1,2
+), web as (
+select user_created,
+	date_trunc('months',event_dt)::date as month,
+	count(distinct event_dt) as n_days_weblogin
+from dbt.stg_main_events
+where feature in ('webapp_login')
+group by 1,2
+), mau_web as (
+select m.*,
+	case when n_days_weblogin is null then 'mobile_user' else 'web_user' end as user_type,
+	case when m.maus_txns >= 10 then 'txn10' else 'low_act' end as act_type
+from (select * from mau where maus_txns > 0) m 
+left join web w
+	on m.user_created = w.user_created 
+	and m.month = w.month
+)
+select month,
+	user_type,
+	act_type,
+	count(distinct user_created) as users,
+	sum(users) over (partition by month, user_type) as tot_users,
+	round(users::float/tot_users,2) as perc_users
+from mau_web 
+group by 1,2,3
+order by 1,2,3;
+                 
+                 ","redshift-eu")
+
+page_view <- queryDB("
+drop table if exists page_view;
+create temp table page_view as 
+select * 
+from dbt.snowplow
+where platform = -1
+	and collector_date >= '2021-07-01'
+	and se_action = 'PAGE_VIEW'; 
+	
+select 
+	se_label,
+	count(distinct user_created) as users
+from page_view 
+group by 1
+order by 2 desc;
+                     
+                     ","redshift-eu")
+
+web_app_freq_usage <- queryDB("
+with users as (
+select
+	z.user_created,
+	kyc_cohort,
+	cohort_size,
+	z.product_id,
+	z.is_premium,
+	case when ceil(datediff('days',z.kyc_first_completed::date, event_dt::date)::float/35) = 0 then 1 else ceil(datediff('days',z.kyc_first_completed::date, event_dt::date)::float/35) end as month,
+	feature, 
+	count(distinct event_dt) as n_days,
+	count( case when feature = 'webapp_login' then month end ) over (partition by z.user_created) as n_months
+from (select *,date_trunc('months',kyc_first_completed) as kyc_cohort,
+		count(user_id) over (partition by kyc_cohort) as cohort_size
+		from dbt.zrh_users where kyc_first_completed::date between '2020-11-01'::date and '2021-01-30'::date and ft_mau is not null
+		) z 
+left join dbt.stg_main_events e 
+	on e.user_created = z.user_created
+	and feature in ('webapp_login','app_login')
+	and event_dt between z.kyc_first_completed::date and z.kyc_first_completed::date + interval '210 days'
+group by 1,2,3,4,5,6,7
+order by 1,month,feature
+)
+select kyc_cohort,user_created, n_months, sum(n_days) as n_days 
+from users 
+where feature = 'webapp_login' group by 1,2,3
+limit 500;
+                              
+                              ","redshift-eu")
+
+web_app_usage_6months <- queryDB("
+with users as (
+select
+	z.user_created,
+	kyc_cohort,
+	cohort_size,
+	z.product_id,
+	z.is_premium,
+	case when ceil(datediff('days',z.kyc_first_completed::date, event_dt::date)::float/35) = 0 then 1 else ceil(datediff('days',z.kyc_first_completed::date, event_dt::date)::float/35) end as month,
+	feature, 
+	count(distinct event_dt) as n_days,
+	count( case when feature = 'webapp_login' then month end ) over (partition by z.user_created) as n_months
+from (select *,date_trunc('months',kyc_first_completed) as kyc_cohort,
+		count(user_id) over (partition by kyc_cohort) as cohort_size
+		from dbt.zrh_users where kyc_first_completed::date between '2020-11-01'::date and '2021-01-30'::date and ft_mau is not null
+		) z 
+left join dbt.stg_main_events e 
+	on e.user_created = z.user_created
+	and feature in ('webapp_login') --,'app_login')
+	and event_dt between z.kyc_first_completed::date and z.kyc_first_completed::date + interval '210 days'
+group by 1,2,3,4,5,6,7
+order by 1,month,feature
+)
+select 
+	kyc_cohort::date,
+	cohort_size,
+	feature,
+	month,
+	count(distinct user_created) as users,
+	round(users::float/cohort_size,2)
+from users 
+where feature is not null
+group by 1,2,3,4
+order by 1,2,3,4;
+                                 
+                                 ","redshift-eu")
+
+
+retention <- queryDB("
+--among users that 
+with users as ( -- identify users that logged in 1+ times within first 6 months
+select z.user_created,
+	z.kyc_cohort,
+	z.kyc_first_completed,
+	z.cohort_size,
+	e.feature,
+	case when ceil(datediff('days',kyc_first_completed::date, e.event_dt::date)::float/35) = 0 then 1 else ceil(datediff('days',kyc_first_completed::date, e.event_dt::date)::float/35) end as period,
+	--coalesce(feature,'app_login') as user_type,
+	count(period) over (partition by kyc_cohort,z.user_created) as tot_period_login
+from (select *,date_trunc('months',kyc_first_completed) as kyc_cohort,
+		count(user_id) over (partition by kyc_cohort) as cohort_size
+		from dbt.zrh_users 
+		where kyc_first_completed::date between '2020-11-01'::date and '2021-01-30'::date 
+		and ft_mau is not null
+		) z 
+left join dbt.stg_main_events e 
+	on e.user_created = z.user_created 
+	and feature = 'webapp_login'
+	and e.event_dt between z.kyc_first_completed::date and z.kyc_first_completed + interval '210 days'
+group by 1,2,3,4,5,6
+), users_ as ( -- categorize webapp users that logged in only on period vs more than one monthly period as well as app users
+select user_created,
+	kyc_cohort,
+	kyc_first_completed,
+	cohort_size,
+	COALESCE(feature, 'app_login') as user_type,
+	case when tot_period_login = 1 then 'once' 
+		when tot_period_login > 1 then 'more'
+		else null end as n_period_weblogin,
+	count(user_created) over (partition by kyc_cohort,user_type,n_period_weblogin) as tot_users
+from users 
+group by 1,2,3,4,5,6
+), activity as (
+select 
+	u.*,
+	case when ceil(datediff('days',kyc_first_completed::date, zad.act_date::date)::float/35) = 0 then 1 else ceil(datediff('days',kyc_first_completed::date, act_date::date)::float/35) end as period
+from users_ u 
+join dbt.zrh_act_day zad
+	on u.user_created = zad.user_created 
+	and zad.act_date::date between kyc_first_completed::date and kyc_first_completed + interval '210 days'
+group by 1,2,3,4,5,6,7,8
+)
+select 
+	kyc_cohort::date,
+	coalesce(user_type || n_period_weblogin,'app_login') as user_types,
+	tot_users,
+	period,
+	count(distinct user_created) as users,
+	round(users::float/tot_users,2) as perc_ret
+from activity 
+group by 1,2,3,4
+order by 1,2,3,4;
+                     
+                     ","redshift-eu")
+
+upgrades <- queryDB("
+create temp table events as 
+select 
+	*
+from dbt.snowplow 
+where collector_date >= current_date - interval '7 days' 
+	and se_action = 'membership.upgrade-flow.click'
+;
+	
+with upgrade as (
+select e.user_created,
+	platform,
+	collector_date as event_ts,
+	enter_reason,
+	subscription_valid_from
+from (select user_created, collector_date::date,
+		case when platform = -1 then 'web_app' else 'mobile_app' end as platform
+		from events 
+		group by 1,2,3) as e 
+left join (select * from dbt.zrh_user_product where enter_reason = 'UPGRADED') as zup 
+	on e.user_created = zup.user_created 
+	and zup.subscription_valid_from::date = e.collector_date::date 
+)
+select platform,
+	count(distinct user_created) as tot_users_see_ic,
+	count(distinct case when enter_reason is not null then user_created end) as users,
+	round(users::float/tot_users_see_ic, 2) as perc_users
+from upgrade 
+group by 1
+limit 500;
+                    
+                    ","redshift-eu")
+
+save(login,
+     web_upgrades,
+     maus,
+     txn_act,
+     txn10,
+     page_view,
+     web_app_freq_usage,
+     web_app_usage_6months,
+     retention,
+     upgrades,
+     file = file.path("WebApp_Analysis.RData"))
+
+
+
+```
+```{r}
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+
+library(ggplot2)
+library(RColorBrewer)
+display.brewer.all()
+
+color <- brewer.pal(12,"Set3")
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/WebApp_Analysis/WebApp_Analysis.RData"))
+lg <- as.data.frame(login)
+up <- as.data.frame(web_upgrades)
+mau <- as.data.frame(maus)
+ta <- as.data.frame(txn_act)
+t10 <- as.data.frame(txn10)
+pv <- as.data.frame(page_view)
+frq <- as.data.frame(web_app_freq_usage)
+wu <- as.data.frame(web_app_usage_6months)
+ret <- as.data.frame(retention)
+upg <- as.data.frame(upgrades)
+
+#df$user_certified <- as.Date(df$user_certified)
+# dim(sd)
+# str(sd)
+# head(sd)
+# 
+# sd %>% summarise_all(n_distinct)
+
+```
+```{r}
+
+ggplot(upg)  + 
+    geom_bar(aes(x=platform, y=tot_users_see_ic),stat="identity", fill="tan1", colour="sienna3")+
+    geom_line(aes(x=platform, y=perc_users),stat="identity", group = 1) +
+    geom_text(aes(label=tot_users_see_ic, x=Year, y=Rate*max(df$Response)), colour="black")+
+    geom_text(aes(label=Response, x=Year, y=0.95*Response), colour="black")+
+    scale_y_continuous(sec.axis = perc_users))
+
+
+```
+
+
+
+```{r}
+#user retention
+
+ggplot(ret, 
+       aes(x=as.factor(period), 
+           y = perc_ret,
+           group=as.factor(kyc_cohort),
+           color=as.factor(kyc_cohort)
+           )
+       ) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  geom_text(aes(label = round(perc_ret*100), group = kyc_cohort), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users Retained") + xlab("No. Months MAU - first 6 months of KYCc") +
+  ggtitle(" ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 14,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  facet_grid(. ~ user_types, #scales = "free"
+             labeller = labeller(user_types = names(c("Mobile App","Web App-2+ Months","Web App-1 Month")))) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "KYCc Cohort Month", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+```
+
+```{r}
+
+users <- unique(ret[,colnames(ret) %in% c("kyc_cohort","user_types","tot_users")]) %>% group_by(kyc_cohort) %>%
+  mutate(
+    cohort_size = sum(tot_users),
+    perc = round(tot_users/cohort_size,2)
+  )
+
+ggplot(users, 
+       aes(x=as.factor(kyc_cohort), 
+           y = perc,
+           group = as.factor(user_types),
+           fill=as.factor(user_types),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  geom_text(aes(label = round(perc*100), group = user_types), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% KYCc Users - 1+ txns") + xlab("KYCc Cohort Month") +
+  ggtitle("Frequency of User Types") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c(#"#48AC98", "#E5C3C7","#CB7C7A", 
+                             "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "User Type", 
+                    labels = c("Mobile App Users","Web App User-2+ month login","Web App User - 1month login")
+                    )
+
+
+```
+
+
+```{r}
+# when do users tend to log into the app within the first 6 months of kycc
+
+ggplot(wu, 
+       aes(x=as.factor(month), 
+           y = round,
+           group = as.factor(kyc_cohort),
+           fill=as.factor(kyc_cohort),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% KYCc Users - 1+ txns") + xlab("Monthly 35 days periods since KYCc") +
+  ggtitle("When do users login to Web App withing first 6 months of KYCc") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "KYCc Cohort Months", 
+                    #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+```
+
+
+```{r}
+# CDF - number of months users log in to web app within 6 months of kycc
+
+freq <- frq %>% group_by(kyc_cohort,n_months) %>% 
+  summarise(
+    users = length(user_created)
+  ) %>% group_by(kyc_cohort) %>% 
+  mutate(
+    tot_users = sum(users),
+    perc = round(users/tot_users,2)
+  )
+
+ggplot(freq, 
+       aes(x=as.factor(n_months), 
+           y = perc,
+           group=as.factor(kyc_cohort),
+           color=as.factor(kyc_cohort)
+           )
+       ) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  geom_text(aes(label = round(perc*100), group = kyc_cohort), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users") + xlab("No. Months 1+ WebApp Login - within first 6 months of KYCc") +
+  ggtitle(" ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=12,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #facet_grid(features ~ .,scales = "free") +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "KYCc Cohort Month", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+```
+```{r}
+
+ggplot(pv[1:25,],
+       aes(x=reorder(se_label, -users), y=round(users/1000))) + 
+  geom_bar(position="dodge",stat="identity",fill="#8DD3C7") + geom_text(aes(label=round(users/1000)), position=position_dodge(width=0.9), vjust=0) + 
+  ylab("No. Web Users * 1000") + xlab("Web Page Type Viewed") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=90
+                           ),
+    axis.text.x=element_text(size=11,face="bold",angle=45
+                             ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  #scale_y_continuous(labels=scales::percent_format(1L)) +
+  #facet_grid(. ~ cluster_new, scales = 'free_y') +
+  #facet_grid(act_cat ~ ., scales = "free_y") + 
+  scale_fill_manual(values=color,
+                    #name = "Cluster Activity Group", 
+                    #labels = c("High Activity","Low Activity")
+                    )
+
+
+
+
+```
+
+
+```{r}
+
+
+ggplot(filter(t10,act_type=='txn10'), 
+       aes(x=as.factor(month), 
+           y = perc_users,
+           group=as.factor(user_type),
+           color=as.factor(user_type)
+           )
+       ) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  geom_text(aes(label = round(perc_users*100), group = user_type), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% MAU's 10+ Txns") + xlab("Months") +
+  ggtitle(" ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=12,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #facet_grid(features ~ .,scales = "free") +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Type", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+ggplot(ta, 
+       aes(x=as.factor(month), 
+           y = med_act_txns,
+           group=as.factor(user_type),
+           color=as.factor(user_type)
+           )
+       ) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  geom_text(aes(label = round(med_act_txns), group = user_type), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Median No. Txns") + xlab("Months") +
+  ggtitle(" ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=12,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #facet_grid(features ~ .,scales = "free") +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7",
+                                "#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Type", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+```
+
+```{r}
+
+lg <- lg %>% group_by(months) %>% 
+  mutate(tot_users = sum(users),
+         perc = round(users/tot_users,2))
+
+ggplot(filter(lg,feature == 'webapp_login'),
+       aes(x=as.factor(months), y=perc)) + 
+  geom_bar(stat="identity",fill="#8DD3C7") + geom_text(aes(label=round(perc*100,1)), position=position_dodge(width=0.9), vjust=0) + 
+  ylab("% Web Users") + xlab("Month") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",angle=45
+                           ),
+    axis.text.x=element_text(size=14,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent_format(1L)) +
+  #facet_grid(. ~ cluster_new, scales = 'free_y') +
+  #facet_grid(act_cat ~ ., scales = "free_y") + 
+  scale_fill_manual(values=color,
+                    #name = "Cluster Activity Group", 
+                    #labels = c("High Activity","Low Activity")
+                    )
+
+
+ggplot(up,
+       aes(x=as.factor(month), y=perc_web_upgrade_click)) + 
+  geom_bar(stat="identity",fill=color[3]) + geom_text(aes(label=round(perc_web_upgrade_click*100,1)), position=position_dodge(width=0.9), vjust=0) + 
+  ylab("% Users Click on Premium Upgrade") + xlab("Month") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",angle=45
+                           ),
+    axis.text.x=element_text(size=14,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent_format(1L)) +
+  #facet_grid(. ~ cluster_new, scales = 'free_y') +
+  #facet_grid(act_cat ~ ., scales = "free_y") + 
+  scale_fill_manual(values=color[2],
+                    #name = "Cluster Activity Group", 
+                    #labels = c("High Activity","Low Activity")
+                    )
+
+```
+
+```{r}
+
+freq2 <- df %>% group_by(kycc_cohort,cluster_12) %>%
+  summarise(users = length(user_id)) %>% group_by(kycc_cohort) %>%
+  mutate(tot_user = sum(users),
+         perc_user = round(users/tot_user,2))
+
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

@@ -1,0 +1,328 @@
+---
+title: "Quick Actions AB testing: Does improving visibility and awareness of payment methods increase % MAU?"
+author: "Wendy Vu"
+region: "EU"
+date: "2020-08-14"
+summary: "Quick Actions was shown to only ~10% of Test users in the first two weeks of the experiment. In the following last two weeks of the experiment, the test group was increased to 20% and 50% of users. The control group did not see the Quick Actions. Implemented a Two-way Proportion Z-test to test for significant differences between Test vs Control group. These results are based on raw counts of the number of users that converted for test and control group. All 4 experimental cohort weeks show significant differences, *P value < 0.05. Quick Actions on feed positively impacted the MAUs with a 3-4pp conversion increase in test vs control. The quick actions however only briefly impacted the usage of Statistics and Scheduled Payments, and as the novelty wore off, we saw the performance declining. Even after the experiment ended, more than ~70% of users completed a transaction through Quick Actions in favor of Action Tab."
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+  pdf_document:
+    toc: yes
+link: "https://docs.google.com/presentation/d/1uU6UOrnm7ap_JpYQMLRGidsTtCzQnqFqy-ZnJcrF51Y/edit?usp=sharing"
+tags: "enable, ab, test, quick actions, transactions, feed, mau"
+  
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+library('ggplot2')
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/quickactions_ABtest_20200814.RData"))
+tx <- as.data.frame(txns)
+mau <- as.data.frame(mau)
+et <- as.data.frame(entry)
+st <- as.data.frame(stats)
+et2 <- as.data.frame(entry_2)
+dur_sepa <- as.data.frame(duration)
+
+#df$user_certified <- as.Date(df$user_certified)
+dim(tx)
+str(tx)
+head(tx)
+
+tx %>% summarise_all(n_distinct)
+
+```
+
+```{r}
+
+# AB test significance 
+
+mau$week <- as.Date(mau$week)
+exp <- filter(mau, week <= "2020-07-20")
+dates <- unique(exp$week)
+
+for (i in dates) {
+  test = filter(exp,week == i)
+  print(unique(test$week))
+  print(as.matrix(test[,3:4]))
+  results = prop.test(as.matrix(test[,3:4]))
+  print(results)
+}
+
+```
+
+```{r}
+# Did the quick actions tab increase the number of txns in the test group?
+
+tx$cohort_week <- as.Date(tx$cohort_week)
+
+percent_piv <- as.data.frame( 
+  tx %>% 
+    tidyr::pivot_longer(
+      cols = c("ft_users","cash26dep_users","tub_users","stripe_users","sepa_users","dd_users","all_txn_users"), # column name starts with string
+      names_to = "txn_type", # new column name of column names after pivot
+      values_to = "percent", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+ggplot(percent_piv, 
+       aes(x=as.factor(cohort_week), 
+           y = percent,
+           fill=as.factor(exp_group),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(aes(label=round(percent*100,5)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ylab("Percent") + xlab("Experimental Cohort Week") +
+  ggtitle("% Txns split by Test and Control groups and Cohort Week")+
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(txn_type ~ ., scales = "free_y") +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    #name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+# Did the quick actions tab result in an increase of %MAU?
+mau$percent <- round(mau$mau/mau$total_users,2)
+
+ggplot(filter(mau, week <= '2020-07-20'), 
+       aes(x=as.factor(week), 
+           y = percent,
+           fill=exp_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(aes(label=round(percent*100,5)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ylab("Percent Users Complete 1+ Txn (FT/Stripe/DD/Sepa/Tub") + xlab("Experimental Cohort Week") +
+  ggtitle("% MAU split by Test and Control groups and Cohort Week")+
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 20,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(txn_type ~ ., scales = "free_y") +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    #name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+# Did users that completed a transaction more likely to go through the quick actions tab?
+ggplot(et, 
+       aes(x=as.factor(cohort_week), 
+           y = percent_users,
+           fill=entry,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(aes(label=round(percent*100,5)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ylab("Percent ALL Completed Transactions (FT/Cash26/Sepa/DD/DT)") + xlab("Experimental Cohort Week") +
+  ggtitle("% Users that completed FT/Cash26/Sepa/DT/DD split by entry Point (FEED/Actions Tab)")+
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(txn_type ~ ., scales = "free_y") +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    #name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+# did users click into statistics more often in the test group?
+
+# Did the quick actions tab increase the number of txns in the test group?
+
+st$cohort_week <- as.Date(st$cohort_week)
+
+percent_piv <- as.data.frame( 
+  st %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("percent"), # column name starts with string
+      names_to = "event_type", # new column name of column names after pivot
+      values_to = "percent", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+ggplot(percent_piv, 
+       aes(x=as.factor(cohort_week), 
+           y = percent,
+           fill=exp_group,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(aes(label=round(percent*100,5)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ylab("Percent Users") + xlab("Experimental Cohort Week") +
+  ggtitle("% Users clicking into Statistics/Schedule_Pay split by Test and Control groups and Cohort Week")+
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(~event_type) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    #name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+# How long does it take users to find Quick Actions vs Actions tab
+
+ggplot(dur_sepa, 
+       aes(x=as.factor(week), 
+           y = med_seconds,
+           fill=as.factor(event_type),
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Median Seconds from Login to initiating Sepa Payment") + xlab("Week") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=13,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "Payment Initiation Flow", 
+                    labels = c("Actions Tab Sepa","Quick Actions Sepa")
+                    )
+
+```
+
+```{r}
+
+#Are users continuing use Quick Actions tab instead of the Actions tab? Is there an increase in preference of using Quick Actions instead of Actions Tab? 
+
+ggplot(et2, 
+       aes(x=as.factor(week), 
+           y = percent_users,
+           fill=entry,
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) +
+  #geom_text(aes(label=round(percent*100,5)), position=position_dodge(width=0.9), vjust=-0.25) +
+  ylab("Percent ALL Completed Transactions (FT/Cash26/Sepa/DD/DT)") + xlab("Week") +
+  ggtitle("% Users that completed FT/Cash26/Sepa/DT/DD split by entry Point (FEED/Actions Tab)")+
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(txn_type ~ ., scales = "free_y") +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    #name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+

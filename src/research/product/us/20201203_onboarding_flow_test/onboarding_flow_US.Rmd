@@ -1,0 +1,271 @@
+---
+title: "New Onboarding Flow after KYC completion"
+author: "Dani Mermelstein"
+date: "2020-12-04"
+region: "US"
+link: 
+tags: "ab test, kyc, onboarding, acquire"
+summary: "An AB test inserting a new screen post-KYC completion with onboarding instructions did not lead to improvements in core KPIs for the treatment group, possibly due to a lack of localization for the US"
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyverse)
+library(bayesAB)
+library(ggplot2)
+
+# load the data
+load(paste0("data/onboarding.RData"))
+
+# set outcomes
+bayes <- onboarding
+bayes$card_outcome <- 0
+bayes[!is.na(bayes$card_first_activated)]$card_outcome <- 1
+bayes$mau_outcome <- 0
+bayes[!is.na(bayes$first_time_mau_tstamp)]$mau_outcome <- 1
+bayes$second_outcome <- 0
+bayes[!is.na(bayes$second_deposit)]$second_outcome <- 1
+
+```
+
+Data last updated on `r Sys.Date()`
+
+# Assignments
+
+```{r, echo=FALSE, message=FALSE}
+
+ggplot(onboarding, aes(x=as.Date(assignment_date), fill=variant)) +
+  geom_bar(stat="bin") +
+  labs(title="Users Assigned per Day",
+       x ="Date", 
+       y = "Users")
+
+```
+
+# Analysis Output {.tabset .tabset-fade .tabset-pills}
+
+## Card Activation {.tabset .tabset-fade}
+
+```{r, echo=FALSE, message=FALSE}
+
+AB1 <- bayesTest(bayes[variant=='treatment',]$card_outcome, bayes[variant=='control',]$card_outcome, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+# aggregated stats
+kable(data.frame("Variants"=c("control","treatment"),
+           "Users"=c(length(bayes[variant=='control',]$card_outcome), length(bayes[variant=='treatment',]$card_outcome)),
+           "Outcomes"=c(sum(bayes[variant=='control',]$card_outcome), sum(bayes[variant=='treatment',]$card_outcome)),
+           "Rate"=c(sum(bayes[variant=='control',]$card_outcome)/length(bayes[variant=='control',]$card_outcome), sum(bayes[variant=='treatment',]$card_outcome)/length(bayes[variant=='treatment',]$card_outcome)))) %>%
+  kable_styling(full_width = F)
+
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("treatment","control"))
+
+# likelihood of improvement
+loi <- summary(AB1)$probability
+# confidence interval
+ci <- summary(AB1)$interval$Probability
+
+# determine whether the results are final or if test needs to run longer
+print(ifelse((loi$Probability < 0.1 | loi$Probability > 0.9)&(0 < ci[[1]] | 0 > ci[[2]]), 'Test Complete', 'Keep Test Running'))
+
+```
+
+**90% confidence interval:**
+```{r, echo=FALSE, message=FALSE}
+print(ci)
+```
+
+**Estimated lift:**
+```{r, echo=FALSE, message=FALSE}
+print(percent(mean(c(ci))))
+```
+
+### Outcome Distribution
+```{r, echo=FALSE, message=FALSE}
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+```
+
+### Likelihood of Improvement
+```{r, echo=FALSE, message=FALSE}
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+
+```
+
+## Deposits {.tabset .tabset-fade}
+
+### FT_MAU {.tabset .tabset-fade .tabset-pills}
+
+```{r, echo=FALSE, message=FALSE}
+
+AB1 <- bayesTest(bayes[variant=='treatment',]$mau_outcome, bayes[variant=='control',]$mau_outcome, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("treatment","control"))
+
+# likelihood of improvement
+loi <- summary(AB1)$probability
+# confidence interval
+ci <- summary(AB1)$interval$Probability
+
+# determine whether the results are final or if test needs to run longer
+print(ifelse((loi$Probability < 0.1 | loi$Probability > 0.9)&(0 < ci[[1]] | 0 > ci[[2]]), 'Test Complete', 'Keep Test Running'))
+
+# aggregated stats
+kable(data.frame("Variants"=c("control","treatment"),
+           "Users"=c(length(bayes[variant=='control',]$mau_outcome), length(bayes[variant=='treatment',]$mau_outcome)),
+           "Outcomes"=c(sum(bayes[variant=='control',]$mau_outcome), sum(bayes[variant=='treatment',]$mau_outcome)),
+           "Rate"=c(sum(bayes[variant=='control',]$mau_outcome)/length(bayes[variant=='control',]$mau_outcome), sum(bayes[variant=='treatment',]$mau_outcome)/length(bayes[variant=='treatment',]$mau_outcome)))) %>%
+  kable_styling(full_width = F)
+
+```
+
+**90% confidence interval:**
+```{r, echo=FALSE, message=FALSE}
+print(ci)
+```
+
+**Estimated lift:**
+```{r, echo=FALSE, message=FALSE}
+print(percent(mean(c(ci))))
+```
+
+
+#### Outcome Distribution
+```{r, echo=FALSE, message=FALSE}
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+```
+
+#### Likelihood of Improvement
+```{r, echo=FALSE, message=FALSE}
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+
+```
+
+### FT_MAU Amount {.tabset .tabset-fade}
+
+
+```{r, echo=FALSE, message=FALSE}
+remove_outliers <- function(x, na.rm = TRUE, ...) {
+  qnt <- quantile(x, probs=c(0, .98), na.rm = na.rm, ...)
+  H <- 1.5 * IQR(x, na.rm = na.rm)
+  y <- x
+  y[x < (qnt[1] - H)] <- 0
+  y[x > (qnt[2] + H)] <- 0
+  y
+}
+
+control <- remove_outliers(as.integer(bayes[which(variant=='control' & !is.na(ft_funding_amount)),]$ft_funding_amount))
+treatment <- remove_outliers(as.integer(bayes[which(variant=='treatment' & !is.na(ft_funding_amount)),]$ft_funding_amount))
+
+amount_res <- wilcox.test(control, treatment, alternative=c("two.sided"), conf.level=.9, correct=TRUE, paired = FALSE)
+
+print(ifelse(amount_res$p.value < 0.05, 'Results are significant', 'No difference between variants'))
+```
+
+Average deposit amounts:
+
+ - Control: `r dollar(mean(control))`
+ - Treatment: `r dollar(mean(treatment))`
+
+Median deposit amounts:
+
+ - Control: `r dollar(median(control))`
+ - Treatment: `r dollar(median(treatment))`
+ 
+```{r, echo=FALSE, message=FALSE}
+
+ggplot(bayes, aes(x=ft_funding_amount, fill=variant)) +
+  geom_density(alpha=.65) +
+  xlim(0, 500)
+
+
+```
+
+### Second Deposit {.tabset .tabset-fade .tabset-pills}
+
+```{r, echo=FALSE, message=FALSE}
+
+AB1 <- bayesTest(bayes[variant=='treatment',]$second_outcome, bayes[variant=='control',]$second_outcome, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("treatment","control"))
+
+# likelihood of improvement
+loi <- summary(AB1)$probability
+# confidence interval
+ci <- summary(AB1)$interval$Probability
+
+# determine whether the results are final or if test needs to run longer
+print(ifelse((loi$Probability < 0.1 | loi$Probability > 0.9)&(0 < ci[[1]] | 0 > ci[[2]]), 'Test Complete', 'Keep Test Running'))
+
+# aggregated stats
+kable(data.frame("Variants"=c("control","treatment"),
+           "Users"=c(length(bayes[variant=='control',]$second_outcome), length(bayes[variant=='treatment',]$second_outcome)),
+           "Outcomes"=c(sum(bayes[variant=='control',]$second_outcome), sum(bayes[variant=='treatment',]$second_outcome)),
+           "Rate"=c(sum(bayes[variant=='control',]$second_outcome)/length(bayes[variant=='control',]$second_outcome), sum(bayes[variant=='treatment',]$second_outcome)/length(bayes[variant=='treatment',]$second_outcome)))) %>%
+  kable_styling(full_width = F)
+
+```
+
+**90% confidence interval:**
+```{r, echo=FALSE, message=FALSE}
+print(ci)
+```
+
+**Estimated lift:**
+```{r, echo=FALSE, message=FALSE}
+print(percent(mean(c(ci))))
+```
+
+#### Outcome Distribution
+```{r, echo=FALSE, message=FALSE}
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+```
+
+#### Likelihood of Improvement
+```{r, echo=FALSE, message=FALSE}
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+
+```
+
+### Second Amount {.tabset .tabset-fade}
+
+
+```{r, echo=FALSE, message=FALSE}
+
+control <- remove_outliers(as.integer(bayes[which(variant=='control' & !is.na(second_deposit)),]$second_deposit_amount))
+treatment <- remove_outliers(as.integer(bayes[which(variant=='treatment' & !is.na(second_deposit)),]$second_deposit_amount))
+
+amount_res <- wilcox.test(control, treatment, alternative=c("two.sided"), conf.level=.9, correct=TRUE, paired = FALSE)
+
+print(ifelse(amount_res$p.value < 0.05, 'Results are significant', 'No difference between variants'))
+```
+
+Average deposit amounts:
+
+ - Control: `r dollar(mean(control))`
+ - Treatment: `r dollar(mean(treatment))`
+
+Median deposit amounts:
+
+ - Control: `r dollar(median(control))`
+ - Treatment: `r dollar(median(treatment))`
+ 
+```{r, echo=FALSE, message=FALSE}
+
+ggplot(bayes, aes(x=ft_funding_amount, fill=variant)) +
+  geom_density(alpha=.65) +
+  xlim(0, 500)
+
+
+```

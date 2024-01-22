@@ -1,0 +1,111 @@
+---
+title: "Do Certificate of Deposit (Raisin) users have a different lapse rate"
+author: "Dani Mermelstein"
+date: "2020-09-18"
+region: "EU"
+summary: "This correlational analysis was done as part of the US discovery process for a potential interest-bearing Savings account. The Raisin product in the EU is used by a very small number of users who have to jump through various hoops (much more complex than opening a Savings account). The Raisin users are likely to have a strong self selection bias, and this analysis was simply the best information we could gather at the time. This is important to keep in mind before generalizing these results to the rest of our product/users. Here we look at whether there is a correlational relationship between Raisin usage and lapse rates. Causal impact is only feasible with an A/B test, but we can still gauge a potential relationship between funding behavior and lapse rate. We looked at MAUs who signed up after March 01, 2020 and flagged which ones would go on to open a CD. We then categorized users into the following groups based on whether they lapsed and reactivated within their first 8 weeks."
+link:
+tags: "correlations, certificate of deposit, raisin, CD, MAU, lapse rate"
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(kableExtra)
+library(bayesAB)
+library(ggplot2)
+library(scales)
+
+# load the data
+load(paste0("data/raisin_data.RData"))
+
+# need this up here to use in the Results section
+# flag users who have made an raisin transaction in their first 8 weeks
+mau_raisin$raisin_flag <- ifelse(mau_raisin$raisin_user <= mau_raisin$eight_weeks, 1, 0)
+mau_raisin[is.na(mau_raisin$raisin_flag),]$raisin_flag <- 0
+
+# aggregate 
+raisin_groups <- mau_raisin[,.(cnt=.N), by=.(mau_group,raisin_flag)][order(raisin_flag,mau_group),] 
+raisin_groups <- merge(raisin_groups, raisin_groups[,.(total=sum(cnt)), by=.(raisin_flag)], all.x=TRUE, by="raisin_flag")
+raisin_groups$rate <- raisin_groups$cnt/raisin_groups$total
+
+# calculate prop test just to have
+test_output <- prop.test(as.matrix(raisin_groups[mau_group=='unbroken_mau',c("cnt","total")]))
+
+```
+
+# Context and definitions
+
+This correlational analysis was done as part of the US discovery process for a potential interest-bearing Savings account. The Raisin product in the EU is used by a very small number of users who have to jump through various hoops (much more complex than opening a Savings account). The Raisin users are likely to have a strong self selection bias, and this analysis was simply the best information we could gather at the time. This is important to keep in mind before generalizing these results to the rest of our product/users.
+
+Here we look at whether there is a correlational relationship between Raisin usage and lapse rates. Causal impact is only feasible with an A/B test, but we can still gauge a potential relationship between funding behavior and lapse rate.
+
+We looked at MAUs who signed up after March 01, 2020 and flagged which ones would go on to open a CD. We then categorized users into the following groups based on whether they lapsed and reactivated within their first 8 weeks:
+
+ - **full_lapse**: User became MAU, lapsed, did not reactivate, and ended the 8-week period as a lapsed user
+ - **reactivated**: User became MAU, lapsed, and reactivated. These users may or may not have ended the 8-week period as MAU
+ - **unbroken_mau**: User became MAU and did not lapse in their first 8 weeks
+
+# High-level behavior
+
+It would appear that users who have used Raisin have a lower `full_lapse` rate and a higher `unbroken_mau` rate:
+
+```{r, echo=FALSE}
+
+kable(raisin_groups)%>%
+  kable_styling(full_width = FALSE)
+
+```
+
+# Results
+
+There `r ifelse(test_output$p.value <= 0.05, "does", "does not")` appear to be a meaningful relationship between use of Raisin and whether a user lapses in their first 8 weeks at N26. We have to caution that this analysis does NOT determine a causal relationship, as there could be additional factors driving the output we see here.
+
+# Statistical significance of the relationship  {.tabset .tabset-fade .tabset-pills} 
+
+## Bayesian Stats
+
+NOTE: for this test we needed to make the size of our two groups equal, so the below numbers in the "Users" and "Outcomes" columns are a random sample of the users available for this analysis:
+
+```{r, echo=FALSE}
+
+# set outcome
+bayes_raisin <- mau_raisin
+bayes_raisin$outcome <- ifelse(mau_raisin$mau_group=='unbroken_mau',1,0)
+
+# get outcome vectors
+no_raisin <- as.integer(bayes_raisin[raisin_flag==0,]$outcome)
+yes_raisin <- as.integer(bayes_raisin[raisin_flag==1,]$outcome)
+
+# control for sample size differences
+no_raisin <- sample(no_raisin, size=length(yes_raisin))
+
+AB1 <- bayesTest(yes_raisin, no_raisin, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+kable(data.frame("Variants"=c("no_raisin","yes_raisin"), 
+           "Users"=c(length(no_raisin), length(yes_raisin)), 
+           "Outcomes"=c(sum(no_raisin), sum(yes_raisin)),
+           "Rate"=c(sum(no_raisin)/length(no_raisin), sum(yes_raisin)/length(yes_raisin)))) %>%
+  kable_styling(full_width = F)
+
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("yes_raisin","no_raisin"))
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+
+```
+
+### 90% Confidence Interval:
+
+```{r, echo=FALSE}
+summary(AB1)$interval$Probability
+
+```
+
+### Estimated Lift: 
+`r percent(mean(c(summary(AB1)$interval$Probability)))`

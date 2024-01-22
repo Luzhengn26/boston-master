@@ -1,0 +1,14 @@
+---
+title: "How often do people use Transaction Tags? Are Tag users more financially active?"
+author: "Wendy Vu"
+date: "2020-02-25"
+region: "EU"
+link: "https://docs.google.com/presentation/d/1H0RqeEUdunlzZCGb6WIUU1T5ri6FKleJiYj9jRPnylI/edit?usp=sharing"
+tags: "engage, transactions, tags, search, financial behavior"
+summary: "In this research we found that tag users are indeed more financially engaged users compared to non-tag users. Also, users that use the search function to find transaction details are more financially engaged users  based on the number of external transactions in the last 35 days (however, only 4% of users get to transaction details through search)."
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+

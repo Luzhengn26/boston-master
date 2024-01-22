@@ -1,0 +1,513 @@
+---
+title: "Stripe Retention"
+author: "Wendy Vu"
+region: "EU"
+date: "2020-09-21"
+summary: "How does Stripe Top-up within the first 35-days of Ft-MAu influence future financial activity and retention? And how does it compare to other methods of top-up?"
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+  pdf_document:
+    toc: yes
+link: "https://docs.google.com/presentation/d/1u2l5I9DMY345NHw5gwgDBxhjmBYE7TpAWh-QUHCo05A/edit?usp=sharing"
+tags: "stripe, topup, retention, engagement" 
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/stripe_retention_analysis_20200921.RData"))
+ft <- as.data.frame(freq_txns)
+rt <- as.data.frame(retention)
+ft35 <- as.data.frame(ft35_txns)
+sr <- as.data.frame(stripe_recur_mau)
+#ss <- as.data.frame(shared_spaces)
+
+
+#df$user_certified <- as.Date(df$user_certified)
+#dim()
+#str(sd)
+#head(sd)
+
+#sd %>% summarise_all(n_distinct)
+
+```
+
+
+```{r}
+library(RColorBrewer)
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+library(RColorBrewer)
+library(ggplot2)
+
+display.brewer.all()
+ft$ftmau_cohort <- as.Date(ft$ftmau_cohort)
+
+ggplot(ft, 
+       aes(x=as.factor(ftmau_cohort), 
+           y = perc_users,
+           fill=dep_type,
+           group=dep_type
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) + geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=0) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% Users - First Top-Up") + xlab("Month") +
+  ggtitle("Distribution of Users across First-Deposit Method") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=12,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=2.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 20, 
+        #color = "red", 
+        face = "bold"
+        ),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(dep_type~ ., #scales="free"
+             ) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A",
+                             "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD'),
+                  name="First Deposit Method",
+                  labels = c("Cash26","MoneyBeam","Friend Ref.","Sepa","Stripe"))
+                  
+
+```
+```{r}
+
+ggplot(ft35, 
+       aes(x=as.factor(ftmau_cohort), 
+           y = medftdep_amt,
+           fill=ftdep_type,
+           group=ftdep_type
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) + geom_text(aes(label=round(medftdep_amt)), position=position_dodge(width=0.9), vjust=0.75) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("Median First Top-Up") + xlab("Month") +
+  ggtitle("Median First-Deposit Amount (Euro)") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 14,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=2.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 20, 
+        #color = "red", 
+        face = "bold"
+        ),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(ftdep_type~ ., #scales="free"
+             ) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A",
+                             "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD'),
+                  name="First Deposit Method",
+                  labels = c("Cash26","MoneyBeam","Friend Ref.","Sepa","Stripe"))
+
+# Number of Topup in the first 35 days of FTmau
+ggplot(ft35, 
+       aes(x=as.factor(ftmau_cohort), 
+           y = med35_n_dep,
+           fill=ftdep_type,
+           group=ftdep_type
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) + geom_text(aes(label=round(med35_n_dep)), position=position_dodge(width=0.9), vjust=0.75) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("Median Number Top-up") + xlab("Month") +
+  ggtitle("Median Number of Top-up within first 35 days FtMAU") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 14,face="bold"),
+    axis.text=element_text(size=18,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=2.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 20, 
+        #color = "red", 
+        face = "bold"
+        ),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(ftdep_type~ ., #scales="free"
+             ) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A",
+                             "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD'),
+                  name="First Deposit Method",
+                  labels = c("Cash26","MoneyBeam","Friend Ref.","Sepa","Stripe"))
+
+# Median total amount of deposit in first 35 days of FtMAU
+ggplot(ft35, 
+       aes(x=as.factor(ftmau_cohort), 
+           y = med35_dep_amt,
+           fill=ftdep_type,
+           group=ftdep_type
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) + geom_text(aes(label=round(med35_dep_amt)), position=position_dodge(width=0.9), vjust=0.15) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 5
+  #) +
+  ylab("Median Total Top-up amount") + xlab("Month") +
+  ggtitle("Median Total Deposit amount wihtin First 35 days FtMAU") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 14,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+    legend.key.size = unit(1, "cm"),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=2.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 20, 
+        #color = "red", 
+        face = "bold"
+        ),
+  ) +
+  #scale_y_continuous(labels=scales::percent) +
+  facet_grid(ftdep_type~ ., #scales="free"
+             ) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A",
+                             "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD'),
+                  name="First Deposit Method",
+                  labels = c("Cash26","MoneyBeam","Friend Ref.","Sepa","Stripe"))
+
+```
+
+```{r}
+
+# Retention
+rt$ftmau_cohort <- as.Date(rt$ftmau_cohort)
+rt$dep_type <- factor(rt$dep_type, levels = c("cash26","sepa_ct", "moneybeam","stripe","referral"))
+ggplot(filter(rt,period <= 6, ftmau_cohort >= '2019-10-01'),
+       aes(x=as.factor(period), 
+           y = perc_retained,
+           group=as.factor(dep_type),
+           color=as.factor(dep_type)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% User Retained") + xlab("Month") + #ylim(0,0.58) +
+  ggtitle("Deposit Method: User Retention") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 15,face='bold'),
+    axis.title.y = element_text(size=15,face='bold'),
+    legend.key.size = unit(1.75, "cm"),
+          strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(~ftmau_cohort) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A",
+                             "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD'),
+                    name = "Deposit Method", 
+                    labels = c("Cash26","Sepa","MoneyBeam","Stripe","Friend Ref.")
+                    )
+
+
+```
+
+```{r}
+# How does recurring stripe transaction influence mau in the second 35d day period?
+
+mau <- as.data.frame (sr %>% group_by(ftmau_cohort,cohort_ftmau_size,recur_stripe) %>%
+  summarise(
+    n_recur_stripe_users = length(unique(user_id)),
+    mau_period2 = length(unique(user_id[n_act_txns_period2 > 0])),
+    not_mau_period2 = length(unique(user_id[n_act_txns_period2 == 0])),
+    avg_txns_period2 = mean(n_act_txns_period2),
+    med_txns_period2 = median(n_act_txns_period2)
+  ) %>%
+  mutate(
+    perc_mau = round(mau_period2/n_recur_stripe_users,2),
+    perc_recur_stripe = round(n_recur_stripe_users/cohort_ftmau_size,2)
+  )
+)
+
+type <- c("one stripe","two stripe","three stripe","> 3 stripe")
+mau$recur_stripe <- factor(mau$recur_stripe, levels = type)
+mau$ftmau_cohort <- as.Date(mau$ftmau_cohort)
+
+# % MAU split by number of stripe topups within the first 35 days of Ft-MAU
+ggplot(mau, 
+       aes(x=as.factor(ftmau_cohort), 
+           y = perc_mau,
+           fill=recur_stripe,
+           group=recur_stripe
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) + geom_text(aes(label=round(perc_mau*100)), position=position_dodge(width=0.5), vjust=0.15) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% MAU in Second Month") + xlab("Ft-TopUp Cohort Month") +
+  ggtitle("% MAU of Stripe Topup Users split by # of recurring stripe trxns w/in 35 days FtMAU") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 14,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+    legend.key.size = unit(1, "cm"),
+        )+
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(ftdep_type~ ., scales="free") +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A",
+                             "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD'),
+                  name="# Stripe TopUp\nwithin 35 days Ft-MAU",
+                  #labels = c("Cash26","MoneyBeam","Friend Ref.","Sepa","Stripe")
+                  )
+
+# Median # of txns in the second month
+ggplot(mau, 
+       aes(x=as.factor(ftmau_cohort), 
+           y = med_txns_period2,
+           fill=recur_stripe,
+           group=recur_stripe
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) + geom_text(aes(label=round(med_txns_period2)), position=position_dodge(width=0.5), vjust=0.15) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("Median # Txns in Second Month") + xlab("Ft-TopUp Cohort Month") +
+  ggtitle("Median # Txns split by # of recurring stripe trxns w/in 35 days FtMAU") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 14,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+    legend.key.size = unit(1, "cm"),
+        )+
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(ftdep_type~ ., scales="free") +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A",
+                             "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD'),
+                  name="# Stripe TopUp\nwithin 35 days Ft-MAU",
+                  #labels = c("Cash26","MoneyBeam","Friend Ref.","Sepa","Stripe")
+                  )
+
+# What percent of users complete 1, 2,3, or more stripe txns within first 35 days of ft-mau 
+
+ggplot(mau, 
+       aes(x=as.factor(ftmau_cohort), 
+           y = perc_recur_stripe,
+           fill=recur_stripe,
+           group=recur_stripe
+           )
+       ) +
+  geom_bar(position="dodge",stat="identity", width=0.5
+           #,fill = "#E69F00"
+           ) + geom_text(aes(label=round(perc_recur_stripe*100)), position=position_dodge(width=0.5), vjust=0.15) +
+  #geom_text(
+  #aes(label = round(percent*100), group = membership), 
+  #Eposition = position_dodge(0.8),
+  #vjust = -0.3, size = 3.5
+  #) +
+  ylab("% Users") + xlab("Ft-TopUp Cohort Month") +
+  ggtitle("% Users split by # of recurring stripe trxns w/in 35 days FtMAU") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 14,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+    legend.key.size = unit(1, "cm"),
+        )+
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(ftdep_type~ ., scales="free") +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A",
+                             "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD'),
+                  name="# Stripe TopUp\nwithin 35 days Ft-MAU",
+                  #labels = c("Cash26","MoneyBeam","Friend Ref.","Sepa","Stripe")
+                  )
+
+
+```
+
+```{r}
+
+
+
+```
+
+```{r}
+
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

@@ -1,0 +1,108 @@
+---
+title: "Does having a Space influence the lapse rate"
+author: "Dani Mermelstein"
+date: "2020-09-17"
+region: "US"
+summary: "Here we look at whether there is a correlational relationship between spaces and the 8-week lapse rate. Causal impact is only feasible with an A/B test, but we can still gauge a potential relationship between funding behavior and lapse rate. We looked at MAUs who signed up after launching the product on October 01, 2019, and flagged users who had open spaces. We then categorized users into the following groups based on whether they lapsed and reactivated."
+link:
+tags: "correlation, testing, spaces, lapse rate, MAU"
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(kableExtra)
+library(bayesAB)
+library(ggplot2)
+library(scales)
+
+# load the data
+load(paste0("data/spaces_data.RData"))
+
+# need this up here to use in the Results section
+# flag users who have made an Spaces transaction in their first 8 weeks
+mau_spaces$spaces_flag <- ifelse(mau_spaces$spaces_user <= mau_spaces$eight_weeks, 1, 0)
+mau_spaces[is.na(mau_spaces$spaces_flag),]$spaces_flag <- 0
+
+# aggregate 
+spaces_groups <- mau_spaces[,.(cnt=.N), by=.(mau_group,spaces_flag)][order(spaces_flag,mau_group),] 
+spaces_groups <- merge(spaces_groups, spaces_groups[,.(total=sum(cnt)), by=.(spaces_flag)], all.x=TRUE, by="spaces_flag")
+spaces_groups$rate <- spaces_groups$cnt/spaces_groups$total
+
+# calculate prop test just to have
+test_output <- prop.test(as.matrix(spaces_groups[mau_group=='unbroken_mau',c("cnt","total")]))
+
+```
+
+# Context and definitions
+Here we look at whether there is a correlational relationship between spaces and the 8-week lapse rate. Causal impact is only feasible with an A/B test, but we can still gauge a potential relationship between funding behavior and lapse rate.
+
+We looked at MAUs who signed up after launching the product on October 01, 2019, and flagged users who had open spaces. We then categorized users into the following groups based on whether they lapsed and reactivated:
+
+ - **full_lapse**: User became MAU, lapsed, did not reactivate, and ended the 8-week period as a lapsed user
+ - **reactivated**: User became MAU, lapsed, and reactivated. These users may or may not have ended the 8-week period as MAU
+ - **unbroken_mau**: User became MAU and did not lapse in their first 8 weeks
+
+# High-level behavior
+
+It would appear that users who have opened a space have a lower `full_lapse` rate and a higher `unbroken_mau` rate:
+
+```{r, echo=FALSE}
+
+kable(spaces_groups)%>%
+  kable_styling(full_width = FALSE)
+
+```
+
+# Results
+
+There `r ifelse(test_output$p.value <= 0.05, "does", "does not")` appear to be a meaningful relationship between use of spaces and whether a user lapses in their first 8 weeks at N26. We have to caution that this analysis does NOT determine a causal relationship, as there could be additional factors driving the output we see here. For instance this current analysis cannot disprove that more engaged users are already more likely to use Spaces, and therefore it would be difficult to decrease lapse by encouraging Spaces usage among existing users.
+
+# Statistical significance of the relationship  {.tabset .tabset-fade .tabset-pills} 
+
+## Bayesian Stats
+
+NOTE: for this test we needed to make the size of our two groups equal, so the below numbers in the "Users" and "Outcomes" columns are a random sample of the users available for this analysis:
+
+```{r, echo=FALSE}
+
+# set outcome
+bayes_spaces <- mau_spaces
+bayes_spaces$outcome <- ifelse(mau_spaces$mau_group=='unbroken_mau',1,0)
+
+# get outcome vectors
+no_spaces <- as.integer(bayes_spaces[spaces_flag==0,]$outcome)
+yes_spaces <- as.integer(bayes_spaces[spaces_flag==1,]$outcome)
+
+# control for sample size differences
+no_spaces <- sample(no_spaces, size=length(yes_spaces))
+
+AB1 <- bayesTest(yes_spaces, no_spaces, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+kable(data.frame("Variants"=c("no_spaces","yes_spaces"), 
+           "Users"=c(length(no_spaces), length(yes_spaces)), 
+           "Outcomes"=c(sum(no_spaces), sum(yes_spaces)),
+           "Rate"=c(sum(no_spaces)/length(no_spaces), sum(yes_spaces)/length(yes_spaces)))) %>%
+  kable_styling(full_width = F)
+
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("yes_spaces","no_spaces"))
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+
+```
+
+### 90% Confidence Interval:
+
+```{r, echo=FALSE}
+summary(AB1)$interval$Probability
+
+```
+
+### Estimated Lift: 
+`r percent(mean(c(summary(AB1)$interval$Probability)))`

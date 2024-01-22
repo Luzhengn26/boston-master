@@ -1,0 +1,10 @@
+---
+title: "Deep dive into KYC conversion rate drop between March and July 2022"
+author: "Joao Fernandes"
+region: "EU"
+date: "2022-08-10"
+link: "https://docs.google.com/presentation/d/1u25fZeAe2BjiDdkPm2rgYq-ovcBbKrO4T7pvrKhZBmE/edit#slide=id.g1260a983140_0_291"
+tags: "acquire, kyc, conversion, performance, fourthline, idnow, post-KYC"
+research_type: "Data Deep Dives"
+summary: "We have observed that the %CR for KYC has dropped around 7pp since March. Both providers (Fourthline and IDNow) were affected. We identified multiple causes that contributed to this, both provider-dependent and independent. Increased failures at post-KYC checks (mostly due to insufficient CRR and IIS scores) affected both providers. On Fourthline, fewer users got to the document upload step, more users were failed with GDPR breach statuses and a small increase in fraud was detected by the provider. For IDNow, there were more users failing with CANCELLED and ABORTED statuses."
+---

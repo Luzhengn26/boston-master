@@ -1,0 +1,493 @@
+---
+title: "Spaces Quick Actions A/B Test: Automation Hub and Cards & IBAN for Spaces"
+author: "Wendy Vu"
+region: "EU"
+date: "2023-01-26"
+summary: "The spaces quick actions experiment was done to test whether adding automations features (e.g. round-ups, rules and income sorter) and cards/iban for spaces to the spaces quick actions will increase feature awareness and increase user adoption. Previously, these features are buried in the app settings and we hypothesized that this reduced user discoverability. We find that adding spaces features indeed increased user adoption rate for all features except for IBAN for spaces."
+tags: "engage, rules,income sorter, round-ups,automation hub, ab test, experimentation, experimentation, engagement, spaces, cards for spaces, iban, quick actions"
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+  pdf_document:
+    toc: yes
+link: "https://docs.google.com/presentation/d/1sFT3sDw7hZLxHybsnGLRcX4-H2nzpvZy0jRW0P5_Ijk/edit?usp=sharing"
+  
+  
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r - Cards & IBAN Quick Actions AB test }
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+library(RColorBrewer)
+library(ggplot2)
+set2 <- brewer.pal(8,"Set2")
+color <- brewer.pal(12,"Set3")
+color <- append(color, c("#1A659E","#EED7C5"))
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/analysis/20221025_quickactions_autohub_cards&iban_abtest/cards_iban_quickactions.RData"))
+gs <- as.data.frame(group_size)
+c <- as.data.frame(cards)
+ib <- as.data.frame(iban)
+ce <- as.data.frame(cards_entry)
+up <- as.data.frame(upgrades)
+ftc <- as.data.frame(ft_cards)
+cl <- as.data.frame(n_cards_link)
+
+```
+
+```{r - significance test}
+
+print("Cards")
+prop.test(as.matrix(c[,2:3]))
+
+print("IBAN")
+prop.test(as.matrix(ib[,2:3]))
+
+print("card_link")
+prop.test(as.matrix(ftc[,2:3]))
+
+```
+```{r - distribution of the number of times a user links/unlinks their cards for spaces}
+
+ggplot(cl, aes(x=as.factor(feature), y=rn,fill=feature)) + 
+  geom_boxplot() + coord_cartesian(ylim = c(0,5)) + 
+  xlab("Linking/Unlinking") + ylab("No. Of times a Card is Linked/Unlinked") +
+  #facet_grid(features ~ .,scales = "free") +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    axis.ticks.x=element_blank(),
+    legend.key.size = unit(1.5, "cm")
+  ) + scale_fill_manual(values=color,
+                        #name="MAU Cohort Month",
+                        #labels= c("< 500 Euro","500+ Euro")
+                        )
+  
+
+
+```
+
+
+```{r - conversion rate for cards and iban}
+
+c$feature <- rep('All cards',times=2)
+ib$feature <- rep('iban',times=2)
+ftc$feature <- rep('FT cards',times=2)
+
+agg <- rbind(c,ib,ftc)
+
+ggplot(agg, aes(fill=groups, y=perc_conversion, x=as.factor(feature))) + 
+  geom_bar(stat="identity",position="dodge") +
+  scale_y_continuous(labels=scales::percent) + 
+  ylab("% Users") + xlab("Feature") +
+  ggtitle("% of Users who adopted Cards and IBAN for Spaces") +
+  #facet_grid(cluster_new ~ .,scales = "free") +
+  geom_text(aes(label=perc_conversion*100), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 18, #angle = 45
+                           ),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 15, angle = 45
+                           ),
+        axis.title.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, #angle = 45
+                           ),
+    legend.key.size = unit(1.75, "cm"),
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+  )
+        ) +
+  scale_fill_manual(values = color, #color[9:14],
+                    name = "Exp. Group", 
+                    labels = c("Control","Test")
+                    )
+
+
+```
+
+
+
+```{r - entry point}
+
+ggplot(filter(ce,entry_point != 'not_viewed'), aes(fill=entry_point, y=perc, x=as.factor(groups))) + 
+  geom_bar(position="stack", stat="identity") +
+  scale_y_continuous(labels=scales::percent) + 
+  ylab("% Users") + xlab("Group") +
+  ggtitle("% of Users View Linking Cards split by entry points") +
+  #facet_grid(groups ~ .,scales = "free") +
+  geom_text(aes(label = perc*100),
+            position = position_stack(vjust = .5),
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 18, #angle = 45
+                           ),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 15, angle = 45
+                           ),
+        axis.title.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, #angle = 45
+                           ),
+    legend.key.size = unit(1.75, "cm"),
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+  )
+        ) +
+  scale_fill_manual(values = color[3:5], #color[9:14],
+                    name = "Entry Points", 
+                    labels = c("Cards Tab","Cards & IBAN\nQuickActions","Spaces Settings")
+                    )
+
+
+```
+
+```{r - upgrades card/iban ab test}
+
+ggplot(up, aes(fill=groups, y=perc, x=as.factor(groups))) + 
+  geom_bar(stat="identity",position="dodge") +
+  scale_y_continuous(labels=scales::percent) + 
+  ylab("% Users") + xlab("Feature") +
+  ggtitle("% of Users who upgraded") +
+  #facet_grid(cluster_new ~ .,scales = "free") +
+  geom_text(aes(label=perc*100), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 18, #angle = 45
+                           ),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 15, angle = 45
+                           ),
+        axis.title.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, #angle = 45
+                           ),
+    legend.key.size = unit(1.75, "cm"),
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+  )
+        ) +
+  scale_fill_manual(values = color, #color[9:14],
+                    name = "Exp. Group", 
+                    labels = c("Control","Test")
+                    )
+
+
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+
+```{r - Automation Hub AB test }
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+library(RColorBrewer)
+library(ggplot2)
+set2 <- brewer.pal(8,"Set2")
+color <- brewer.pal(12,"Set3")
+color <- append(color, c("#1A659E","#EED7C5"))
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/analysis/20221025_quickactions_autohub_cards&iban_abtest/automation_hub_abtest.RData"))
+au <- as.data.frame(automation)
+sp <- as.data.frame(spaces)
+up <- as.data.frame(upgrades)
+
+
+
+```
+
+```{r}
+
+```
+
+```{r - SPACES CREATED CONVERSION OF ELIGIBLE USERS SIGNIFICANCE TEST}
+# users included in the analysis below are premium and old standard users 
+
+fh <- filter(sp,fh_viewed == 'financial_home.tab.viewed',is_newstandard == 'FALSE')
+fh <- fh[,c(2,5,6)]
+
+exp <- unique(fh$user_type)
+
+for (i in exp) {
+  test = filter(fh,user_type == i)
+  print(unique(test$user_type))
+  print(as.matrix(test[,2:3]))
+  results = prop.test(as.matrix(test[,2:3]))
+  print(results)
+}
+
+```
+
+```{r - AUTOMATION FEATURE CONVERSION SIGNIFICANCE TEST}
+
+fh <- filter(au,fh_viewed == 'financial_home.tab.viewed')
+fh <- fh[,c(3,4,5)]
+
+exp <- unique(fh$user_type)
+
+for (i in exp) {
+  test = filter(fh,user_type == i)
+  print(unique(test$user_type))
+  print(as.matrix(test[,2:3]))
+  results = prop.test(as.matrix(test[,2:3]))
+  print(results)
+}
+
+```
+```{r - UPGRADES - SIGNIFICANCE TEST}
+
+fh <- filter(up,fh_viewed == 'financial_home.tab.viewed')
+fh <- fh[,c(3,4,5)]
+
+exp <- unique(fh$user_type)
+
+for (i in exp) {
+  test = filter(fh,user_type == i)
+  print(unique(test$user_type))
+  print(as.matrix(test[,2:3]))
+  results = prop.test(as.matrix(test[,2:3]))
+  print(results)
+}
+
+
+```
+
+
+```{r}
+
+# AUTOMATION FEATURE ADOPTION
+ggplot(filter(au,fh_viewed == 'financial_home.tab.viewed'), aes(fill=groups, y=perc, x=as.factor(user_type))) + 
+  geom_bar(stat="identity",position="dodge") +
+  scale_y_continuous(labels=scales::percent) + 
+  ylab("% Users") + xlab("User Type") +
+  ggtitle("% of Users who adopted spaces automation features") +
+  #facet_grid(cluster_new ~ .,scales = "free") +
+  geom_text(aes(label=perc*100), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 18, #angle = 45
+                           ),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 15, angle = 45
+                           ),
+        axis.title.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, #angle = 45
+                           ),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+  )
+        ) +
+  scale_fill_manual(values = color, #color[9:14],
+                    name = "Exp. Group", 
+                    labels = c("Control","Test-Automation Hub")
+                    )
+
+
+# SPACES CREATION 
+ggplot(filter(sp,fh_viewed == 'financial_home.tab.viewed',is_newstandard == 'FALSE'), aes(fill=groups, y=perc, x=as.factor(user_type))) + 
+  geom_bar(stat="identity",position="dodge") +
+  scale_y_continuous(labels=scales::percent) + 
+  ylab("% Users") + xlab("User Type") +
+  ggtitle("% of Users who created a space") +
+  #facet_grid(cluster_new ~ .,scales = "free") +
+  geom_text(aes(label=perc*100), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 18, #angle = 45
+                           ),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 15, angle = 45
+                           ),
+        axis.title.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, #angle = 45
+                           ),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+  )
+        ) +
+  scale_fill_manual(values = color, #color[9:14],
+                    name = "Exp. Group", 
+                    labels = c("Control","Test-Automation Hub")
+                    )
+
+
+# UPGRADES
+ggplot(filter(up,fh_viewed == 'financial_home.tab.viewed'), aes(fill=groups, y=perc, x=as.factor(user_type))) + 
+  geom_bar(stat="identity",position="dodge") +
+  scale_y_continuous(labels=scales::percent) + 
+  ylab("% Users") + xlab("User Type") +
+  ggtitle("% of Users who Upgraded") +
+  #facet_grid(cluster_new ~ .,scales = "free") +
+  geom_text(aes(label=perc*100), position = position_dodge(0.9),
+            #vjust=1.6,
+            #vjust=0.1,
+            color="black", 
+            size=5.5,face="bold"
+            ) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 18, #angle = 45
+                           ),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 15, angle = 45
+                           ),
+        axis.title.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, #angle = 45
+                           ),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.y = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+  )
+        ) +
+  scale_fill_manual(values = color, #color[9:14],
+                    name = "Exp. Group", 
+                    labels = c("Control","Test-Automation Hub")
+                    )
+```
+
+```{r}
+
+
+
+
+
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

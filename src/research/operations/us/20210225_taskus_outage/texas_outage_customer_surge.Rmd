@@ -1,0 +1,176 @@
+---
+title: "Overview of the Texas winter storm incident and the effect of TaskUs"
+author: "Dani Mermelstein"
+date: "2021-02-25"
+region: "US"
+summary: "The week of 2021-02-13 saw a historic winter storm strike Texas and most of the state lost power. As a result our TaskUs colleagues went offline and we experienced a customer service incident with the call and chat being handled by a reduced CX team. We look at call and chat volume between 2021-02-06 and 2021-02-19, with the incident being defined as starting on 2021-02-13. We first look at all contacts and if no user_id is present assume each contact is a unique user; we separately look only as contacts with a user_id present. Average calls per customer per day increased from 1.13 to 1.16 (+ 2%). Average chats per customer per day increased from 1.27 to 1.43 (+ 13%). Largest increases happened in the chat queue, hitting a peak on February 17."
+link: 
+tags: "customer service, cs, cx, taskus, texas, complaints, calls, chats"
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(kableExtra)
+library(ggplot2)
+library(scales)
+
+# load the data
+load(paste0("data/contact_data.RData"))
+```
+
+# Context
+
+The week of `r incident.start.date` saw a historic winter storm strike Texas and most of the state lost power. As a result our TaskUs colleagues went offline and we experienced a customer service incident with the call and chat being handled by a reduced CX team.
+
+# Methodology
+
+We look at call and chat volume between `r start.date` and `r end.date`, with the incident being defined as starting on `r incident.start.date`. We first look at all contacts and if no user_id is present assume each contact is a unique user; we separately look only as contacts with a user_id present.
+
+# Insights
+
+ - Average calls per customer per day increased from `r round(mean(contact_attempts[channel == 'call' & period == 'before',]$contacts), 2)` to `r round(mean(contact_attempts[channel == 'call' & period == 'during',]$contacts), 2)` (+ `r percent(mean(contact_attempts[channel == 'call' & period == 'during',]$contacts)/mean(contact_attempts[channel == 'call' & period == 'before',]$contacts)-1)`)
+ - Average chats per customer per day increased from `r round(mean(contact_attempts[channel == 'chat' & period == 'before',]$contacts), 2)` to `r round(mean(contact_attempts[channel == 'chat' & period == 'during',]$contacts), 2)` (+ `r percent(mean(contact_attempts[channel == 'chat' & period == 'during',]$contacts)/mean(contact_attempts[channel == 'chat' & period == 'before',]$contacts)-1)`)
+ - Largest increases happened in the chat queue, hitting a peak on February 17
+
+# Contacts {.tabset .tabset-pills}
+
+## Call volume  {.tabset .tabset-fade}
+
+Red line indicates beginning of the incident
+
+### All contacts
+
+```{r, echo=FALSE, message=FALSE}
+
+# ggplot(contact_attempts[channel == 'call',], aes(x=contacts))+
+#   geom_histogram()+
+#   labs(title="Calls per Customer per Day",
+#        x ="Attempts per Day", 
+#        y = "Users")+
+#   facet_wrap(~period)
+```
+
+```{r, echo=FALSE, message=FALSE}
+
+
+ggplot(contacts[channel == 'call', .(contacts = sum(contact), 
+                       all_users = length(unique(user_id)),
+                       customers = length(unique(customer)),
+                       avg_contacts_per_user = sum(contact)/length(unique(user_id))
+                   ), by=.(contact_date, channel, period)][order(channel,contact_date, period),], aes(x=contact_date, y=avg_contacts_per_user))+
+  geom_line()+ 
+  geom_point()+
+  geom_vline(xintercept = as.Date(incident.start.date), color="red")+
+  geom_text(aes(label = round(avg_contacts_per_user, 2)),
+            vjust = -1, hjust = "inward",
+            show.legend = FALSE)+
+  labs(title="Calls per Customer per Day",
+       x ="Day", 
+       y = "Avg Attempts per Day")+
+  ylim(0,2)
+
+```
+
+### Customers with user_id
+
+```{r, echo=FALSE, message=FALSE}
+# ggplot(customer_contact_attempts[channel == 'call',], aes(x=contacts))+
+#   geom_histogram()+
+#   labs(title="Calls per Customer per Day",
+#        x ="Attempts per Day", 
+#        y = "Users")+
+#   facet_wrap(~period)
+```
+
+
+```{r, echo=FALSE, message=FALSE}
+
+
+ggplot(customer_contacts[channel == 'call', .(contacts = sum(contact), 
+                       users = length(unique(user_id)),
+                       avg_contacts_per_user = sum(contact)/length(unique(user_id))
+                   ), by=.(contact_date, channel, period)][order(channel,contact_date, period),], aes(x=contact_date, y=avg_contacts_per_user))+
+  geom_line()+ 
+  geom_point()+
+  geom_vline(xintercept = as.Date(incident.start.date), color="red")+
+  geom_text(aes(label = round(avg_contacts_per_user, 2)),
+            vjust = -1, hjust = "inward",
+            show.legend = FALSE)+
+  labs(title="Calls per Customer per Day",
+       x ="Day", 
+       y = "Avg Attempts per Day")+
+  ylim(0,2)
+
+```
+
+## Chat volume  {.tabset .tabset-fade}
+
+Red line indicates beginning of the incident
+
+### All contacts
+
+```{r, echo=FALSE, message=FALSE}
+# ggplot(contact_attempts[channel == 'chat',], aes(x=contacts))+
+#   geom_histogram()+
+#   labs(title="Chats per Customer per Day",
+#        x ="Attempts per Day", 
+#        y = "Users")+
+#   facet_wrap(~period)
+```
+
+```{r, echo=FALSE, message=FALSE}
+
+
+ggplot(contacts[channel == 'chat', .(contacts = sum(contact), 
+                       all_users = length(unique(user_id)),
+                       customers = length(unique(customer)),
+                       avg_contacts_per_user = sum(contact)/length(unique(user_id))
+                   ), by=.(contact_date, channel, period)][order(channel,contact_date, period),], aes(x=contact_date, y=avg_contacts_per_user))+
+  geom_line()+ 
+  geom_point()+
+  geom_vline(xintercept = as.Date(incident.start.date), color="red")+
+  geom_text(aes(label = round(avg_contacts_per_user, 2)),
+            vjust = -1, hjust = "inward",
+            show.legend = FALSE)+
+  labs(title="Chats per Customer per Day",
+       x ="Day", 
+       y = "Avg Attempts per Day")+
+  ylim(0,2)
+
+```
+
+### Customers with user_id
+
+```{r, echo=FALSE, message=FALSE}
+# ggplot(customer_contact_attempts[channel == 'chat',], aes(x=contacts))+
+#   geom_histogram()+
+#   labs(title="Chats per Customer per Day",
+#        x ="Attempts per Day", 
+#        y = "Users")+
+#   facet_wrap(~period)
+```
+
+```{r, echo=FALSE, message=FALSE}
+
+
+ggplot(customer_contacts[channel == 'chat', .(contacts = sum(contact), 
+                       users = length(unique(user_id)),
+                       avg_contacts_per_user = sum(contact)/length(unique(user_id))
+                   ), by=.(contact_date, channel, period)][order(channel,contact_date, period),], aes(x=contact_date, y=avg_contacts_per_user))+
+  geom_line()+ 
+  geom_point()+
+  geom_vline(xintercept = as.Date(incident.start.date), color="red")+
+  geom_text(aes(label = round(avg_contacts_per_user, 2)),
+            vjust = -1, hjust = "inward",
+            show.legend = FALSE)+
+  labs(title="Chats per Customer per Day",
+       x ="Day", 
+       y = "Avg Attempts per Day")+
+  ylim(0,2)
+
+```

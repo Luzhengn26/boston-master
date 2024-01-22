@@ -1,0 +1,3453 @@
+---
+title: "Effect of card shipping trigger on early behavior"
+author: "Wendy Vu, Fabio Schmidt-Fischbach, Brieuc Van Thienen, Mathias Chicha"
+region: "EU"
+date: "2021-08-30"
+summary: "In this analysis we investigate the effects of the Card Shipping Trigger (CST) on early and long-term user financial engagement. We find that CST had an overall positive impact on the quality of onboarded users and cutting card related cost. These results suggests that we are moving towards more sustainable growth." 
+tags: "Card Shipping Trigger, Cards, early, engagement, Top-up, engage, Ft-MAU, onboarding metrics, retention, activity"
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+  pdf_document:
+    toc: yes
+link: "https://docs.google.com/presentation/d/1PN4RkFAoeWso9xlvbGJ3ubFBf9t25TS1oDbEx6tRj0o/edit?usp=sharing"
+  
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+setwd('/Users/wendyvu/Documents/card_shipping_trigger/')
+library(n26)
+library(data.table)
+
+
+ft_txn_cnt <- queryDB("
+CREATE temp table act as 
+select 
+	user_created,
+	act_date as act_ts,
+	n_act_txns,
+	ROW_NUMBER() over (partition by user_created order by act_date) as rn_act 
+from dbt.zrh_act_day 
+where n_act_txns > 0 ;
+
+select n_act_txns,count(distinct user_created) as users, 
+	sum(users) over (partition by 1) as tot_users, 
+	round(users::float/tot_users,2)
+from act where rn_act = 1 group by 1 order by 1 limit 500;                     
+                      
+                      ","redshift-eu")
+
+mark_spend <- queryDB("
+select date_trunc('months',date)::date as month,
+    sum(cost_with_vat) as cost 
+from dbt.zrh_mktg_spend 
+where date between '2019-07-01'::date and '2021-03-31'::date
+group by 1
+order by 1;
+                      
+                      ","redshift-eu")
+
+
+kycc_card_trigg_okr <- queryDB("
+with kycc as (
+select z.user_created,
+	z.user_id,
+	country_tnc_legal,
+	tnc_country_group as market,
+	kyc_first_completed as kycc,
+	date_trunc('months',kycc)::date as kycc_cohort_week,
+	--datediff('days','2020-07-08',kyc_first_completed::date) as diff,
+	--case when ceil(diff::float/35) = 0 then 1 else ceil(diff::float/35) end as kycc_cohort_week,
+	card_first_activated as cfa,
+	ft_mau,
+	is_newstandard,
+	is_mau,
+	zc.order_date as cod,
+	p.su_product_id,
+	count(z.user_created) over (partition by kycc_cohort_week) as cohort_size
+from (select * from dbt.zrh_users where kyc_first_completed::date between '2020-01-01'::date and '2020-12-31'::date) z
+left join (select user_created, min(order_date) as order_date from dbt.zrh_cards where reissue_reason = 'INITIAL' group by 1) zc 
+	on z.user_created = zc.user_created
+join (select user_created, product_id as su_product_id from dbt.zrh_user_product zup where sign_up_flg = 1 and enter_reason = 'SIGNUP' group by 1,2) p 
+	on p.user_created = z.user_created
+), activity as (
+select k.user_created,
+	kycc_cohort_week,
+	cohort_size,
+	--datediff('days',kycc,act_date) as diff,
+	case when ceil(datediff('days',kycc::date,act_date::date)::float/35) = 0 then 1 else ceil(datediff('days',kycc::date,act_date::date)::float/35) end as period_month,
+	sum(n_act_txns) as n_act_tot
+from kycc k 
+left join dbt.zrh_act_day z 
+	on k.user_created = z.user_created 
+	and z.n_act_txns > 0 
+	and z.act_date::date between kycc::date and kycc::date + interval '105 days'
+group by 1,2,3,4
+), piv as (
+select 
+	user_created,
+	kycc_cohort_week,
+	cohort_size,
+	sum(case when period_month = 1 and n_act_tot >= 10 then 1 else 0 end) as act10_1,
+  	sum(case when period_month = 2 and n_act_tot >= 10 then 1 else 0 end) as act10_2,
+  	sum(case when period_month = 3 and n_act_tot >= 10 then 1 else 0 end) as act10_3
+from activity
+group by 1,2,3
+), agg as (
+select
+	kycc_cohort_week,
+	cohort_size,
+	count(distinct case when act10_1 = 1 then user_created end) as act10_1_users,
+	count(distinct case when act10_1 = 1 and act10_2 = 1 then user_created end) as act10_12_users,
+	count(distinct case when act10_1 = 1 and act10_2 = 1 and act10_3 = 1 then user_created end) as act10_123_users
+from piv 
+group by 1,2
+)
+select kycc_cohort_week,
+    round(sum(act10_1_users)::float/sum(cohort_size),3) as act10_1_user,
+    round(sum(act10_12_users)::float/sum(cohort_size),3) as act10_12_user,
+    round(sum(act10_123_users)::float/sum(cohort_size),3) as act10_123_user 	
+from agg
+--where kycc_cohort_weeks between current_date - interval '20 months' and current_date - interval '3 months'
+group by 1
+order by 1;
+                               
+                               ","redshift-eu")
+
+ftmau_card_trigg_okr <- queryDB("
+with kycc as (
+select z.user_created,
+	z.user_id,
+	country_tnc_legal,
+	tnc_country_group as market,
+	kyc_first_completed as kycc,
+	date_trunc('months',kycc)::date as kycc_cohort_week,
+	--datediff('days','2020-07-08',kyc_first_completed::date) as diff,
+	--case when ceil(diff::float/7) = 0 then 1 else ceil(diff::float/7) end as kycc_cohort_week,
+	card_first_activated as cfa,
+	ft_mau,
+	is_newstandard,
+	is_mau,
+	zc.order_date as cod,
+	p.su_product_id,
+	count(z.user_created) over (partition by kycc_cohort_week) as cohort_size
+from (select * from dbt.zrh_users where kyc_first_completed::date between '2020-01-01'::date and '2020-12-31'::date) z
+left join (select user_created, min(order_date) as order_date from dbt.zrh_cards where reissue_reason = 'INITIAL' group by 1) zc 
+	on z.user_created = zc.user_created
+join (select user_created, product_id as su_product_id from dbt.zrh_user_product zup where sign_up_flg = 1 and enter_reason = 'SIGNUP' group by 1,2) p 
+	on p.user_created = z.user_created
+), activity as (
+select k.user_created,
+	kycc_cohort_week,
+	cohort_size,
+	--datediff('days',kycc,act_date) as diff,
+	case when ceil(datediff('days',ft_mau::date,act_date::date)::float/35) = 0 then 1 else ceil(datediff('days',ft_mau::date,act_date::date)::float/35) end as period_month,
+	sum(n_act_txns) as n_act_tot
+from kycc k 
+left join dbt.zrh_act_day z 
+	on k.user_created = z.user_created 
+	and z.n_act_txns > 0 
+	and z.act_date::date between ft_mau::date and ft_mau::date + interval '105 days'
+group by 1,2,3,4
+), piv as (
+select 
+	user_created,
+	kycc_cohort_week,
+	cohort_size,
+	sum(case when period_month = 1 and n_act_tot >= 10 then 1 else 0 end) as act10_1,
+  	sum(case when period_month = 2 and n_act_tot >= 10 then 1 else 0 end) as act10_2,
+  	sum(case when period_month = 3 and n_act_tot >= 10 then 1 else 0 end) as act10_3
+from activity
+group by 1,2,3
+), agg as (
+select
+	kycc_cohort_week,
+	cohort_size,
+	count(distinct case when act10_1 = 1 then user_created end) as act10_1_users,
+	count(distinct case when act10_1 = 1 and act10_2 = 1 then user_created end) as act10_12_users,
+	count(distinct case when act10_1 = 1 and act10_2 = 1 and act10_3 = 1 then user_created end) as act10_123_users
+from piv 
+group by 1,2
+)
+select kycc_cohort_week,
+    round(sum(act10_1_users)::float/sum(cohort_size),3) as act10_1_user,
+    round(sum(act10_12_users)::float/sum(cohort_size),3) as act10_12_user,
+    round(sum(act10_123_users)::float/sum(cohort_size),3) as act10_123_user 	
+from agg
+--where kycc_cohort_weeks between current_date - interval '20 months' and current_date - interval '3 months'
+group by 1
+order by 1;
+
+                                ","redshift-eu")
+
+ftout_card_trigg_okr <- queryDB("
+drop table if exists ft_out;
+CREATE temp table ft_out as
+select
+	user_created,
+	txn_date as ft_ts_out,
+	round(amount_cents_ext_total_out::float/100) as amt_ext_total_out, n_ext_total_out,
+	ROW_NUMBER() over (partition by user_created order by txn_date) as rn_out
+from dbt.zrh_txn_day
+where n_ext_total_out > 0;
+
+with kycc as (
+select z.user_created,
+	z.user_id,
+	country_tnc_legal,
+	tnc_country_group as market,
+	kyc_first_completed as kycc,
+	date_trunc('months',kycc)::date as kycc_cohort_week,
+	--datediff('days','2020-07-08',kyc_first_completed::date) as diff,
+	--case when ceil(diff::float/7) = 0 then 1 else ceil(diff::float/7) end as kycc_cohort_week,
+	card_first_activated as cfa,
+	ft_mau,
+	fo.ft_ts_out,
+	is_newstandard,
+	is_mau,
+	zc.order_date as cod,
+	p.su_product_id,
+	count(z.user_created) over (partition by kycc_cohort_week) as cohort_size
+from (select * from dbt.zrh_users where kyc_first_completed::date between '2020-01-01'::date and '2020-12-31'::date) z
+left join (select user_created, min(order_date) as order_date from dbt.zrh_cards where reissue_reason = 'INITIAL' group by 1) zc 
+	on z.user_created = zc.user_created
+join (select user_created, product_id as su_product_id from dbt.zrh_user_product zup where sign_up_flg = 1 and enter_reason = 'SIGNUP' group by 1,2) p 
+	on p.user_created = z.user_created
+left join ft_out as fo 
+	on fo.user_created = z.user_created and fo.rn_out = 1 
+), activity as (
+select k.user_created,
+	kycc_cohort_week,
+	cohort_size,
+	--datediff('days',kycc,act_date) as diff,
+	case when ceil(datediff('days',ft_ts_out::date,act_date::date)::float/35) = 0 then 1 else ceil(datediff('days',ft_ts_out::date,act_date::date)::float/35) end as period_month,
+	sum(n_act_txns) as n_act_tot
+from kycc k 
+left join dbt.zrh_act_day z 
+	on k.user_created = z.user_created 
+	and z.n_act_txns > 0 
+	and z.act_date::date between ft_ts_out::date and ft_ts_out::date + interval '105 days'
+group by 1,2,3,4
+), piv as (
+select 
+	user_created,
+	kycc_cohort_week,
+	cohort_size,
+	sum(case when period_month = 1 and n_act_tot >= 10 then 1 else 0 end) as act10_1,
+  	sum(case when period_month = 2 and n_act_tot >= 10 then 1 else 0 end) as act10_2,
+  	sum(case when period_month = 3 and n_act_tot >= 10 then 1 else 0 end) as act10_3
+from activity
+group by 1,2,3
+), agg as (
+select
+	kycc_cohort_week,
+	cohort_size,
+	count(distinct case when act10_1 = 1 then user_created end) as act10_1_users,
+	count(distinct case when act10_1 = 1 and act10_2 = 1 then user_created end) as act10_12_users,
+	count(distinct case when act10_1 = 1 and act10_2 = 1 and act10_3 = 1 then user_created end) as act10_123_users
+from piv 
+group by 1,2
+)
+select kycc_cohort_week,
+    round(sum(act10_1_users)::float/sum(cohort_size),3) as act10_1_user,
+    round(sum(act10_12_users)::float/sum(cohort_size),3) as act10_12_user,
+    round(sum(act10_123_users)::float/sum(cohort_size),3) as act10_123_user 	
+from agg
+--where kycc_cohort_weeks between current_date - interval '20 months' and current_date - interval '3 months'
+group by 1
+order by 1;
+
+                                ","redshift-eu")
+
+early_cluster_ftmau <- queryDB("
+select user_id, kycc_cohort, cluster_new as early_cluster_ftmau from dev_dbt.pca_35days_ALL_OLDcohort_RESULTS_FEB202021_N329K_Relabeled_clusters
+                               ","redshift-eu")
+
+early_features_2 <- queryDB("
+-- users kyc cohort
+drop table if exists users;
+create temp table users as
+with kycc as (
+select z.user_created,
+	z.user_id,
+	country_tnc_legal,
+	tnc_country_group as market,
+	kyc_first_completed as kycc,
+	date_trunc('months',kycc)::date as kycc_cohort_month,
+	card_first_activated as cfa,
+	ft_mau,
+	is_newstandard,
+	is_mau,
+	zc.order_date as cod,
+	p.su_product_id,
+	row_number() over (partition by kycc_cohort_month order by random()) as rn
+from (select * from dbt.zrh_users where kyc_first_completed >= '2019-07-01') z
+left join (select user_created, min(order_date) as order_date from dbt.zrh_cards where reissue_reason = 'INITIAL' group by 1) zc 
+	on z.user_created = zc.user_created
+join (select user_created, product_id as su_product_id from dbt.zrh_user_product zup where sign_up_flg = 1 and enter_reason = 'SIGNUP' group by 1,2) p 
+	on p.user_created = z.user_created
+)
+select *,count(*) over (partition by kycc_cohort_month) as kycc_cohort_size from kycc 
+where rn <= 40000
+;
+
+-- txns types based on first, second etc
+drop table if exists ft_topup;
+CREATE temp TABLE ft_topup AS 
+select 
+	user_created,
+	txn_date as ft_ts_in,
+	round(amount_cents_ext_total_in::float/100) as amt_ext_total_in, n_ext_total_in,
+	ROW_NUMBER() over (partition by user_created order by txn_date) as rn_in 
+from dbt.zrh_txn_day 
+join (select distinct user_created from users)
+	using(user_created)
+where n_ext_total_in > 0;
+
+drop table if exists ft_out;
+CREATE temp table ft_out as 
+select 
+	user_created,
+	txn_date as ft_ts_out,
+	round(amount_cents_ext_total_out::float/100) as amt_ext_total_out, n_ext_total_out,
+	ROW_NUMBER() over (partition by user_created order by txn_date) as rn_out 
+from dbt.zrh_txn_day 
+join (select distinct user_created from users)
+	using(user_created)
+where n_ext_total_out > 0;
+
+
+drop table if exists act;
+CREATE temp table act as 
+select 
+	user_created,
+	act_date as act_ts,
+	n_act_txns,
+	ROW_NUMBER() over (partition by user_created order by act_date) as rn_act 
+from dbt.zrh_act_day 
+join (select distinct user_created from users)
+	using(user_created)
+where n_act_txns > 0 ;
+
+
+--first few topups 
+drop table if exists topups;
+create temp table topups as 
+select user_created,
+	txn_ts,
+	round(bank_balance_impact::float/100,2) as amt_topup,
+	ROW_NUMBER() over (partition by user_created order by txn_ts) as rn_topup
+from dbt.zrh_transactions zt
+join (select user_created,kycc from users)
+	using(user_created)
+where activity_incl_flg is true 
+	and type = 'CT' 
+	and payment_scheme != 'SPACES'
+	and txn_ts::date >= kycc::date
+;
+
+--activity periods within 6 months of kycc
+drop table if exists activity_period;
+create temp table activity_period as 
+with period as (
+select 
+	user_created, kycc_cohort_month, kycc_cohort_size,
+	datediff('days',kycc::date,act_date::date) as diff,
+	case when ceil(diff::float/35) = 0 then 1 else ceil(diff::float/35) end as period_kycc,
+	n_act_txns
+from dbt.zrh_act_day 
+join (select * from users)
+	using(user_created)
+where n_act_txns > 0 
+	and act_date::date between kycc::date and kycc::date + interval '210 days'
+order by 1,3
+)
+select 
+	user_created,
+	period_kycc,
+	sum(n_act_txns) as n_act_txns_,
+	count(period_kycc) over (partition by user_created) as n_period_active,
+	avg(n_act_txns_) over (partition by user_created) as avg_act_txns_period1_6
+from period 
+group by 1,2
+order by 1,2
+;
+
+drop table if exists act_txn;
+create temp table act_txn as 
+select c.user_created,
+	sum(case when txn_date::date between c.kycc::date and c.kycc::date + interval '35 days' then t.n_act_total end) as n_act_35_kycc,
+	sum(case when txn_date::date between c.kycc::date and c.kycc::date + interval '50 days' then t.n_act_total end) as n_act_50_kycc,
+	sum(case when txn_date::date between tp.ft_ts_in::date and tp.ft_ts_in::date + interval '35 days' then t.n_act_total end) as n_act_35, --ftmau
+	sum(case when txn_date::date between tp.ft_ts_in::date and tp.ft_ts_in::date + interval '50 days' then t.n_act_total end) as n_act_50, --ftmau
+	sum(case when txn_date::date between a.act_ts::date and a.act_ts::date + interval '35 days' then t.n_act_total end) as n_act_35_st_ts, -- 2nd txn ts
+	sum(case when txn_date::date between a.act_ts::date and a.act_ts::date + interval '50 days' then t.n_act_total end) as n_act_50_st_ts, -- 2nd txn ts
+	sum(case when txn_date::date between o.ft_ts_out::date and o.ft_ts_out::date + interval '35 days' then t.n_act_total end) as n_act_35_ftout, --ftout
+	sum(case when txn_date::date between o.ft_ts_out::date and o.ft_ts_out::date + interval '50 days' then t.n_act_total end) as n_act_50_ftout, -- ftout
+	sum(case when txn_date::date between tp.ft_ts_in::date and tp.ft_ts_in::date + interval '35 days' then t.n_ext_total_in end) as n_topup_35, --number of topups
+	sum(case when txn_date::date between tp.ft_ts_in::date and tp.ft_ts_in::date + interval '50 days' then t.n_ext_total_in end) as n_topup_50, --number of topups
+	sum(case when txn_date::date between tp.ft_ts_in::date and tp.ft_ts_in::date + interval '35 days' then (t.amount_cents_ext_total_in::float/100) end) as amt_tot_topup_35,
+	sum(case when txn_date::date between tp.ft_ts_in::date and tp.ft_ts_in::date + interval '50 days' then (t.amount_cents_ext_total_in::float/100) end) as amt_tot_topup_50,
+	sum(case when txn_date::date between c.kycc::date and c.kycc::date + interval '35 days' then t.n_ext_total_in end) as n_topup_35_kycc, --number of topups
+	sum(case when txn_date::date between c.kycc::date and c.kycc::date + interval '35 days' then (t.amount_cents_ext_total_in::float/100) end) as amt_tot_topup_35_kycc
+from users c
+left join (select * from ft_topup where rn_in = 1) tp 
+	on c.user_created = tp.user_created 
+left join (select * from act where rn_act = 2) a 
+	on a.user_created = tp.user_created
+left join (select * from ft_out where rn_out = 1) o 
+	on o.user_created = tp.user_created
+left join dbt.zrh_txn_day t  
+	on t.user_created = tp.user_created
+group by 1;
+
+with users_ as (
+select *,
+	case when cod is null and ft_mau is not null then false else true end as keep_flg, --flag to remove cod dates that are null but user has topped up
+	case when kycc >= '2020-07-08' then 'card_trig' else 'before' end as card_trigger
+from users 
+where kycc::date >= '2019-07-01'::date --and '2021-01-30'::date
+	and keep_flg is true --and su_product_id not like '%METAL%'
+), data_fin as (
+select u.*,
+	tp.ft_ts_in, --ft_topup
+	tp.amt_ext_total_in, --ft_topup amt
+	tp2.ft_ts_in as ft_ts_in2, --second topup/second topup day
+	tp2.amt_ext_total_in as amt_ext_total_in2, --second amt topup/second topup day
+	ot.ft_ts_out, --ft_moneyout 
+	ot.amt_ext_total_out, --ft_moneyout amt
+	n_act_35_kycc,
+	n_act_50_kycc,
+	n_act_35,
+	n_act_50,
+	n_act_35_st_ts, --second txn
+	n_act_50_st_ts, 
+	n_act_35_ftout, --ft moneyout
+	n_act_50_ftout,
+	n_topup_35, -- total topup within first 35 days ftmau
+	n_topup_50,
+	amt_tot_topup_35,-- total topup amt within first 35 days ftmau
+	amt_tot_topup_50,
+	n_topup_35_kycc, --number of topups
+	amt_tot_topup_35_kycc,
+	a_.act_ts as st_ts, -- second day act txn
+	ap.n_period_active, -- total number of mau periods 
+	ap.avg_act_txns_period1_6, --avg number of monthly/periodic txns across 6 periods/months
+	tps1.txn_ts as topup1_ts, --second topup txn non-date aggregate from zrh_transactions
+	tps1.amt_topup as amt_topup1,
+	tps2.txn_ts as topup2_ts, --second topup txn non-date aggregate from zrh_transactions
+	tps2.amt_topup as amt_topup2
+from users_ as u
+left join ft_topup tp  
+	on tp.user_created = u.user_created 
+	and rn_in = 1
+left join ft_topup tp2 
+	on tp2.user_created = u.user_created
+	and tp2.rn_in = 2
+left join ft_out ot 
+	on ot.user_created = u.user_created
+	and ot.rn_out = 1
+left join act_txn a
+	on a.user_created = u.user_created
+left join act a_ 
+	on a_.user_created = u.user_created
+	and a_.rn_act = 2
+left join (select user_created, n_period_active, avg_act_txns_period1_6 from activity_period group by 1,2,3) ap  
+	on ap.user_created = u.user_created 
+left join topups tps1 -- first Topup from zrh_transaction table non-date aggregate
+	on tps1.user_created = u.user_created 
+	and tps1.rn_topup = 1 
+left join topups tps2 -- second Topup from zrh_transaction table non-date aggregate 
+	on tps2.user_created = u.user_created 
+	and tps2.rn_topup = 2 
+)
+select *,
+	datediff('days',kycc::date,cod::date) as kycc_cod_days,
+	datediff('days',kycc::date,cfa::date) as kycc_cfa_days,
+	datediff('days',cod::date, cfa::date) as cod_cfa_days,
+	--datediff('days',kycc::date,ft_mau::date) as kycc_ftmau_days,
+	datediff('days',kycc::date,ft_ts_in::date) as kycc_ftmau_days,
+	datediff('days',kycc::date,ft_ts_in2::date) as kycc_topup_day2_days, -- kycc tp second day topup 
+	datediff('days',kycc::date,topup2_ts::date) as kycc_topup_2_days, -- kycc to second topup non-date aggregate zrh_transactions
+	datediff('days',kycc::date,st_ts::date) as kycc_st_days, -- kycc to second trxn day  
+	datediff('days',kycc::date,ft_ts_out::date) as kycc_ftout_days, -- kycc to ft money out
+	datediff('days',ft_ts_in::date,ft_ts_out::date) as ft_in_out_days, -- ftmau to first money out
+	datediff('days',ft_ts_in::date,st_ts::date) as ft_in_st_days, -- ftmau to second day txn 
+	datediff('days',topup1_ts::date, topup2_ts::date) as top1_top2_days -- days from first topup to second
+from data_fin
+;                           
+                            
+                            ","redshift-eu")
+
+
+ftmau_card_trigg_okr_1 <- queryDB("
+with kycc as (
+select z.user_created,
+	z.user_id,
+	country_tnc_legal,
+	tnc_country_group as market,
+	kyc_first_completed as kycc,
+	date_trunc('months',kycc)::date as kycc_cohort_week,
+	--datediff('days','2020-07-08',kyc_first_completed::date) as diff,
+	--case when ceil(diff::float/7) = 0 then 1 else ceil(diff::float/7) end as kycc_cohort_week,
+	card_first_activated as cfa,
+	ft_mau,
+	is_newstandard,
+	is_mau,
+	zc.order_date as cod,
+	p.su_product_id,
+	count(z.user_created) over (partition by kycc_cohort_week) as cohort_size
+from (select * from dbt.zrh_users where kyc_first_completed::date between '2019-06-01'::date and '2020-12-31'::date) z
+left join (select user_created, min(order_date) as order_date from dbt.zrh_cards where reissue_reason = 'INITIAL' group by 1) zc 
+	on z.user_created = zc.user_created
+join (select user_created, product_id as su_product_id from dbt.zrh_user_product zup where sign_up_flg = 1 and enter_reason = 'SIGNUP' group by 1,2) p 
+	on p.user_created = z.user_created
+), activity as (
+select k.user_created,
+	kycc_cohort_week,
+	cohort_size,
+	--datediff('days',kycc,act_date) as diff,
+	case when ceil(datediff('days',ft_mau::date,act_date::date)::float/35) = 0 then 1 else ceil(datediff('days',ft_mau::date,act_date::date)::float/35) end as period_month,
+	sum(n_act_txns) as n_act_tot
+from kycc k 
+left join dbt.zrh_act_day z 
+	on k.user_created = z.user_created 
+	and z.n_act_txns > 0 
+	and z.act_date::date between ft_mau::date and ft_mau::date + interval '105 days'
+group by 1,2,3,4
+), piv as (
+select 
+	user_created,
+	kycc_cohort_week,
+	cohort_size,
+	sum(case when period_month = 1 and n_act_tot >= 10 then 1 else 0 end) as act10_1,
+  	sum(case when period_month = 2 and n_act_tot >= 10 then 1 else 0 end) as act10_2,
+  	sum(case when period_month = 3 and n_act_tot >= 10 then 1 else 0 end) as act10_3
+from activity
+group by 1,2,3
+), agg as (
+select
+	kycc_cohort_week,
+	cohort_size,
+	count(distinct case when act10_1 = 1 then user_created end) as act10_1_users,
+	count(distinct case when act10_1 = 1 and act10_2 = 1 then user_created end) as act10_12_users,
+	count(distinct case when act10_1 = 1 and act10_2 = 1 and act10_3 = 1 then user_created end) as act10_123_users
+from piv 
+group by 1,2
+)
+select kycc_cohort_week,
+    round(sum(act10_1_users)::float/sum(cohort_size),3) as act10_1_user,
+    round(sum(act10_12_users)::float/sum(cohort_size),3) as act10_12_user,
+    round(sum(act10_123_users)::float/sum(cohort_size),3) as act10_123_user 	
+from agg
+--where kycc_cohort_weeks between current_date - interval '20 months' and current_date - interval '3 months'
+group by 1
+order by 1;
+
+                                ","redshift-eu")
+
+early_topup_amt <- queryDB("
+drop table if exists users;
+create temp table users as
+with kycc as (
+select z.user_created,
+	z.user_id,
+	country_tnc_legal,
+	tnc_country_group as market,
+	kyc_first_completed as kycc,
+	date_trunc('months',kycc)::date as kycc_cohort_month,
+	card_first_activated as cfa,
+	ft_mau,
+	is_newstandard,
+	is_mau,
+	zc.order_date as cod,
+	p.su_product_id,
+	row_number() over (partition by kycc_cohort_month order by random()) as rn
+from (select * from dbt.zrh_users where kyc_first_completed >= '2019-07-01') z
+left join (select user_created, min(order_date) as order_date from dbt.zrh_cards where reissue_reason = 'INITIAL' group by 1) zc 
+	on z.user_created = zc.user_created
+join (select user_created, product_id as su_product_id from dbt.zrh_user_product zup where sign_up_flg = 1 and enter_reason = 'SIGNUP' group by 1,2) p 
+	on p.user_created = z.user_created
+)
+select *,count(*) over (partition by kycc_cohort_month) as kycc_cohort_size from kycc 
+where rn <= 40000
+;
+
+--activity periods within 6 months of kycc
+drop table if exists activity_period;
+create temp table activity_period as 
+with period as (
+select 
+	user_created, kycc_cohort_month, kycc_cohort_size,
+	datediff('days',kycc::date,act_date::date) as diff,
+	case when ceil(diff::float/35) = 0 then 1 else ceil(diff::float/35) end as period_kycc,
+	n_act_txns
+from dbt.zrh_act_day 
+join (select * from users)
+	using(user_created)
+where n_act_txns > 0 
+	and act_date::date between kycc::date and kycc::date + interval '210 days'
+order by 1,3
+)
+select 
+	user_created,
+	period_kycc,
+	sum(n_act_txns) as n_act_txns_,
+	count(period_kycc) over (partition by user_created) as n_period_active,
+	avg(n_act_txns_) over (partition by user_created) as avg_act_txns_period1_6
+from period 
+group by 1,2
+order by 1,2
+;
+
+select p.*,
+	kycc_cohort_month, kycc_cohort_size,
+	coalesce(round(sum(a.amount_cents_ext_total_in)::float/100),0) as amt_ext_in_7,
+	coalesce(round(sum(b.amount_cents_ext_total_in)::float/100),0) as amt_ext_in_14
+from (select user_created, n_period_active,avg_act_txns_period1_6 from activity_period group by 1,2,3) p
+join users u
+	using(user_created)
+left join dbt.zrh_txn_day a 
+	on p.user_created = a.user_created 
+	and a.amount_cents_ext_total_in > 0
+	and a.txn_date::date between u.kycc::date and u.kycc::date + interval '7 days'
+left join dbt.zrh_txn_day b 
+	on p.user_created = b.user_created 
+	and b.amount_cents_ext_total_in > 0
+	and b.txn_date::date between u.kycc::date and u.kycc::date + interval '14 days'
+group by 1,2,3,4,5
+order by 1;                          
+                           ","redshift-eu")
+
+
+card_cost <- queryDB("
+-- card cost before and after CST
+drop table if exists users;
+create temp table users as
+with kycc as (
+select z.user_created,
+	z.user_id,
+	country_tnc_legal,
+	tnc_country_group as market,
+	kyc_first_completed as kycc,
+	date_trunc('months',kycc)::date as kycc_cohort_month,
+	card_first_activated as cfa,
+	ft_mau,
+	is_newstandard,
+	is_mau,
+	zc.order_date as cod,
+	p.su_product_id,
+	row_number() over (partition by kycc_cohort_month order by random()) as rn
+from (select * from dbt.zrh_users where kyc_first_completed >= '2019-07-01') z
+left join (select user_created, min(order_date) as order_date from dbt.zrh_cards where reissue_reason = 'INITIAL' group by 1) zc 
+	on z.user_created = zc.user_created
+join (select user_created, product_id as su_product_id from dbt.zrh_user_product zup where sign_up_flg = 1 and enter_reason = 'SIGNUP' group by 1,2) p 
+	on p.user_created = z.user_created
+)
+select *,count(*) over (partition by kycc_cohort_month) as kycc_cohort_size from kycc 
+where rn <= 40000
+;
+
+-- txns types based on first, second etc
+drop table if exists ft_topup;
+CREATE temp TABLE ft_topup AS 
+select 
+	user_created,
+	txn_date as ft_ts_in,
+	round(amount_cents_ext_total_in::float/100) as amt_ext_total_in, n_ext_total_in,
+	ROW_NUMBER() over (partition by user_created order by txn_date) as rn_in 
+from dbt.zrh_txn_day 
+join (select distinct user_created from users)
+	using(user_created)
+where n_ext_total_in > 0;
+
+drop table if exists ft_out;
+CREATE temp table ft_out as 
+select 
+	user_created,
+	txn_date as ft_ts_out,
+	round(amount_cents_ext_total_out::float/100) as amt_ext_total_out, n_ext_total_out,
+	ROW_NUMBER() over (partition by user_created order by txn_date) as rn_out 
+from dbt.zrh_txn_day 
+join (select distinct user_created from users)
+	using(user_created)
+where n_ext_total_out > 0;
+
+create temp table cards as 
+select p.user_created,
+	p.month,
+	p.label,
+	p.value,
+	revenue_cost,
+	product_group,
+	product,
+	item,
+	line_item,
+	classifier,
+	segment
+from dbt.ucm_pnl p 
+left join dbt.ucm_mapping m 
+	on p.label = m.label 
+where product_group = 'Onboarding'
+--group by 1,2,3,4,5
+;
+
+
+drop table if exists cards_ucm;
+create temp table cards_ucm as 
+select u.user_created,
+	u.market,
+	su_product_id,
+	u.is_mau,
+	u.cfa,
+	u.ft_mau,
+	tp.ft_ts_in,
+	ot.ft_ts_out,
+	kycc_cohort_size,
+	kycc,
+	u.kycc_cohort_month,
+	c.month as month_ucm,
+	case when month_ucm = to_Char(kycc_cohort_month,'YYYY-MM') then 1 else 0 end as kycc_ucm_month,-- flg to identify kycc related card/onboarding cost
+	case when date_trunc('months',u.user_created)::date = kycc_cohort_month::date then 1 else 0 end as su_kycc_ts_same_flg,
+	c.revenue_cost,
+	c.product,
+	c.item,
+	classifier,
+	c.value
+from users u
+left join ft_topup tp  
+	on tp.user_created = u.user_created 
+	and rn_in = 1
+left join ft_out ot 
+	on ot.user_created = u.user_created
+	and ot.rn_out = 1
+left join cards c 
+	on u.user_created = c.user_created 
+order by 1, month,month_ucm, product,classifier
+;
+
+
+with card_cost as (
+select 
+	user_created,
+	market,
+	is_mau,
+	su_product_id,
+	kycc_cohort_month,
+	kycc_cohort_size,
+	case when cfa between kycc::date and kycc::date + interval '210 days' then 1 else 0 end as card_flg,
+	case when ft_ts_in between kycc::date and kycc::date + interval '210 days' then 1 else 0 end as ftmau_flg,
+	case when ft_ts_out between kycc::date and kycc::date + interval '210 days' then 1 else 0 end as ftout_flg,
+	card_flg || ftmau_flg || ftout_flg as user_type,
+	product,
+	item,
+	round(sum(value::float/100),2) as value 
+from cards_ucm
+--where (product = 'Card Costs' and item ilike '%Onboarding%')
+--where su_product_id not like '%METAL%' --and product = 'Card Costs' and item ilike '%Onboarding%'
+group by 1,2,3,4,5,6,7,8,9,10,11,12
+order by 1,2,3,4,5
+), agg as (
+select 
+	kycc_cohort_month,
+	kycc_cohort_size,
+	case when user_type = '001' then '111'
+		when user_type = '010' then '111'
+		when user_type = '001' then '111'
+		when user_type = '101' then '111'
+		when user_type = '011' then '111'
+		else user_type end as user_type,
+	product,
+	count(distinct user_created) as n_users,
+	round(sum(value),2) as sum_value,
+	sum(sum_value) over (partition by kycc_cohort_month, product) as tot_product_cost,
+	sum(sum_value) over (partition by kycc_cohort_month) as tot_onboarding_cost
+from card_cost 
+group by 1,2,3,4
+)
+select 
+	*
+from agg
+order by 1,3 --,product
+;
+                     
+                     
+                     ","redshift-eu")
+
+card_cost_save <- queryDB("
+-- card cost before and after CST
+drop table if exists users;
+create temp table users as
+with kycc as (
+select z.user_created,
+	z.user_id,
+	country_tnc_legal,
+	tnc_country_group as market,
+	kyc_first_completed as kycc,
+	date_trunc('months',kycc)::date as kycc_cohort_month,
+	card_first_activated as cfa,
+	ft_mau,
+	is_newstandard,
+	is_mau,
+	zc.order_date as cod,
+	p.su_product_id
+	--row_number() over (partition by kycc_cohort_month order by random()) as rn
+from (select * from dbt.zrh_users where kyc_first_completed >= '2019-07-01') z
+left join (select user_created, min(order_date) as order_date from dbt.zrh_cards where reissue_reason = 'INITIAL' group by 1) zc 
+	on z.user_created = zc.user_created
+join (select user_created, product_id as su_product_id from dbt.zrh_user_product zup where sign_up_flg = 1 and enter_reason = 'SIGNUP' group by 1,2) p 
+	on p.user_created = z.user_created
+)
+select *,count(*) over (partition by kycc_cohort_month) as kycc_cohort_size from kycc 
+--where rn <= 40000
+;
+
+-- txns types based on first, second etc
+drop table if exists ft_topup;
+CREATE temp TABLE ft_topup AS 
+select 
+	user_created,
+	txn_date as ft_ts_in,
+	round(amount_cents_ext_total_in::float/100) as amt_ext_total_in, n_ext_total_in,
+	ROW_NUMBER() over (partition by user_created order by txn_date) as rn_in 
+from dbt.zrh_txn_day 
+join (select distinct user_created from users)
+	using(user_created)
+where n_ext_total_in > 0;
+
+drop table if exists ft_out;
+CREATE temp table ft_out as 
+select 
+	user_created,
+	txn_date as ft_ts_out,
+	round(amount_cents_ext_total_out::float/100) as amt_ext_total_out, n_ext_total_out,
+	ROW_NUMBER() over (partition by user_created order by txn_date) as rn_out 
+from dbt.zrh_txn_day 
+join (select distinct user_created from users)
+	using(user_created)
+where n_ext_total_out > 0;
+
+create temp table cards as 
+select p.user_created,
+	p.month,
+	p.label,
+	p.value,
+	revenue_cost,
+	product_group,
+	product,
+	item,
+	line_item,
+	classifier,
+	segment
+from dbt.ucm_pnl p 
+left join dbt.ucm_mapping m 
+	on p.label = m.label 
+where product_group = 'Onboarding'
+--group by 1,2,3,4,5
+;
+
+
+drop table if exists cards_ucm;
+create temp table cards_ucm as 
+select u.user_created,
+	u.market,
+	su_product_id,
+	u.is_mau,
+	u.cfa,
+	u.ft_mau,
+	tp.ft_ts_in,
+	ot.ft_ts_out,
+	kycc_cohort_size,
+	kycc,
+	u.kycc_cohort_month,
+	c.month as month_ucm,
+	case when month_ucm = to_Char(kycc_cohort_month,'YYYY-MM') then 1 else 0 end as kycc_ucm_month,-- flg to identify kycc related card/onboarding cost
+	case when date_trunc('months',u.user_created)::date = kycc_cohort_month::date then 1 else 0 end as su_kycc_ts_same_flg,
+	c.revenue_cost,
+	c.product,
+	c.item,
+	classifier,
+	c.value
+from users u
+left join ft_topup tp  
+	on tp.user_created = u.user_created 
+	and rn_in = 1
+left join ft_out ot 
+	on ot.user_created = u.user_created
+	and ot.rn_out = 1
+left join cards c 
+	on u.user_created = c.user_created 
+order by 1, month,month_ucm, product,classifier
+;
+
+
+with card_cost as (
+select 
+	user_created,
+	market,
+	is_mau,
+	su_product_id,
+	kycc_cohort_month,
+	kycc_cohort_size,
+	case when cfa between kycc::date and kycc::date + interval '210 days' then 1 else 0 end as card_flg,
+	case when ft_ts_in between kycc::date and kycc::date + interval '210 days' then 1 else 0 end as ftmau_flg,
+	case when ft_ts_out between kycc::date and kycc::date + interval '210 days' then 1 else 0 end as ftout_flg,
+	card_flg || ftmau_flg || ftout_flg as user_type,
+	product,
+	item,
+	round(sum(value::float/100),2) as value 
+from cards_ucm
+--where (product = 'Card Costs' and item ilike '%Onboarding%')
+--where su_product_id not like '%METAL%' --and product = 'Card Costs' and item ilike '%Onboarding%'
+group by 1,2,3,4,5,6,7,8,9,10,11,12
+order by 1,2,3,4,5
+), agg as (
+select 
+	kycc_cohort_month,
+	kycc_cohort_size,
+	case when user_type = '001' then '111'
+		when user_type = '010' then '111'
+		when user_type = '001' then '111'
+		when user_type = '101' then '111'
+		when user_type = '011' then '111'
+		else user_type end as user_type,
+	product,
+	count(distinct user_created) as n_users,
+	round(sum(value),2) as sum_value,
+	sum(sum_value) over (partition by kycc_cohort_month, product) as tot_product_cost,
+	sum(sum_value) over (partition by kycc_cohort_month) as tot_onboarding_cost
+from card_cost 
+group by 1,2,3,4
+)
+select 
+	kycc_cohort_month,
+	case when user_type = '111' then 'activated' else 'churned' end as user_type,
+	tot_product_cost,
+	sum(sum_value) as value
+from agg
+where product = 'Card Costs'
+group by 1,2,3
+order by 1,2
+;                          
+                          
+                          ","redshift-eu")
+
+onboarding_metric <- queryDB("
+-- TEsting BRieuc and Fabio's metric 
+--activity periods within 6 months of kycc
+
+drop table if exists users;
+create temp table users as
+with kycc as (
+select z.user_created,
+	z.user_id,
+	country_tnc_legal,
+	tnc_country_group as market,
+	kyc_first_completed as kycc,
+	date_trunc('months',kycc)::date as kycc_cohort_month,
+	card_first_activated as cfa,
+	ft_mau,
+	is_newstandard,
+	is_mau,
+	zc.order_date as cod,
+	p.su_product_id,
+	row_number() over (partition by kycc_cohort_month order by random()) as rn
+from (select * from dbt.zrh_users where kyc_first_completed >= '2019-07-01') z
+left join (select user_created, min(order_date) as order_date from dbt.zrh_cards where reissue_reason = 'INITIAL' group by 1) zc 
+	on z.user_created = zc.user_created
+join (select user_created, product_id as su_product_id from dbt.zrh_user_product zup where sign_up_flg = 1 and enter_reason = 'SIGNUP' group by 1,2) p 
+	on p.user_created = z.user_created
+)
+select *,count(*) over (partition by kycc_cohort_month) as kycc_cohort_size from kycc 
+where rn <= 40000
+;
+	
+drop table if exists activity_period;
+create temp table activity_period as 
+with period as (
+select 
+	user_created, kycc_cohort_month, kycc_cohort_size,
+	datediff('days',kycc::date,act_date::date) as diff,
+	case when ceil(diff::float/35) = 0 then 1 else ceil(diff::float/35) end as period_kycc,
+	n_act_txns
+from dbt.zrh_act_day 
+join (select * from users)
+	using(user_created)
+where n_act_txns > 0 
+	and act_date::date between kycc::date and kycc::date + interval '210 days'
+order by 1,3
+)
+select 
+	user_created,
+	period_kycc,
+	sum(n_act_txns) as n_act_txns_,
+	count(period_kycc) over (partition by user_created) as n_period_active,
+	avg(n_act_txns_) over (partition by user_created) as avg_act_txns_period1_6
+from period 
+group by 1,2
+order by 1,2
+;
+
+with amt_7 as (
+select p.*,
+	kycc_cohort_month, kycc_cohort_size,
+	coalesce(round(sum(a.amount_cents_ext_total_in)::float/100),0) as amt_ext_in_7
+from (select user_created, n_period_active,avg_act_txns_period1_6 from activity_period group by 1,2,3) p
+join users u
+	using(user_created)
+left join dbt.zrh_txn_day a 
+	on p.user_created = a.user_created 
+	and a.amount_cents_ext_total_in > 0
+	and a.txn_date::date between u.kycc::date and u.kycc::date + interval '7 days'
+group by 1,2,3,4,5
+order by 1
+), amt_14 as (
+select p.*,
+	kycc_cohort_month, kycc_cohort_size,
+	coalesce(round(sum(b.amount_cents_ext_total_in)::float/100),0) as amt_ext_in_14
+from (select user_created, n_period_active,avg_act_txns_period1_6 from activity_period group by 1,2,3) p
+join users u
+	using(user_created)
+left join dbt.zrh_txn_day b 
+	on p.user_created = b.user_created 
+	and b.amount_cents_ext_total_in > 0
+	and b.txn_date::date between u.kycc::date and u.kycc::date + interval '14 days'
+group by 1,2,3,4,5
+order by 1
+), amt_35 as (
+select p.*,
+	kycc_cohort_month, kycc_cohort_size,
+	coalesce(round(sum(d.amount_cents_ext_total_in)::float/100),0) as amt_ext_in_35
+from (select user_created, n_period_active,avg_act_txns_period1_6 from activity_period group by 1,2,3) p
+join users u
+	using(user_created)
+left join dbt.zrh_txn_day d
+	on p.user_created = d.user_created 
+	and d.amount_cents_ext_total_in > 0
+	and d.txn_date::date between u.kycc::date and u.kycc::date + interval '35 days'
+group by 1,2,3,4,5
+order by 1
+), n_act_35 as ( 
+select p.*,
+	kycc_cohort_month, kycc_cohort_size,
+	coalesce(round(sum(c.n_act_total)),0)as n_act_35
+from (select user_created, n_period_active,avg_act_txns_period1_6 from activity_period group by 1,2,3) p
+join users u
+	using(user_created)
+left join dbt.zrh_txn_day c
+	on p.user_created = c.user_created 
+	and c.n_act_total > 0
+	and c.txn_date::date between u.kycc::date and u.kycc::date + interval '35 days'
+group by 1,2,3,4,5
+order by 1
+)
+select 
+	a.kycc_cohort_month,
+	a.kycc_cohort_size,
+	a.n_period_active,
+	a.med_amt_ext_in_7,
+	b.med_amt_ext_in_14,
+	c.med_amt_ext_in_35,
+	d.med_n_act_35
+from (select kycc_cohort_month, kycc_cohort_size,n_period_active, median(COALESCE(amt_ext_in_7,0)) as med_amt_ext_in_7 
+		from amt_7 group by 1,2,3) as a
+join (select kycc_cohort_month, kycc_cohort_size,n_period_active, median(COALESCE(amt_ext_in_14,0)) as med_amt_ext_in_14 
+		from amt_14 group by 1,2,3) as b
+	on a.kycc_cohort_month = b.kycc_cohort_month
+	and a.n_period_active = b.n_period_active 
+join (select kycc_cohort_month, kycc_cohort_size,n_period_active, median(COALESCE(amt_ext_in_35,0)) as med_amt_ext_in_35 
+		from amt_35 group by 1,2,3) as c
+	on a.kycc_cohort_month = c.kycc_cohort_month
+	and a.n_period_active = c.n_period_active
+join (select kycc_cohort_month, kycc_cohort_size,n_period_active, median(COALESCE(n_act_35)) as med_n_act_35 
+		from n_act_35 group by 1,2,3) as d
+	on a.kycc_cohort_month = d.kycc_cohort_month
+	and a.n_period_active = d.n_period_active 
+order by 1,2,3;
+                             ","redshift-eu")
+
+retention <- queryDB("
+drop table if exists users;
+create temp table users as
+with kycc as (
+select z.user_created,
+	z.user_id,
+	country_tnc_legal,
+	tnc_country_group as market,
+	kyc_first_completed as kycc,
+	date_trunc('months',kycc)::date as kycc_cohort_month,
+	card_first_activated as cfa,
+	ft_mau,
+	is_newstandard,
+	is_mau,
+	zc.order_date as cod,
+	p.su_product_id,
+	row_number() over (partition by kycc_cohort_month order by random()) as rn
+from (select * from dbt.zrh_users where kyc_first_completed >= '2019-07-01') z
+left join (select user_created, min(order_date) as order_date from dbt.zrh_cards where reissue_reason = 'INITIAL' group by 1) zc 
+	on z.user_created = zc.user_created
+join (select user_created, product_id as su_product_id from dbt.zrh_user_product zup where sign_up_flg = 1 and enter_reason = 'SIGNUP' group by 1,2) p 
+	on p.user_created = z.user_created
+)
+select *,count(*) over (partition by kycc_cohort_month) as kycc_cohort_size from kycc 
+where rn <= 40000
+;
+	
+drop table if exists activity_period;
+create temp table activity_period as 
+with period as (
+select 
+	user_created, kycc_cohort_month, kycc_cohort_size,
+	datediff('days',kycc::date,act_date::date) as diff,
+	case when ceil(diff::float/35) = 0 then 1 else ceil(diff::float/35) end as period_kycc,
+	n_act_txns
+from dbt.zrh_act_day 
+join (select * from users)
+	using(user_created)
+where n_act_txns > 0 
+	and act_date::date between kycc::date and kycc::date + interval '210 days'
+order by 1,3
+)
+select 
+	user_created,
+	period_kycc,
+	sum(n_act_txns) as n_act_txns_,
+	count(period_kycc) over (partition by user_created) as n_period_active,
+	avg(n_act_txns_) over (partition by user_created) as avg_act_txns_period1_6
+from period 
+group by 1,2
+order by 1,2
+;
+
+with top_up as (
+select p.*,
+	kycc_cohort_month, kycc_cohort_size,
+	case when ceil(datediff('days',u.kycc::date,a.txn_date::date)::float/35) = 0 then 1 else ceil(datediff('days',u.kycc::date,a.txn_date::date)::float/35) end as period,
+	coalesce(round(sum(a.amount_cents_ext_total_in)::float/100),0) as amt_ext_in
+from (select user_created, n_period_active,avg_act_txns_period1_6 from activity_period group by 1,2,3) p
+join users u
+	using(user_created)
+left join dbt.zrh_txn_day a 
+	on p.user_created = a.user_created 
+	and a.amount_cents_ext_total_in > 0
+	and a.txn_date::date between u.kycc::date and u.kycc::date + interval '210 days'
+group by 1,2,3,4,5,6
+order by 1,2,period
+), retention_3months as (
+select kycc_cohort_month,
+	kycc_cohort_size,
+	period,
+	count(distinct user_created) as users_ret,
+	round(users_ret::float/kycc_cohort_size,2) as perc_ret
+from top_up
+group by 1,2,3
+)
+select * 
+from retention_3months 
+order by 1,2,3;                     
+                     ","redshift-eu")
+
+topup_amt_6months <- queryDB("
+drop table if exists users;
+create temp table users as
+with kycc as (
+select z.user_created,
+	z.user_id,
+	country_tnc_legal,
+	tnc_country_group as market,
+	kyc_first_completed as kycc,
+	date_trunc('months',kycc)::date as kycc_cohort_month,
+	card_first_activated as cfa,
+	ft_mau,
+	is_newstandard,
+	is_mau,
+	zc.order_date as cod,
+	p.su_product_id,
+	row_number() over (partition by kycc_cohort_month order by random()) as rn
+from (select * from dbt.zrh_users where kyc_first_completed >= '2019-07-01') z
+left join (select user_created, min(order_date) as order_date from dbt.zrh_cards where reissue_reason = 'INITIAL' group by 1) zc 
+	on z.user_created = zc.user_created
+join (select user_created, product_id as su_product_id from dbt.zrh_user_product zup where sign_up_flg = 1 and enter_reason = 'SIGNUP' group by 1,2) p 
+	on p.user_created = z.user_created
+)
+select *,count(*) over (partition by kycc_cohort_month) as kycc_cohort_size from kycc 
+where rn <= 40000
+;
+	
+drop table if exists activity_period;
+create temp table activity_period as 
+with period as (
+select 
+	user_created, kycc_cohort_month, kycc_cohort_size,
+	datediff('days',kycc::date,act_date::date) as diff,
+	case when ceil(diff::float/35) = 0 then 1 else ceil(diff::float/35) end as period_kycc,
+	n_act_txns
+from dbt.zrh_act_day 
+join (select * from users)
+	using(user_created)
+where n_act_txns > 0 
+	and act_date::date between kycc::date and kycc::date + interval '210 days'
+order by 1,3
+)
+select 
+	user_created,
+	period_kycc,
+	sum(n_act_txns) as n_act_txns_,
+	count(period_kycc) over (partition by user_created) as n_period_active,
+	avg(n_act_txns_) over (partition by user_created) as avg_act_txns_period1_6
+from period 
+group by 1,2
+order by 1,2
+;
+
+with top_up as (
+select p.*,
+	kycc_cohort_month, kycc_cohort_size,
+	case when ceil(datediff('days',u.kycc::date,a.txn_date::date)::float/35) = 0 then 1 else ceil(datediff('days',u.kycc::date,a.txn_date::date)::float/35) end as period,
+	coalesce(round(sum(a.amount_cents_ext_total_in)::float/100),0) as amt_ext_in
+from (select user_created, n_period_active,avg_act_txns_period1_6 from activity_period group by 1,2,3) p
+join users u
+	using(user_created)
+left join dbt.zrh_txn_day a 
+	on p.user_created = a.user_created 
+	and a.amount_cents_ext_total_in > 0
+	and a.txn_date::date between u.kycc::date and u.kycc::date + interval '210 days'
+group by 1,2,3,4,5,6
+order by 1,2,period
+), retention_3months as (
+select kycc_cohort_month,
+	kycc_cohort_size,
+	period,
+	count(distinct user_created) as users_ret,
+	round(users_ret::float/kycc_cohort_size,2) as perc_ret
+from top_up
+group by 1,2,3
+), med as (
+select 
+	kycc_cohort_month,
+	kycc_cohort_size,
+	n_period_active,
+	--case when n_period_active in (1,2,3,4) then 'low_act_period' else 'high_act_period' end as act_period, 
+	period,
+	median(amt_ext_in) as med_amt_ext_in
+from top_up 
+group by 1,2,3,4
+order by 1,2,3,4
+)
+select * from med 
+;
+                             
+                             ","redshift-eu")
+save(#early_features,
+     ft_txn_cnt,
+     mark_spend,
+     early_features_2,
+     kycc_card_trigg_okr,
+     ftmau_card_trigg_okr,
+     ftout_card_trigg_okr,
+     early_cluster_ftmau,
+     ftmau_card_trigg_okr_1,
+     early_topup_amt,
+     card_cost,
+     card_cost_save,
+     onboarding_metric,
+     retention,
+     topup_amt_6months,
+     file = file.path("card_shipping_trigger.RData"))
+
+
+```
+
+```{r}
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/card_shipping_trigger/card_shipping_trigger.RData"))
+ef <- as.data.frame(early_features_2)
+#ef <- filter(ef,kycc_cohort_month < '2021-07-01')
+
+#sd %>% summarise_all(n_distinct)
+
+```
+
+
+```{r}
+#ef$kycc_cohort <- trunc(ef$kycc,units="months")
+
+
+trigg <- ef %>% group_by(card_trigger,kycc_cohort_month) %>% 
+  summarise(
+    med_topup_amt = median(amt_ext_total_in,na.rm=T),
+    med_kycc_cod = median(kycc_cod_days,na.rm=T),
+    med_kycc_ftmau = median(kycc_ftmau_days,na.rm=T),
+    med_kycc_ftout = median(kycc_ftout_days,na.rm=T),
+    med_ft_in_out = median(ft_in_out_days,na.rm=T),
+    med_kycc_cfa = median(kycc_cfa_days, na.rm=T),
+    med_cod_cfa = median(cod_cfa_days,na.rm=T)
+  )
+
+trigg_ <- ef %>% group_by(card_trigger) %>% 
+  summarise(
+    med_topup_amt = median(amt_ext_total_in,na.rm=T),
+    med_kycc_cod = median(kycc_cod_days,na.rm=T),
+    med_kycc_ftmau = median(kycc_ftmau_days,na.rm=T),
+    med_kycc_ftout = median(kycc_ftout_days,na.rm=T),
+    med_ft_in_out = median(ft_in_out_days,na.rm=T),
+    med_kycc_cfa = median(kycc_cfa_days, na.rm=T),
+    med_cod_cfa = median(cod_cfa_days,na.rm=T)
+  )
+
+
+```
+
+```{r}
+library(ggplot2)
+library(RColorBrewer)
+display.brewer.all()
+
+color <- brewer.pal(12,"Set3")
+
+trigg <- ef %>% group_by(card_trigger,kycc_cohort_month) %>% 
+  summarise(
+    med_topup_amt = median(amt_ext_total_in,na.rm=T),
+    med_kycc_cod = median(kycc_cod_days,na.rm=T),
+    med_kycc_ftmau = median(kycc_ftmau_days,na.rm=T),
+    med_kycc_ftout = median(kycc_ftout_days,na.rm=T),
+    med_ft_in_out = median(ft_in_out_days,na.rm=T),
+    med_kycc_cfa = median(kycc_cfa_days, na.rm=T),
+    med_cod_cfa = median(cod_cfa_days,na.rm=T)
+  )
+
+piv <- as.data.frame( 
+  trigg %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("med"), # column name starts with string
+      names_to = "features", # new column name of column names after pivot
+      values_to = "median", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+piv$features <- factor(piv$features, levels = c("med_kycc_ftmau", "med_kycc_cod","med_topup_amt", "med_kycc_ftout",
+                                                "med_ft_in_out","med_kycc_cfa","med_cod_cfa"))
+
+ggplot(piv, 
+       aes(x=as.factor(kycc_cohort_month), 
+           y = median,
+           group=as.factor(features),
+           color=as.factor(features)
+           )
+       ) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Median Days") + xlab("KYCc Cohort Months") +
+  ggtitle(" ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=12,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  facet_grid(features ~ .,scales = "free"
+             ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+trigg <- ef %>% group_by(card_trigger,kycc_cohort_month) %>%
+  summarise(
+    med_kycctopup_day2 = median(kycc_topup_day2_days,na.rm=T),
+    med_kycctopup_2 = median(kycc_topup_2_days,na.rm=T),
+    med_kycc_st = median(kycc_st_days,na.rm=T),
+    med_ftmau_st = median(ft_in_st_days,na.rm=T),
+    med_top1_top2 = median(top1_top2_days,na.rm=T),
+    med_n_topupkycc35 = median(n_topup_35_kycc, na.rm=T),
+    med_amt_topupkycc35 = median(amt_tot_topup_35_kycc,na.rm=T),
+    med_amt_topup1 = median(amt_topup1,na.rm=T),
+    med_amt_topup2 = median(amt_topup2,na.rm=T)
+  )
+
+
+
+piv <- as.data.frame( 
+  trigg %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("med"), # column name starts with string
+      names_to = "features", # new column name of column names after pivot
+      values_to = "median", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+#piv$features <- factor(piv$features, levels = c("med_kycc_ftmau", "med_kycc_cod","med_topup_amt", "med_kycc_ftout",
+#                                                "med_ft_in_out","med_kycc_cfa","med_cod_cfa"))
+
+ggplot(piv, 
+       aes(x=as.factor(kycc_cohort_month), 
+           y = median,
+           group=as.factor(features),
+           color=as.factor(features)
+           )
+       ) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Median Days") + xlab("KYCc Cohort Months") +
+  ggtitle(" ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=12,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  facet_grid(features ~ .,scales = "free"
+             ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+```
+- see if the mcc groups differ between the groups before and after card trigger
+- look at % users that activate card 
+- does the amount of time between ftmau to first money out influence user engagement?
+
+```{r}
+# Are THERE DIFFERENCES IN THE EFFECT OF THE CARD SHIPPING TRIGGER ON HIGH AND LOW ACTIVITY USERS?
+
+trigg <- filter(ef,!is.na(n_act_35_kycc), kycc_cohort_month <= '2021-03-01') %>% 
+  mutate(
+    activity = case_when(
+      n_act_35_kycc >= 10 ~ 'Power MAU (10+ txn)',
+      n_act_35_kycc < 10 ~ 'Low Activity (<10 txn)'
+    )
+  ) %>% group_by(kycc_cohort_month, activity) %>% 
+  summarise(
+    med_n_topupkycc35 = median(n_topup_35_kycc, na.rm=T),
+    med_amt_topupkycc35 = median(amt_tot_topup_35_kycc,na.rm=T),
+    med_amt_topup1 = median(amt_topup1,na.rm=T),
+    med_amt_topup2 = median(amt_topup2,na.rm=T),
+    med_act_35_kycc35 = median(n_act_35_kycc,na.rm=T)
+  )
+
+piv <- as.data.frame( 
+  trigg %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("med"), # column name starts with string
+      names_to = "features", # new column name of column names after pivot
+      values_to = "median", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+ggplot(filter(piv,features %in% c("med_amt_topupkycc35","med_amt_topupkycc35")), 
+       aes(x=as.factor(kycc_cohort_month), 
+           y = median,
+           group=as.factor(activity),
+           color=as.factor(activity)
+           )
+       ) + #coord_cartesian(ylim = c(0, 200)) + 
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Median Total Topup Amt") + xlab("KYCc Cohort Months") +
+  ggtitle(" ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=12,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  facet_grid(activity ~ . ,scales = "free"
+             ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#CB7C7A","#48AC98", 
+                                #"#E5C3C7",
+                                "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Activity Type", #labels = c("Power MAUs (10+ txns)","Low Activity (<10 txn)")
+                    )
+
+ggplot(filter(piv,features %in% c("med_n_topupkycc35")), 
+       aes(x=as.factor(kycc_cohort_month), 
+           y = median,
+           group=as.factor(activity),
+           color=as.factor(activity)
+           )
+       ) + #coord_cartesian(ylim = c(0, 200)) + 
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Median No. Top-up") + xlab("KYCc Cohort Months") +
+  ggtitle(" ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=12,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #facet_grid(activity ~ . ,scales = "free"
+  #           ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#CB7C7A","#48AC98", 
+                                #"#E5C3C7",
+                                "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Activity Type", #labels = c("Power MAUs (10+ txns)","Low Activity (<10 txn)")
+                    )
+
+
+ggplot(filter(piv,features %in% c("med_amt_topup1","med_amt_topup2")), 
+       aes(x=as.factor(kycc_cohort_month), 
+           y = median,
+           group=as.factor(features),
+           color=as.factor(features)
+           )
+       ) + coord_cartesian(ylim = c(0, 200)) + 
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Median Amount") + xlab("KYCc Cohort Months") +
+  ggtitle(" ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=12,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+     strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  facet_grid(activity ~ . ,scales = "free"
+             ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c(#"#48AC98", "#E5C3C7",
+                                #"#CB7C7A", "#CAD7CA",
+                                "#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "Top-Up", labels = c("1st Top-up","2nd Top-up")
+                    )
+
+
+```
+```{r}
+
+topup <- ef %>% group_by(kycc_cohort_month) %>% 
+  summarise(
+    med_amt = median(amt_tot_topup_35_kycc,na.rm=T),
+    med_num = median(n_act_35_kycc,na.rm=T)
+  )
+
+
+ggplot(topup, 
+       aes(x=as.factor(kycc_cohort_month), 
+           y = med_amt,
+           group=1,
+           #color=as.factor(kycc_cohort_month)
+           )
+       ) + #coord_cartesian(ylim = c(0.25, 0.5)) +
+  geom_line(size=2, color = "#48AC98")+
+  geom_point(size=2,color = "#48AC98" 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Median Total Top-Up Amt - first 35 days KYCc") + xlab("KYCc Cohort Months") +
+  ggtitle(" ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #facet_grid(features ~ .,scales = "free"
+  #           ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+```
+
+
+```{r}
+# what is the avg 
+ba <- filter(trigg,kycc_cohort_month >= '2020-01-01') %>% 
+  mutate(
+    card = case_when(
+      kycc_cohort_month < '2020-07-01' ~ 'before',
+      TRUE ~ 'after'
+    )
+  ) %>% group_by(card,activity) %>% 
+  summarise(
+    med = median(med_amt_topupkycc35)
+  )
+  
+
+```
+
+
+```{r}
+# extend the window of early activity from 35 to 50 days after ft-mau to test whether users might not have enough time to complete 10+ txns.
+
+ef_ <- filter(ef,!is.na(n_act_35)) %>% 
+  mutate(
+    act10_35 = case_when(
+      n_act_35 >= 10 ~ 'power_mau10',
+      n_act_35 < 10 ~ 'low_mau',
+      is.na(n_act_35) ~ 'non-activated'),
+    act10_50 = case_when(
+      n_act_50 >= 10 ~ 'power_mau',
+      n_act_50 < 10 ~ 'low_mau',
+      is.na(n_act_50) ~ 'non-activated')
+  )
+
+
+act35days <- ef_ %>% group_by(kycc_cohort_month,act10_35) %>%
+  summarise(
+    users = length(user_id)
+  ) %>% group_by(kycc_cohort_month) %>%
+  mutate(
+    tot_users = sum(users),
+    perc = round(users/tot_users,2) 
+  )
+
+act50days <- ef_ %>% group_by(kycc_cohort_month,act10_50) %>%
+  summarise(
+    users = length(user_id)
+  ) %>% group_by(kycc_cohort_month) %>%
+  mutate(
+    tot_users = sum(users),
+    perc = round(users/tot_users,2) 
+  )
+
+
+
+test <- ef_ %>% group_by(card_trigger,act10_35) %>% 
+  summarise(med_act35 = median(n_act_35,na.rm=T),
+            med_act50 = median(n_act_50,na.rm=T))
+
+
+
+ggplot(act35days, 
+       aes(x=as.factor(kycc_cohort_month), 
+           y = perc,
+           group=as.factor(act10_35),
+           color=as.factor(act10_35)
+           )
+       ) + coord_cartesian(ylim = c(0.30, 0.70)) + 
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users") + xlab("KYCc Cohort Months") +
+  ggtitle("Early User Activity within first 35 days of Ft-MAU") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=12,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #facet_grid(features ~ .,scales = "free") +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#CB7C7A","#48AC98", #"#E5C3C7",
+                                 "#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Cluster", labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+ggplot(act50days, 
+       aes(x=as.factor(kycc_cohort_month), 
+           y = perc,
+           group=as.factor(act10_50),
+           color=as.factor(act10_50)
+           )
+       ) + coord_cartesian(ylim = c(0.30, 0.70)) + 
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users") + xlab("KYCc Cohort Months") +
+  ggtitle("Early User Activity within first 50 days of Ft-MAU") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=12,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #facet_grid(features ~ .,scales = "free") +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#CB7C7A","#48AC98", #"#E5C3C7",
+                                 "#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "User Activity Type", labels = c("Low Activity","Power MAUs (10+ txn)")
+                    )
+
+
+
+```
+
+```{r}
+
+
+
+```
+
+```{r}
+# only Ft-MAU users are considered here
+
+act_df <- ef[,colnames(ef) %in% c("user_id","kycc_cohort_month","n_act_35_kycc","n_act_35","n_act_35_st_ts","n_act_35_ftout")]
+
+piv <- as.data.frame( 
+  act_df %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("n_act"), # column name starts with string
+      names_to = "feature", # new column name of column names after pivot
+      values_to = "value", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+piv_ <- piv %>% 
+  mutate(
+    activity = case_when(
+      value >= 10 ~ 'power_mau10',
+      value < 10 ~ 'low_mau')
+  ) %>% group_by(kycc_cohort_month,feature,activity) %>% 
+  summarise(users = length(user_id)) %>% group_by(kycc_cohort_month,feature) %>%
+  mutate(
+    tot_users = sum(users),
+    perc = round(users/tot_users,2)
+  )
+
+ggplot(filter(piv_,activity == 'power_mau10',kycc_cohort_month <= '2021-03-01'), 
+       aes(x=as.factor(kycc_cohort_month), 
+           y = perc,
+           group=as.factor(feature),
+           color=as.factor(feature)
+           )
+       ) + #coord_cartesian(ylim = c(0.30, 0.70)) + 
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) + 
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users") + xlab("KYCc Cohort Months") +
+  ggtitle("Power MAU 10+ txns w/ different starting points") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=18,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    legend.key.size = unit(1, "cm")
+  ) +
+  #facet_grid(features ~ .,scales = "free") +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#CB7C7A","#48AC98", "#E5C3C7",
+                                 "#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "First 35 days from ...", labels = c("Ft-MAU","Ft-Money-Out","KYCc","Second-Day 1+txn")
+                    )
+
+
+
+act_df <- ef[,colnames(ef) %in% c("user_id","kycc_cohort_month","n_act_50_kycc","n_act_50","n_act_50_st_ts","n_act_50_ftout")]
+
+piv <- as.data.frame( 
+  act_df %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("n_act"), # column name starts with string
+      names_to = "feature", # new column name of column names after pivot
+      values_to = "value", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+piv_ <- piv %>% 
+  mutate(
+    activity = case_when(
+      value >= 10 ~ 'power_mau10',
+      value < 10 ~ 'low_mau')
+  ) %>% group_by(kycc_cohort_month,feature,activity) %>% 
+  summarise(users = length(user_id)) %>% group_by(kycc_cohort_month,feature) %>%
+  mutate(
+    tot_users = sum(users),
+    perc = round(users/tot_users,2)
+  )
+
+ggplot(filter(piv_,activity == 'power_mau10',kycc_cohort_month <= '2021-03-01'), 
+       aes(x=as.factor(kycc_cohort_month), 
+           y = perc,
+           group=as.factor(feature),
+           color=as.factor(feature)
+           )
+       ) + #coord_cartesian(ylim = c(0.30, 0.70)) + 
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) + 
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users") + xlab("KYCc Cohort Months") +
+  ggtitle("Power MAU 10+ txns w/ different starting points") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=18,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    legend.key.size = unit(1, "cm")
+  ) +
+  #facet_grid(features ~ .,scales = "free") +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#CB7C7A","#48AC98", "#E5C3C7",
+                                 "#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "First 50 days from ...", labels = c("Ft-MAU","Ft-Money-Out","KYCc","Second-Day 1+txn")
+                    )
+```
+
+```{r}
+
+kyc <- ef %>% 
+  mutate(
+    activity = case_when(
+      n_act_35_kycc >= 10 ~ 'power_mau10',
+      n_act_35_kycc < 10 ~ 'lower')
+) %>% group_by(kycc_cohort_month,activity) %>%
+  summarise(
+    users = length(user_id)
+  ) %>% group_by(kycc_cohort_month) %>%
+  mutate(
+    tot_users = sum(users),
+    perc = round(users/tot_users,2)
+  )
+
+ftmau <- ef %>% 
+  mutate(
+    activity = case_when(
+      n_act_35 >= 10 ~ 'power_mau10',
+      n_act_35 < 10 ~ 'lower')
+) %>% group_by(kycc_cohort_month,activity) %>%
+  summarise(
+    users = length(user_id)
+  ) %>% group_by(kycc_cohort_month) %>%
+  mutate(
+    tot_users = sum(users),
+    perc = round(users/tot_users,2)
+  )
+
+ftout <- ef %>% 
+  mutate(
+    activity = case_when(
+      n_act_35_ftout >= 10 ~ 'power_mau10',
+      n_act_35_ftout < 10 ~ 'lower')
+) %>% group_by(kycc_cohort_month,activity) %>%
+  summarise(
+    users = length(user_id)
+  ) %>% group_by(kycc_cohort_month) %>%
+  mutate(
+    tot_users = sum(users),
+    perc = round(users/tot_users,2)
+  )
+
+test <- filter(kyc,activity=="power_mau10")
+
+```
+
+```{r}
+# WHAT IS THE DIFFERENCE BETWEEN HAVE KYCC VS FTMAU?
+
+# % KYCC USERS ACTIVATING AND COMPLETING THEIR FIRST MONEY OUT TXN
+cfa <- as.data.frame(
+  ef %>% group_by(kycc_cohort_month,kycc_cohort_size) %>% 
+  summarise(
+    users = length(user_id),
+    users_act_card = length(user_id[!is.na(cfa)])
+  ) %>% mutate(
+    perc = round(users_act_card/users,2)
+  ))
+
+cfa$feat <- rep('cfa',times=length(cfa[,1]))
+
+ftout <- as.data.frame(
+  ef %>% group_by(kycc_cohort_month,kycc_cohort_size
+                  ) %>% 
+  summarise(
+    users = length(user_id),
+    users_act_card = length(user_id[!is.na(n_act_35_ftout)])
+  ) %>% mutate(
+    perc = round(users_act_card/users,2)
+  ))
+
+ftmau <- as.data.frame(
+  ef %>% group_by(kycc_cohort_month,kycc_cohort_size
+                  ) %>% 
+  summarise(
+    users = length(user_id),
+    users_act_card = length(user_id[!is.na(n_act_35)])
+  ) %>% mutate(
+    perc = round(users_act_card/kycc_cohort_size,2)
+  ))
+
+ftout$feat <- rep('ftout',times=length(ftout[,1]))
+ftmau$feat <- rep('ftmau',times=length(ftmau[,1]))
+
+dff <- rbind(cfa,ftout,ftmau)
+
+ggplot(filter(dff,kycc_cohort_month <= '2020-12-01'), 
+       aes(x=as.factor(kycc_cohort_month), 
+           y = perc,
+           group=as.factor(feat),
+           color=as.factor(feat)
+           )
+       ) + #coord_cartesian(ylim = c(0.70, 1)) + 
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users Activating") + xlab("KYCc Cohort Months") +
+  ggtitle("% KYCc Users activating card and completing first money out (ft-OUT)") +
+    theme(
+    legend.title = element_text(color = "black", size = 20),
+    legend.text = element_text(color = "black", size = 20,face="bold"),
+    axis.text=element_text(size=18,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    legend.key.size = unit(1, "cm")
+  ) +
+  #facet_grid(features ~ .,scales = "free") +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#CB7C7A","#48AC98", #"#E5C3C7",
+                                 "#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "Activation Features", labels = c("Card Activation","FT-MAU", "FT-Money-Out")
+                    )
+
+### % FTMAU ACTIVATING CARD AND COMPLETING FIRST MONEY OUT
+cfa <- as.data.frame(
+  filter(ef,!is.na(ft_mau)) %>% group_by(kycc_cohort_month) %>% 
+  summarise(
+    users = length(user_id),
+    users_act_card = length(user_id[!is.na(cfa)])
+  ) %>% mutate(
+    perc = round(users_act_card/users,2)
+  ))
+
+cfa$feat <- rep('cfa',times=length(cfa[,1]))
+
+ftout <- as.data.frame(
+  filter(ef,!is.na(ft_mau)) %>% group_by(kycc_cohort_month,#card_trigger
+                  ) %>% 
+  summarise(
+    users = length(user_id),
+    users_act_card = length(user_id[!is.na(n_act_35_ftout)])
+  ) %>% mutate(
+    perc = round(users_act_card/users,2)
+  ))
+
+ftout$feat <- rep('ftout',times=length(ftout[,1]))
+
+dff <- rbind(cfa,ftout)
+
+ggplot(filter(dff,kycc_cohort_month <= '2020-12-01'), 
+       aes(x=as.factor(kycc_cohort_month), 
+           y = perc,
+           group=as.factor(feat),
+           color=as.factor(feat)
+           )
+       ) + coord_cartesian(ylim = c(0.90, 1)) + 
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users Activating") + xlab("KYCc Cohort Months") +
+  ggtitle("% Ft-MAU Users activating card and completing first money out (ft-OUT)") +
+    theme(
+    legend.title = element_text(color = "black", size = 20),
+    legend.text = element_text(color = "black", size = 20,face="bold"),
+    axis.text=element_text(size=18,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    legend.key.size = unit(1, "cm")
+  ) +
+  #facet_grid(features ~ .,scales = "free") +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#CB7C7A","#48AC98", #"#E5C3C7",
+                                 "#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "Activation Features", labels = c("Card Activation","FT-Money-Out")
+                    )
+
+
+
+```
+```{r}
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/card_shipping_trigger/card_shipping_trigger.RData"))
+kokr <- as.data.frame(kycc_card_trigg_okr)
+fokr <- as.data.frame(ftmau_card_trigg_okr)
+fokr1 <- as.data.frame(ftmau_card_trigg_okr_1)
+fookr <- as.data.frame(ftout_card_trigg_okr)
+cl.ftmau <- as.data.frame(early_cluster_ftmau)
+ef <- as.data.frame(early_features_2)
+
+ef$kycc_cohort <- trunc(ef$kycc,units="months")
+ef <- filter(ef,kycc_cohort != '2021-04-01')
+
+# Early User clusters with different baseline timeframes 
+df.kyc <- read.csv("/Users/wendyvu/Documents/clustering_sagemaker_evergreen_results/pca_35days_kycc_aug092021_RESULTS_relabeled.csv")
+
+
+```
+
+```{r}
+# does the amount of time between ftmau to first money our influence retention? Nope
+before <- filter(ef,card_trigger == 'before')
+
+bf <- ef %>% 
+  mutate(
+    mau6 = case_when(
+      n_period_active > 0 ~ 1,
+      is.na(n_period_active) ~ 0
+    )
+  ) %>% group_by(kycc_cohort_month, mau6) %>%
+  summarise(med_days_in_out = median(ft_in_out_days,na.rm=T))
+
+# does the amount of topup/number of txns predict how active users are in the future?
+# use number of mau periods to measure activity
+
+fa_kycc <- filter(ef,!is.na(n_period_active)) %>% group_by(kycc_cohort_month,n_period_active) %>%
+  summarise(
+    med_act_kycc35 = median(n_act_35_kycc,na.rm=T),
+    med_topupkycc35 = median(n_topup_35_kycc,na.rm=T),
+    med_topupkycc35_amt = median(amt_tot_topup_35_kycc, na.rm=T),
+    med_topup1 = median(amt_topup1,na.rm=T),
+    med_topup2 = median(amt_topup2,na.rm=T),
+    med_kycc_ftmau_days = median(kycc_ftmau_days,na.rm=T),
+    users = length(user_id)
+  )
+
+fa <- filter(ef,!is.na(n_period_active)) %>% group_by(kycc_cohort_month,n_period_active) %>%
+  summarise(
+    med_act_kycc35 = median(n_act_35,na.rm=T),
+    med_topupkycc35 = median(n_topup_35,na.rm=T),
+    med_topupkycc35_amt = median(amt_tot_topup_35, na.rm=T),
+    med_topup1 = median(amt_topup1,na.rm=T),
+    med_topup2 = median(amt_topup2,na.rm=T),
+    med_kycc_ftmau_days = median(kycc_ftmau_days,na.rm=T)
+  )
+
+```
+
+```{r}
+# comparing baseline timeframes to see the effects it has on the okr of 10+ first 3 months
+
+kycc_piv <- as.data.frame( 
+  kokr %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("act"), # column name starts with string
+      names_to = "feature", # new column name of column names after pivot
+      values_to = "percent", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+ftmau_piv <- as.data.frame( 
+  fokr %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("act"), # column name starts with string
+      names_to = "feature", # new column name of column names after pivot
+      values_to = "percent", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+ftout_piv <- as.data.frame( 
+  fookr %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("act"), # column name starts with string
+      names_to = "feature", # new column name of column names after pivot
+      values_to = "percent", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+kycc_piv$baseline <- rep('KYCc',times=length(kycc_piv[,1]))
+ftmau_piv$baseline <- rep('FT-MAU',times = length(ftmau_piv[,1]))
+ftout_piv$baseline <- rep('FT-OUT',times = length(ftout_piv[,1]))
+
+dff <- rbind(kycc_piv,ftmau_piv,ftout_piv)
+dff$baseline <- factor(dff$baseline, levels = c("KYCc","FT-MAU","FT-OUT"))
+
+ggplot(dff, 
+       aes(x=as.factor(kycc_cohort_week), 
+           y = percent,
+           group=as.factor(feature),
+           color=as.factor(feature)
+           )
+       ) + coord_cartesian(ylim = c(0.15, 0.5)) + 
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users") + xlab("KYCc Cohort Month") +
+  ggtitle(" ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=14,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    legend.key.size = unit(1, "cm"),
+        strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  facet_grid(. ~ baseline,#scales = "free"
+             ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#CB7C7A","#48AC98", #"#E5C3C7",
+                                 "#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "Activation Features", labels = c("10+txn-first-35days",
+                                                             "10+txn-2-consec-months",
+                                                             "10+txn-3-consec-months")
+                    )
+
+
+ftmau_piv <- as.data.frame( 
+  fokr1 %>% 
+    tidyr::pivot_longer(
+      cols = starts_with("act"), # column name starts with string
+      names_to = "feature", # new column name of column names after pivot
+      values_to = "percent", # new column for values,
+      #names_prefix = "per_",
+      
+      #na.rm=TRUE,
+    )
+  )
+
+ggplot(ftmau_piv, 
+       aes(x=as.factor(kycc_cohort_week), 
+           y = percent,
+           group=as.factor(feature),
+           color=as.factor(feature)
+           )
+       ) + coord_cartesian(ylim = c(0.15, 0.5)) + 
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users") + xlab("KYCc Cohort Month") +
+  ggtitle(" ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=14,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    legend.key.size = unit(1, "cm"),
+        strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  #facet_grid(. ~ baseline,#scales = "free"
+  #           ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#CB7C7A","#48AC98", #"#E5C3C7",
+                                 "#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "Activation Features", labels = c("10+txn-first-35days",
+                                                             "10+txn-2-consec-months",
+                                                             "10+txn-3-consec-months")
+                    )
+
+
+```
+
+```{r}
+
+
+med <- ef %>% group_by(kycc_cohort_month) %>%
+  summarise(
+    med_act_kycc = median(n_act_35_kycc,na.rm=T),
+    med_act_ftmau = median(n_act_35,na.rm=T),
+    med_act_ftout = median(n_act_35_ftout,na.rm=T)
+  )
+
+m.kycc <- ef %>% 
+  mutate(
+    activity = case_when(
+      n_act_35_kycc >= 10 ~ 'high',
+      n_act_35_kycc < 10 ~ 'low'
+    )
+  ) %>% group_by(kycc_cohort_month,activity) %>%
+  summarise(
+    med_act = median(n_act_35_kycc,na.rm=T),
+  )
+
+```
+
+```{r}
+
+
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/card_shipping_trigger/card_shipping_trigger.RData"))
+kokr <- as.data.frame(kycc_card_trigg_okr)
+fokr <- as.data.frame(ftmau_card_trigg_okr)
+fokr1 <- as.data.frame(ftmau_card_trigg_okr_1)
+fookr <- as.data.frame(ftout_card_trigg_okr)
+cl.ftmau <- as.data.frame(early_cluster_ftmau)
+ef <- as.data.frame(early_features_2)
+
+ef$kycc_cohort <- trunc(ef$kycc,units="months")
+ef <- filter(ef,kycc_cohort != '2021-04-01')
+
+# Early User clusters with different baseline timeframes 
+df.kyc <- read.csv("/Users/wendyvu/Documents/clustering_sagemaker_evergreen_results/pca_35days_kycc_aug092021_RESULTS_relabeled.csv")
+
+```
+
+```{r}
+# Early User clusters with different baseline timeframes 
+
+act <- as.data.frame(
+  df.kyc %>% 
+  mutate(
+    activity = case_when(
+      cluster_13 %in% c(6,11,10,12,9,1,4,0) ~ 'high',
+     TRUE ~ 'low'
+  )) %>% group_by(kycc_cohort,activity) %>%
+  summarise(
+    users= length(user_id)
+  ) %>% group_by(kycc_cohort) %>%
+  mutate(
+    tot_user = sum(users),
+    perc = round(users/tot_user,2)
+  )
+)
+
+act$kycc_cohort <- as.Date(act$kycc_cohort)
+
+act_ftmau <- as.data.frame(
+  cl.ftmau %>% 
+  mutate(
+    activity = case_when(
+      early_cluster_ftmau %in% c("E1","E2","E3","E4","E5","E6","E12") ~ 'high',
+      TRUE ~ 'low'
+    )
+  ) %>% group_by(kycc_cohort,activity) %>%
+  summarise(
+    users = length(user_id)
+  ) %>% group_by(kycc_cohort) %>%
+  mutate(
+    tot_user = sum(users),
+    perc = round(users/tot_user,2)
+  )
+)
+  
+act$baseline <- rep('KYCc',times=length(act[,1]))
+act_ftmau$baseline <- rep("FT-MAU",times=length(act_ftmau[,1]))
+
+dff <- rbind(act,act_ftmau)
+
+ggplot(filter(dff, activity == 'high', kycc_cohort >= '2019-06-01'
+              ), 
+       aes(x=as.factor(kycc_cohort), 
+           y = perc,
+           group=as.factor(baseline),
+           color=as.factor(baseline)
+           )
+       ) + coord_cartesian(ylim = c(0.30, 0.6)) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% High Activity User Clusters") + xlab("KYCc Cohort Months") +
+  ggtitle(" ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #facet_grid(features ~ .,scales = "free"
+  #           ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "Baseline Used:\nEarly User Clusters", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+```
+```{r}
+
+kyc <- as.data.frame(
+  df.kyc %>% group_by(kycc_cohort,cluster_new) %>%
+  summarise(
+    users = length(user_id)
+  ) %>% group_by(kycc_cohort) %>%
+  mutate(
+    tot_users = sum(users),
+    perc = round(users/tot_users,2)
+  )
+)
+
+colnames(cl.ftmau)[3] <- "cluster_new"
+ftmau <- as.data.frame(
+  cl.ftmau %>% 
+    mutate(
+      cluster_new = case_when(
+      cluster_new =="E1" ~ "E01",
+      cluster_new == "E2" ~ "E02",
+      cluster_new == "E3" ~ "E03",
+      cluster_new == "E4" ~ "E04",
+      cluster_new == "E5" ~ "E05",
+      cluster_new == "E6" ~ "E06",
+      cluster_new == "E7" ~ "E07",
+      cluster_new == "E8" ~ "E08",
+      cluster_new == "E9" ~ "E09",
+      TRUE ~ cluster_new
+      )
+    ) %>% group_by(kycc_cohort,cluster_new) %>%
+  summarise(
+    users = length(user_id)
+  ) %>% group_by(kycc_cohort) %>%
+  mutate(
+    tot_users = sum(users),
+    perc = round(users/tot_users,2)
+  )
+)
+
+ftmau$baseline <- rep("ftmau",times=length(ftmau[,1]))
+kyc$baseline <- rep("kycc",times=length(kyc[,1]))
+
+fin <- rbind(ftmau,kyc)
+fin$cluster_new[fin$cluster_new=="E5"] <- "E05"
+
+ggplot(filter(fin, cluster_new %in% c("E01", "E02","E03","E04", "E05","E6","E12","E13"),
+              kycc_cohort >= '2019-06-01'
+              ), 
+       aes(x=as.factor(kycc_cohort), 
+           y = perc,
+           group=as.factor(baseline),
+           color=as.factor(baseline)
+           )
+       ) + #coord_cartesian(ylim = c(0.25, 0.5)) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% High Activity User Clusters") + xlab("KYCc Cohort Months") +
+  ggtitle(" ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  facet_grid(cluster_new ~ .,scales = "free"
+             ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "Baseline Used:\nEarly User Clusters", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+ggplot(filter(fin, cluster_new %in% c("E07", "E08","E09","E10", "E11"),
+              kycc_cohort >= '2019-06-01'
+              ), 
+       aes(x=as.factor(kycc_cohort), 
+           y = perc,
+           group=as.factor(baseline),
+           color=as.factor(baseline)
+           )
+       ) + #coord_cartesian(ylim = c(0.25, 0.5)) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% High Activity User Clusters") + xlab("KYCc Cohort Months") +
+  ggtitle(" ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  facet_grid(cluster_new ~ .,scales = "free"
+             ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "Baseline Used:\nEarly User Clusters", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+
+```
+
+## Understanding Early Onboarding Metrics from KYCc
+- do we need to revisit the number of txns we consider Power MAUs
+
+```{r}
+
+per_act <- ef %>% 
+  mutate(
+    n_period_act = case_when(
+      is.na(n_period_active) ~ 0,
+      TRUE ~ n_period_active
+    )
+  ) %>% group_by(card_trigger,
+                 kycc_cohort_month, 
+                 n_period_act) %>% 
+  summarise(
+    users = length(user_id),
+    med_txn_period1_6 = median(avg_act_txns_period1_6),
+    med_n_act35_kycc = median(n_act_35_kycc,na.rm=T),
+    med_amt_topup35 = median(amt_tot_topup_35_kycc,na.rm=TRUE)
+  ) %>% #group_by(kycc_cohort_month) %>%
+  mutate(
+    tot_users = sum(users),
+    perc = round(users/tot_users,2)
+  )
+
+per_act_filt <- filter(ef,kycc_cohort_month %in% as.Date(c("2020-06-01","2020-07-01"))) %>% 
+  mutate(
+    n_period_act = case_when(
+      is.na(n_period_active) ~ 0,
+      TRUE ~ n_period_active
+    )
+  ) %>% group_by(kycc_cohort_month, #card_trigger, 
+                 n_period_act) %>% 
+  summarise(
+    users = length(user_id),
+    med_txn_period1_6 = median(avg_act_txns_period1_6),
+    med_amt_topup35 = median(amt_tot_topup_35_kycc,na.rm=TRUE)
+  ) %>% #group_by(kycc_cohort_month) %>%
+  mutate(
+    tot_users = sum(users),
+    perc = round(users/tot_users,2)
+  )
+
+ggplot(filter(per_act,kycc_cohort_month <= '2020-12-01',#n_period_act != 0
+              ), 
+       aes(x=as.factor(kycc_cohort_month), 
+           y = perc,
+           group=as.factor(n_period_act),
+           color=as.factor(n_period_act)
+           )
+       ) + #coord_cartesian(ylim = c(0.25, 0.5)) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users") + xlab("KYCc Cohort Months") +
+  ggtitle("% Users MAU for X Months ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  facet_grid(n_period_act ~ .,scales = "free"
+             ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "Baseline Used:\nEarly User Clusters", #labels = c("Premium_funded","Standard_funded")
+                    )
+# extreme users highly engaged vs no engagement
+ggplot(filter(per_act,kycc_cohort_month <= '2020-12-01',n_period_act %in% c(0,6)
+              ), 
+       aes(x=as.factor(kycc_cohort_month), 
+           y = perc,
+           group=as.factor(n_period_act),
+           color=as.factor(n_period_act)
+           )
+       ) + #coord_cartesian(ylim = c(0.25, 0.5)) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% KYCc Users") + xlab("KYCc Cohort Months") +
+  ggtitle("% Users MAU for X Months ") +
+    theme(
+    legend.title = element_text(color = "black", size = 14),
+    legend.text = element_text(color = "black", size = 14,face="bold"),
+    axis.text=element_text(size=14,face="bold",angle=45),
+    axis.title.x = element_text(size= 14,face='bold'),
+    axis.title.y = element_text(size=14,face='bold')
+  ) +
+  #facet_grid(n_period_act ~ .,scales = "free"
+  #           ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#CB7C7A","#48AC98",
+                                "#E5C3C7", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "Total No.MAU\nMonths", labels = c("0 MAU Months","6 MAU Months")
+                    )
+
+
+ggplot(filter(per_act,kycc_cohort_month <= '2020-12-01',n_period_act != 0), 
+       aes(x=as.factor(kycc_cohort_month), 
+           y = med_n_act35_kycc,
+           group=as.factor(n_period_act),
+           color=as.factor(n_period_act)
+           )
+       ) + #coord_cartesian(ylim = c(0.25, 0.5)) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Total No. Txns - 35 days KYCc") + xlab("KYCc Cohort Months") +
+  ggtitle("Median # Txns - 35 days KYCc ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  facet_grid(n_period_act ~ .,scales = "free"
+             ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "Baseline Used:\nEarly User Clusters", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+ggplot(filter(per_act,kycc_cohort_month <= '2020-12-01',n_period_act != 0), 
+       aes(x=as.factor(kycc_cohort_month), 
+           y = med_amt_topup35,
+           group=as.factor(n_period_act),
+           color=as.factor(n_period_act)
+           )
+       ) + #coord_cartesian(ylim = c(0.25, 0.5)) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Total Top-Up Amt - 35 days KYCc") + xlab("KYCc Cohort Months") +
+  ggtitle("Median Total Amt Topup - 35 days KYCc ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  facet_grid(n_period_act ~ .,scales = "free"
+             ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "Baseline Used:\nEarly User Clusters", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+avg_act <- per_act %>% group_by(card_trigger,n_period_act) %>%
+  summarise(med_n_act35_kycc_ = median(med_n_act35_kycc),
+            med_amt_topup35_ = median(med_amt_topup35))
+
+
+
+ggplot(filter(per_act,kycc_cohort_month <= '2020-12-01',#n_period_act != 0
+              ), 
+       aes(x=as.factor(n_period_act), 
+           y = perc,
+           group=as.factor(kycc_cohort_month),
+           color=as.factor(kycc_cohort_month)
+           )
+       ) + #coord_cartesian(ylim = c(0.25, 0.5)) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users") + xlab("Total No. MAU months w/in first 6 months KYCc") +
+  ggtitle("% Users MAU for X Months ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #facet_grid(n_period_act ~ .,scales = "free"
+  #           ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "KYCc Cohort Months", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+
+per_act_1 <- filter(ef,kycc_cohort_month <= '2020-12-01' #%in% as.Date(c('2020-05-01','2020-06-01','2020-07-01','2020-08-01'))
+                    ) %>% 
+  mutate(
+    n_period_act = case_when(
+      is.na(n_period_active) ~ 0,
+      TRUE ~ n_period_active
+    )
+  ) %>% group_by(card_trigger, #kycc_cohort_month, 
+                 n_period_act) %>% 
+  summarise(
+    users = length(user_id),
+    med_txn_period1_6 = median(avg_act_txns_period1_6),
+    med_n_act35_kycc = median(n_act_35_kycc,na.rm=T),
+    med_amt_topup35 = median(amt_tot_topup_35_kycc,na.rm=TRUE)
+  ) %>% #group_by(kycc_cohort_month) %>%
+  mutate(
+    tot_users = sum(users),
+    perc = round(users/tot_users,2)
+  )
+
+ggplot(per_act_1, 
+       aes(x=as.factor(n_period_act), 
+           y = perc,
+           group=as.factor(card_trigger),
+           color=as.factor(card_trigger)
+           )
+       ) + coord_cartesian(ylim = c(0, 0.4)) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users") + xlab("Total No. MAU months w/in first 6 months KYCc") +
+  ggtitle("% Users MAU for X Months ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #facet_grid(n_period_act ~ .,scales = "free"
+  #           ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "KYCc Cohorts\nCard Shipping\nTrigger Launch", labels = c("Before","After")
+                    )
+
+```
+
+```{r}
+# Card Cost
+df <- load(paste0("/Users/wendyvu/Documents/card_shipping_trigger/card_shipping_trigger.RData"))
+
+cc <- as.data.frame(card_cost)
+ccs <- as.data.frame(card_cost_save)
+
+
+```
+
+```{r}
+
+
+```
+
+```{r}
+cc$perc_product_value = round(cc$sum_value/cc$tot_product_cost,2)
+
+ggplot(filter(cc,product == 'Card Costs',kycc_cohort_month <= '2021-01-01'), 
+       aes(x=reorder(kycc_cohort_month, desc(kycc_cohort_month)), 
+           y = abs(perc_product_value),
+           group = reorder(as.factor(user_type), desc(as.factor(user_type))),
+           fill=as.factor(user_type),
+           )
+       ) + coord_flip() +
+  geom_bar(position="fill", stat="identity"
+    #position="dodge",stat="identity", width=0.5,fill = "#E69F00"
+           ) +
+  #geom_text(aes(label = round(perc*100), group = user_type), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Total Onboarding Card Cost") + xlab("KYCc Cohort Month") +
+  ggtitle("% Card Cost broken down by User Activity Type") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", 
+                             "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "User Activation Type", 
+                    labels = c("No Card Act.","Card Act. Only","Card Act. & Ft-MAU Only","Card Act. & Ft-MAU & Ft-Money-Out")
+                    )
+
+
+gr <- filter(cc,product == 'Card Costs',kycc_cohort_month <= '2021-01-01',user_type != '111')
+
+ggplot(gr, 
+       aes(x=reorder(kycc_cohort_month, desc(kycc_cohort_month)), 
+           y = abs(perc_product_value),
+           group = reorder(as.factor(user_type), desc(as.factor(user_type))),
+           fill=as.factor(user_type),
+           )
+       ) + coord_flip() +
+  geom_bar(position="stack", stat="identity"
+    #position="dodge",stat="identity", width=0.5,fill = "#E69F00"
+           ) +
+  #geom_text(aes(label = round(perc*100), group = user_type), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Total Onboarding Card Cost") + xlab("KYCc Cohort Month") +
+  ggtitle("% Lost based on INACTIVE Users") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 10,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) + 
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", 
+                             "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "User Activation Type", 
+                    labels = c("No Card Act.","Card Act. Only","Card Act. & Ft-MAU Only","Card Act. & Ft-MAU & Ft-Money-Out")
+                    ) 
+
+
+ggplot(filter(ccs,kycc_cohort_month <= '2021-01-01'), 
+       aes(x=reorder(kycc_cohort_month, desc(kycc_cohort_month)), 
+           y = abs(value/1000),
+           group = as.factor(user_type),
+           fill=as.factor(user_type),
+           )
+       ) + coord_flip() +
+  geom_bar(position="stack", stat="identity"
+    #position="dodge",stat="identity", width=0.5,fill = "#E69F00"
+           ) +
+  geom_text(aes(label = round(value/1000), group = user_type), position = position_stack(vjust = .5), 
+            #hjust = -1, #0.5, 
+            #vjust = 3, 
+            #vjust = -0.3, size = 3.5
+            ) + 
+  #geom_text(position = position_fill(vjust = .5),label = round(value/1000)) + 
+  ylab("Card related Onboarding Cost X 1000 Euro") + xlab("KYCc Cohort Month") +
+  ggtitle("Amount Card Cost based on Activated / Non-Activated Users") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 14,face="bold"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    #axis.ticks.x=element_blank(),
+    #axis.text.x=element_blank(),
+  ) + 
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  #scale_fill_manual(values = cbPalette,name = "Membership", labels = c("Premium","Standard")) +
+scale_fill_manual(values = c(#"#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA",
+                             "#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "User Type", 
+                    labels = c("Activated:Ft-Money-Out","Churned:Non-Ft-Money-Out")
+                    ) 
+```
+
+
+-- did top_up behavior change after the initial 35 days? month 2? month 3?
+
+-- User Retention?? or activation: although we see an increase in users activating by ~4-5pp (kycc - ftmau), these users end up dropping off in the second month.
+-- We see no difference in % users active in the 2nd, 3rd month before and after CST, suggesting that the initial increase in user activation
+-- within the first 35 days of kycc consist of users that have low product intention and activated bc they were told to.
+-- These users are potentially users that we could nudge to stay/become more engaged - thus presenting an opportunity for us 
+-- to develop a strategy to win over these users that have already invested. 
+-- Although they only represent 5% of the KYCc cohort, incremental tweeks over time will add up 
+
+
+```{r}
+# Card Cost
+df <- load(paste0("/Users/wendyvu/Documents/card_shipping_trigger/card_shipping_trigger.RData"))
+
+ob <- as.data.frame(onboarding_metric)
+ret <- as.data.frame(retention)
+ta <- as.data.frame(topup_amt_6months)
+
+```
+
+```{r}
+# User activation and retention before and after of user CST
+
+ret1 <- ret %>% 
+  mutate(
+    cst = case_when(
+      kycc_cohort_month <= '2020-06-01' ~ 'before',
+      TRUE ~ 'launch'
+    )
+  )
+
+ggplot(filter(ret1,!is.na(period),kycc_cohort_month >= '2020-01-01',kycc_cohort_month <= '2021-01-01'), 
+       aes(x=as.factor(period), 
+           y = perc_ret,
+           group=as.factor(kycc_cohort_month),
+           color=as.factor(kycc_cohort_month)
+           )
+       ) + #coord_cartesian(ylim = c(0, 0.4)) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% KYCc Users") + xlab("Months Since KYCc") +
+  ggtitle("% Users MAU w/in first 6 months of KYCc ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #facet_grid(n_period_act ~ .,scales = "free"
+  #           ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "KYCc Cohort Month", #labels = c("Before","After")
+                    )
+
+ggplot(filter(ret1,!is.na(period),kycc_cohort_month >= '2020-01-01',kycc_cohort_month <= '2021-01-01'), 
+       aes(x=as.factor(period), 
+           y = perc_ret,
+           group=as.factor(kycc_cohort_month),
+           color=as.factor(kycc_cohort_month)
+           )
+       ) + #coord_cartesian(ylim = c(0, 0.4)) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% KYCc Users") + xlab("Months Since KYCc") +
+  ggtitle("% Users MAU w/in first 6 months of KYCc ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #facet_grid(n_period_act ~ .,scales = "free"
+  #           ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98","#48AC98","#48AC98","#48AC98","#48AC98","#48AC98",
+                             "#737373","#737373","#737373","#737373","#737373","#737373","#737373"),
+                    name = "KYCc Cohort Month", #labels = c("Before","After")
+                    )
+
+ggplot(filter(ret1,!is.na(period),kycc_cohort_month >= '2020-05-01',kycc_cohort_month <= '2020-10-01'), 
+       aes(x=as.factor(period), 
+           y = perc_ret,
+           group=as.factor(kycc_cohort_month),
+           color=as.factor(kycc_cohort_month)
+           )
+       ) + #coord_cartesian(ylim = c(0, 0.4)) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% KYCc Users") + xlab("Months Since KYCc") +
+  ggtitle("% Users MAU w/in first 6 months of KYCc ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #facet_grid(n_period_act ~ .,scales = "free"
+  #           ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "KYCc Cohort Month", #labels = c("Before","After")
+                    )
+
+ggplot(filter(ret1,!is.na(period),kycc_cohort_month >= '2020-05-01',kycc_cohort_month <= '2020-08-01'), 
+       aes(x=as.factor(period), 
+           y = perc_ret,
+           group=as.factor(kycc_cohort_month),
+           color=as.factor(kycc_cohort_month)
+           )
+       ) + #coord_cartesian(ylim = c(0, 0.4)) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% KYCc Users") + xlab("Months Since KYCc") +
+  ggtitle("% Users MAU w/in first 6 months of KYCc ") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #facet_grid(n_period_act ~ .,scales = "free"
+  #           ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98","#48AC98",#"#48AC98","#48AC98","#48AC98","#48AC98",
+                             "#737373","#737373","#737373","#737373","#737373","#737373","#737373"),
+                    name = "KYCc Cohort Month", #labels = c("Before","After")
+                    )
+```
+
+
+```{r}
+# Brieuc's onboarding metric 
+
+ggplot(filter(ob,kycc_cohort_month >= '2020-07-01', kycc_cohort_month <= '2021-01-01'), 
+       aes(x=as.factor(n_period_active), 
+           y = med_amt_ext_in_7,
+           group=as.factor(kycc_cohort_month),
+           fill=as.factor(kycc_cohort_month)
+           )
+       ) + #coord_cartesian(ylim = c(0, 0.4)) +
+  geom_bar(position="dodge", stat="identity") +
+  #geom_line(size=2)+
+  #geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00") +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Median Amt Top-Up (Euro)") + xlab("Total No. MAU months w/in first 6 months KYCc") +
+  ggtitle("Median Top-Up Amt w/in first 7 days KYCc") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #facet_grid(n_period_act ~ .,scales = "free"
+  #           ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA",
+                             "#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "KYCc Cohort Months", 
+                    #labels = c("Activated:Ft-Money-Out","Churned:Non-Ft-Money-Out")
+                    ) 
+
+
+ggplot(filter(ob,kycc_cohort_month >= '2020-07-01', kycc_cohort_month <= '2021-01-01'), 
+       aes(x=as.factor(n_period_active), 
+           y = med_n_act_35,
+           group=as.factor(kycc_cohort_month),
+           fill=as.factor(kycc_cohort_month)
+           )
+       ) + coord_cartesian(ylim = c(0, 13)) +
+  geom_bar(position="dodge", stat="identity") +
+  #geom_line(size=2)+
+  #geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00") +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Median No. Total Txns") + xlab("Total No. MAU months w/in first 6 months KYCc") +
+  ggtitle("Total No. Txns w/in first 35 days KYCc") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #facet_grid(n_period_act ~ .,scales = "free"
+  #           ) +
+  #scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+scale_fill_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA",
+                             "#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                             "#FDF7C2",
+                             "#999999",
+                               "#D3D3D3",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE"
+                             ),
+                    name = "KYCc Cohort Months", 
+                    #labels = c("Activated:Ft-Money-Out","Churned:Non-Ft-Money-Out")
+                    ) 
+
+ggplot(filter(per_act,kycc_cohort_month >= '2020-07-01', kycc_cohort_month <= '2021-01-01',#n_period_act != 0
+              ), 
+       aes(x=as.factor(n_period_act), 
+           y = perc,
+           group=as.factor(kycc_cohort_month),
+           color=as.factor(kycc_cohort_month)
+           )
+       ) + #coord_cartesian(ylim = c(0.25, 0.5)) +
+  geom_line(size=2)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black",size=1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% KYCc Users") + xlab("Total No. MAU months w/in first 6 months KYCc") +
+  ggtitle("User Penetration: % KYCc Users MAU for X Total Months") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    axis.text=element_text(size=16,face="bold",angle=45),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold')
+  ) +
+  #facet_grid(n_period_act ~ .,scales = "free"
+  #           ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(~membership) +
+  scale_color_manual(values = c("#48AC98", "#E5C3C7","#CB7C7A", "#CAD7CA","#CDA35F","#C8D7E5","#266678","#F5D5B9","#737373","#CCCCCC",
+                               "#D3D3D3",
+                               "#999999",
+                               "#8DA290","#CAA7BD",
+                               "#B4BAD4",
+                               '#B88BAD',
+                               "#DBC4DF",
+                               "#D2C1CE",
+                               "#FDF7C2"),
+                    name = "KYCc Cohort Months", #labels = c("Premium_funded","Standard_funded")
+                    )
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

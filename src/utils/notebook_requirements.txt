@@ -1,0 +1,3 @@
+datalib-n26[postgres]==0.14.1
+jupyter
+jupyterlab

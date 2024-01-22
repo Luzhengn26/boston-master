@@ -1,0 +1,1896 @@
+---
+title: "Impact of New Standard Tier on Early User Behavioral Clusters"
+author: "Wendy Vu, Fabio Schmidt-Fischbach"
+region: "EU"
+summary: "Based on a previous New Standard Impact analysis, we found that there was a 2-3pp decrease in KYCc to Ft-MAU with no obvious impact on growth, indicating a potential negative impact on early user activation rates. In this analysis, we leveraged Early User Clusters to explore the impact of the New Standard tier on user behavior (first 35 days) and focused on 5 weekly KYCc cohorts before and after the launch. In general, early activity is indicator of long-term financial engagement and retention – early high activity users tend to have higher retention than low activity users."
+date: "2021-05-20"
+output:
+  html_document:
+    theme: cosmo
+    toc: yes
+  pdf_document:
+    toc: yes
+link: "https://docs.google.com/presentation/d/1zEx81ZAj6OVvWeZRAxwPdyBL8-dFhhqCfjvRGqrt8ms/edit#slide=id.gd9252fdf72_0_1209"
+tags: "New Standard Tier, early user behavior, segmentation, engage, transactions, cluster, financial behavior"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+setwd('/Users/wendyvu/Documents/spaces_free_trial/')
+library(n26)
+library(data.table)
+
+digital <- queryDB("
+with launch as (
+select distinct country_tnc_legal as market, case when country_tnc_legal in ('DEU','AUT','CHE') then '2021-03-18' 
+                               when country_tnc_legal in ('ESP','ITA') then '2021-02-25'
+                               when country_tnc_legal = 'FRA' then '2021-03-11'
+                               else '2021-02-16' end as launch
+                               from dbt.zrh_users
+), cards as (
+select 
+		user_created, 
+        is_digital, 
+        row_number() over(partition by user_created order by order_date desc) as rn 
+from dbt.zrh_cards 
+--where user_created >= '2020-01-01'
+), digital as (
+select c.*,
+	z.kyc_first_completed::date as kycc,
+	z.country_tnc_legal as market,
+	l.launch,
+	case when kycc < launch then 'before' else 'after' end as launch_cat,
+	z.card_first_activated,
+	z.is_premium,
+	case when z.product_id in ('STANDARD','BUSINESS_CARD') then 'STANDARD'
+		when z.product_id in ('METAL_CARD_MONTHLY','BUSINESS_METAL') then 'METAL'
+		when z.product_id in ('BLACK_CARD_MONTHLY','BUSINESS_BLACK') then 'YOU'
+		when z.product_id in ('SMART','BUSINESS_SMART') then 'SMART'
+		else z.product_id end as membership,
+	z.is_newstandard,
+	is_digital,
+	case when is_newstandard is true and cc.is_digital is false then 'New standard & physical'
+		when is_newstandard is true and cc.is_digital is true then 'New standard & digital'
+		when is_newstandard is false and membership = 'STANDARD' then 'Old standard' 
+		else membership
+		end as product_type
+from dev_dbt.pca_35days_FebMarchCohorts_May052021_Labels c
+join dbt.zrh_users as z 
+	on c.user_id = z.user_id 
+left join launch l 
+	on l.market = z.country_tnc_legal 
+left join cards as cc 
+	on cc.user_created = z.user_created 
+	and rn = 1
+), agg as (
+select 
+	launch,
+	cluster_new,
+--	case when cluster_new in ('E01','E02','E03','E04','E05','E06','E12') 
+--		then 'high' else 'low' end as activity,
+	product_type,
+	count(distinct user_id) as users,
+	sum(users) over (partition by launch,cluster_new) as tot_user_cluster,
+	round(users::float/tot_user_cluster*100),
+	sum(users) over (partition by 1)
+from digital 
+where launch_cat = 'after' and membership = 'STANDARD'
+	--and is_premium is false
+group by 1,2,3
+)
+select * from agg --where product_type = 'New standard & digital'
+order by 1,2,3
+                   ","redshift-eu")
+
+retention <- queryDB("
+drop table if exists clusters;
+create temp table clusters as 
+select
+	z.user_created,
+	z.user_id,
+	case when z.country_tnc_legal in ('DEU','AUT','CHE') then 'DEU/AUT/CHE'
+		when z.country_tnc_legal in ('ESP','ITA') then 'ESP/ITA'
+		when z.country_tnc_legal in ('FRA') then 'FRA'
+		else 'GrEuro' end as market,
+	z.kyc_first_completed,
+	date_trunc('months',z.kyc_first_completed) as kyc_cohort_month,
+	del.early_cluster,
+	case when del.early_cluster in ('E01','E02','E03','E04','E05','E06','E12') then 'high'
+		else 'low' end as activity,
+	z.ft_mau, 
+	ft.ft_dep_ts,
+	count(*) over (partition by kyc_cohort_month,market) as cohort_size,
+	count(*) over (partition by kyc_cohort_month, del.early_cluster,market) as cluster_size
+from dwh_earlycluster_labels del
+join (select user_id, user_created, kyc_first_completed, ft_mau, country_tnc_legal from dbt.zrh_users group by 1,2,3,4,5) as z 
+	on del.user_id = z.user_id 
+join (select user_created, min(txn_date) as ft_dep_ts from dbt.zrh_txn_day where n_ext_total_in > 0 group by 1) as ft
+	on ft.user_created = z.user_created
+;
+
+
+with act as (
+select cl.*,
+	zad.act_date,
+	zad.n_act_txns,
+	datediff('days',cl.ft_dep_ts::date,zad.act_date::date) as diff,
+	case when ceil(diff::float/35) = 0 then 1 else ceil(diff::float/35) end as period
+from clusters cl 
+left join dbt.zrh_act_day zad 
+	on cl.user_created = zad.user_created 
+	and n_act_txns > 0
+	and zad.act_date::date between cl.ft_dep_ts::date and cl.ft_dep_ts::date + interval '210 days'
+), ret as (
+select
+	market,
+	early_cluster,
+	kyc_cohort_month,
+	period,
+	cluster_size,
+	count(distinct user_created) as n_users,
+	round(n_users::float/cluster_size,2) as perc_retained
+from act 
+where period is not null
+group by 1,2,3,4,5
+)
+select * from ret 
+order by 1,2,3,4
+           
+                     
+                     ","redshift-eu")
+
+retention_act <- queryDB("
+drop table if exists clusters;
+create temp table clusters as 
+select
+	z.user_created,
+	z.user_id,
+	case when z.country_tnc_legal in ('DEU','AUT','CHE') then 'DEU/AUT/CHE'
+		when z.country_tnc_legal in ('ESP','ITA') then 'ESP/ITA'
+		when z.country_tnc_legal in ('FRA') then 'FRA'
+		else 'GrEuro' end as market,
+	z.kyc_first_completed,
+	date_trunc('months',z.kyc_first_completed) as kyc_cohort_month,
+	del.early_cluster,
+	case when del.early_cluster in ('E01','E02','E03','E04','E05','E06','E12') then 'high'
+		else 'low' end as activity,
+	z.ft_mau, 
+	ft.ft_dep_ts,
+	count(*) over (partition by kyc_cohort_month,market) as cohort_size,
+	--count(*) over (partition by kyc_cohort_month, del.early_cluster,market) as cluster_size
+	count(*) over (partition by kyc_cohort_month, activity,market) as cluster_size
+from dwh_earlycluster_labels del
+join (select user_id, user_created, kyc_first_completed, ft_mau, country_tnc_legal from dbt.zrh_users group by 1,2,3,4,5) as z 
+	on del.user_id = z.user_id 
+join (select user_created, min(txn_date) as ft_dep_ts from dbt.zrh_txn_day where n_ext_total_in > 0 group by 1) as ft
+	on ft.user_created = z.user_created
+;
+
+
+with act as (
+select cl.*,
+	zad.act_date,
+	zad.n_act_txns,
+	datediff('days',cl.ft_dep_ts::date,zad.act_date::date) as diff,
+	case when ceil(diff::float/35) = 0 then 1 else ceil(diff::float/35) end as period
+from clusters cl 
+left join dbt.zrh_act_day zad 
+	on cl.user_created = zad.user_created 
+	and n_act_txns > 0
+	and zad.act_date::date between cl.ft_dep_ts::date and cl.ft_dep_ts::date + interval '210 days'
+), ret as (
+select
+	market,
+	activity,
+	--early_cluster,
+	kyc_cohort_month,
+	period,
+	cluster_size,
+	count(distinct user_created) as n_users,
+	round(n_users::float/cluster_size,2) as perc_retained
+from act 
+where period is not null
+group by 1,2,3,4,5
+)
+select * from ret 
+--where 1=1
+--	--and early_cluster = 'E01'
+--	and period = 6
+--	and kyc_cohort_month between '2020-01-01' and '2020-08-01'
+order by 1,2,3,4                         
+                         
+                         ","redshift-eu")
+
+kyc_ftmau <- queryDB("
+with clus as (
+select c.user_id,
+	cluster_new,
+	case when cluster_new in ('E01','E02','E03','E04','E05','E06','E12') then 'High' else 'Low' end as activity,
+	kyc_first_completed as kycc,
+	case when country_tnc_legal in ('DEU','AUT','CHE') then '2021-03-18' 
+                               when country_tnc_legal in ('ESP','ITA') then '2021-02-25'
+                               when country_tnc_legal = 'FRA' then '2021-03-11'
+                               else '2021-02-16' end as launch,
+	case when country_tnc_legal in ('DEU','AUT','CHE') then 'DEU/AUT/CHE' 
+                               when country_tnc_legal in ('ESP','ITA') then 'ESP/ITA'
+                               when country_tnc_legal = 'FRA' then 'FRA'
+                               else 'GrEuro' end as market,    
+    datediff('days',launch::date,kycc::date) as diff,
+    case when diff < 0 then floor(diff::float/7) else ceil(diff::float/7) end as week
+from dev_dbt.pca_35days_FebMarchCohorts_May082021_Labels c
+join dbt.zrh_users z 
+	on z.user_id = c.user_id
+	and kyc_first_completed::date >= '2021-01-01'::date
+)
+select 
+	market,
+	launch,
+	activity,
+	case when week = 0 then 1 else week end as weeks,
+	count(user_id) as n_users,
+	sum(n_users) over (partition by market,weeks) as cohort_size,
+	round(n_users::float/cohort_size,3) as perc
+from clus
+where abs(week) <= 5
+group by 1,2,3,4
+order by 1,2,3,4;
+                     ","redshift-eu")
+
+prem_market <- queryDB("
+with clus as (
+select c.user_id,
+	z.is_premium,
+	case when z.product_id in ('STANDARD','BUSINESS_CARD') then 'STANDARD'
+		when z.product_id in ('METAL_CARD_MONTHLY','BUSINESS_METAL') then 'METAL'
+		when z.product_id in ('BLACK_CARD_MONTHLY','BUSINESS_BLACK') then 'YOU'
+		when z.product_id in ('SMART','BUSINESS_SMART') then 'SMART'
+		else z.product_id end as membership,
+	case when zp.product_id in ('STANDARD','BUSINESS_CARD') then 'STANDARD'
+		when zp.product_id in ('METAL_CARD_MONTHLY','BUSINESS_METAL') then 'METAL'
+		when zp.product_id in ('BLACK_CARD_MONTHLY','BUSINESS_BLACK') then 'YOU'
+		when zp.product_id in ('SMART','BUSINESS_SMART') then 'SMART'
+		else zp.product_id end as su_membership,
+	zp.is_premium as su_is_premium,
+	cluster_new,
+	case when cluster_new in ('E01','E02','E03','E04','E05','E06','E12') then 'High' else 'Low' end as activity,
+	kyc_first_completed as kycc,
+	case when country_tnc_legal in ('DEU','AUT','CHE') then '2021-03-18' 
+                               when country_tnc_legal in ('ESP','ITA') then '2021-02-25'
+                               when country_tnc_legal = 'FRA' then '2021-03-11'
+                               else '2021-02-16' end as launch,
+	case when country_tnc_legal in ('DEU','AUT','CHE') then 'DEU/AUT/CHE' 
+                               when country_tnc_legal in ('ESP','ITA') then 'ESP/ITA'
+                               when country_tnc_legal = 'FRA' then 'FRA'
+                               else 'GrEuro' end as market,    
+    datediff('days',launch::date,kycc::date) as diff,
+    case when diff < 0 then floor(diff::float/7) else ceil(diff::float/7) end as week
+from dev_dbt.pca_35days_FebMarchCohorts_May082021_Labels c
+join dbt.zrh_users z 
+	on z.user_id = c.user_id
+	and kyc_first_completed::date >= '2021-01-01'::date
+join (select * from dbt.zrh_user_product where sign_up_flg = 1) as zp 
+	on zp.user_created = z.user_created 
+group by 1,2,3,4,5,6,7,8,9,10
+), prem as (
+select market,
+	case when week = 0 then 1 else week end as weeks,
+	is_premium,
+	count(user_id) as users,
+	sum(users) over (partition by market, weeks) as tot_users,
+	round(users::float/tot_users,2) as perc
+from clus 
+where abs(weeks) <= 5 
+group by 1,2,3
+order by 1,2,3
+)
+select * from prem where is_premium is true
+limit 500;                   
+                   
+                   ","redshift-eu")
+
+prem_cluster <- queryDB("
+with clus as (
+select c.user_id,
+	z.is_premium,
+	case when z.product_id in ('STANDARD','BUSINESS_CARD') then 'STANDARD'
+		when z.product_id in ('METAL_CARD_MONTHLY','BUSINESS_METAL') then 'METAL'
+		when z.product_id in ('BLACK_CARD_MONTHLY','BUSINESS_BLACK') then 'YOU'
+		when z.product_id in ('SMART','BUSINESS_SMART') then 'SMART'
+		else z.product_id end as membership,
+	case when zp.product_id in ('STANDARD','BUSINESS_CARD') then 'STANDARD'
+		when zp.product_id in ('METAL_CARD_MONTHLY','BUSINESS_METAL') then 'METAL'
+		when zp.product_id in ('BLACK_CARD_MONTHLY','BUSINESS_BLACK') then 'YOU'
+		when zp.product_id in ('SMART','BUSINESS_SMART') then 'SMART'
+		else zp.product_id end as su_membership,
+	zp.is_premium as su_is_premium,
+	cluster_new,
+	case when cluster_new in ('E01','E02','E03','E04','E05','E06','E12') then 'High' else 'Low' end as activity,
+	kyc_first_completed as kycc,
+	case when country_tnc_legal in ('DEU','AUT','CHE') then '2021-03-18' 
+                               when country_tnc_legal in ('ESP','ITA') then '2021-02-25'
+                               when country_tnc_legal = 'FRA' then '2021-03-11'
+                               else '2021-02-16' end as launch,
+	case when country_tnc_legal in ('DEU','AUT','CHE') then 'DEU/AUT/CHE' 
+                               when country_tnc_legal in ('ESP','ITA') then 'ESP/ITA'
+                               when country_tnc_legal = 'FRA' then 'FRA'
+                               else 'GrEuro' end as market,    
+    datediff('days',launch::date,kycc::date) as diff,
+    case when diff < 0 then floor(diff::float/7) else ceil(diff::float/7) end as week,
+    case when week < 0 then '1.Before Launch' else '2.After Launch' end as launch_cat
+from dev_dbt.pca_35days_FebMarchCohorts_May082021_Labels c
+join dbt.zrh_users z 
+	on z.user_id = c.user_id
+	and kyc_first_completed::date >= '2021-01-01'::date
+join (select * from dbt.zrh_user_product where sign_up_flg = 1) as zp 
+	on zp.user_created = z.user_created 
+group by 1,2,3,4,5,6,7,8,9,10
+), prem as (
+select market,
+	cluster_new,
+	launch_cat,
+	is_premium,
+	count(user_id) as users,
+	sum(users) over (partition by market, launch_cat) as tot_users,
+	round(users::float/tot_users,4) as perc
+from clus 
+where abs(week) <= 5 
+group by 1,2,3,4
+order by 1,2,3
+)
+select * 
+from prem 
+where is_premium is true
+
+                        ","redshift-eu")
+
+su_prem_cluster <- queryDB("
+with clus as (
+select c.user_id,
+	z.is_premium,
+	case when z.product_id in ('STANDARD','BUSINESS_CARD') then 'STANDARD'
+		when z.product_id in ('METAL_CARD_MONTHLY','BUSINESS_METAL') then 'METAL'
+		when z.product_id in ('BLACK_CARD_MONTHLY','BUSINESS_BLACK') then 'YOU'
+		when z.product_id in ('SMART','BUSINESS_SMART') then 'SMART'
+		else z.product_id end as membership,
+	case when zp.product_id in ('STANDARD','BUSINESS_CARD') then 'STANDARD'
+		when zp.product_id in ('METAL_CARD_MONTHLY','BUSINESS_METAL') then 'METAL'
+		when zp.product_id in ('BLACK_CARD_MONTHLY','BUSINESS_BLACK') then 'YOU'
+		when zp.product_id in ('SMART','BUSINESS_SMART') then 'SMART'
+		else zp.product_id end as su_membership,
+	zp.is_premium as su_is_premium,
+	cluster_new,
+	case when cluster_new in ('E01','E02','E03','E04','E05','E06','E12') then 'High' else 'Low' end as activity,
+	kyc_first_completed as kycc,
+	case when country_tnc_legal in ('DEU','AUT','CHE') then '2021-03-18' 
+                               when country_tnc_legal in ('ESP','ITA') then '2021-02-25'
+                               when country_tnc_legal = 'FRA' then '2021-03-11'
+                               else '2021-02-16' end as launch,
+	case when country_tnc_legal in ('DEU','AUT','CHE') then 'DEU/AUT/CHE' 
+                               when country_tnc_legal in ('ESP','ITA') then 'ESP/ITA'
+                               when country_tnc_legal = 'FRA' then 'FRA'
+                               else 'GrEuro' end as market,    
+    datediff('days',launch::date,kycc::date) as diff,
+    case when diff < 0 then floor(diff::float/7) else ceil(diff::float/7) end as week,
+    case when week < 0 then '1.Before Launch' else '2.After Launch' end as launch_cat
+from dev_dbt.pca_35days_FebMarchCohorts_May082021_Labels c
+join dbt.zrh_users z 
+	on z.user_id = c.user_id
+	and kyc_first_completed::date >= '2021-01-01'::date
+join (select * from dbt.zrh_user_product where sign_up_flg = 1) as zp 
+	on zp.user_created = z.user_created 
+group by 1,2,3,4,5,6,7,8,9,10
+), prem as (
+select market,
+	cluster_new,
+	launch_cat,
+	su_is_premium,
+	count(user_id) as users,
+	sum(users) over (partition by market, launch_cat) as tot_users,
+	round(users::float/tot_users,4) as perc
+from clus 
+where abs(week) <= 5 
+group by 1,2,3,4
+order by 1,2,3
+)
+select * 
+from prem 
+where su_is_premium is true
+
+                        ","redshift-eu")
+
+digital_physical <- queryDB("
+with launch as (
+select distinct country_tnc_legal as market, case when country_tnc_legal in ('DEU','AUT','CHE') then '2021-03-18' 
+                               when country_tnc_legal in ('ESP','ITA') then '2021-02-25'
+                               when country_tnc_legal = 'FRA' then '2021-03-11'
+                               else '2021-02-16' end as launch
+                               from dbt.zrh_users
+), cards as (
+select 
+		user_created, 
+        is_digital, 
+        row_number() over(partition by user_created order by order_date desc) as rn 
+from dbt.zrh_cards 
+--where user_created >= '2020-01-01'
+), digital as (
+select c.*,
+	z.user_created,
+	z.ft_mau,
+	z.kyc_first_completed::date as kycc,
+		case when country_tnc_legal in ('DEU','AUT','CHE') then 'DEU/AUT/CHE' 
+                               when country_tnc_legal in ('ESP','ITA') then 'ESP/ITA'
+                               when country_tnc_legal = 'FRA' then 'FRA'
+                               else 'GrEuro' end as market,
+	l.launch,
+	case when kycc < launch then 'before' else 'after' end as launch_cat,
+	z.card_first_activated,
+	z.is_premium,
+	case when z.product_id in ('STANDARD','BUSINESS_CARD') then 'STANDARD'
+		when z.product_id in ('METAL_CARD_MONTHLY','BUSINESS_METAL') then 'METAL'
+		when z.product_id in ('BLACK_CARD_MONTHLY','BUSINESS_BLACK') then 'YOU'
+		when z.product_id in ('SMART','BUSINESS_SMART') then 'SMART'
+		else z.product_id end as membership,
+	z.is_newstandard,
+	is_digital,
+	case when is_newstandard is true and cc.is_digital is false then 'New standard & physical'
+		when is_newstandard is true and cc.is_digital is true then 'New standard & digital'
+		when is_newstandard is false and membership = 'STANDARD' then 'Old standard' 
+		else membership
+		end as product_type
+from dev_dbt.pca_35days_FebMarchCohorts_May052021_Labels c
+join dbt.zrh_users as z 
+	on c.user_id = z.user_id 
+left join launch l 
+	on l.market = z.country_tnc_legal 
+left join cards as cc 
+	on cc.user_created = z.user_created 
+	and rn = 1
+), agg as (
+select 
+	*
+from digital 
+where launch_cat = 'after' and membership = 'STANDARD'
+	and product_type in ('New standard & digital','New standard & physical')
+), agg2 as (
+select 
+	user_id,
+	cluster_new,
+	market,
+	product_type,
+	sum(n_act_txns) as n_act_txns
+from agg a 
+left join dbt.zrh_act_day t 
+	on a.user_created = t.user_created 
+	and t.n_act_txns > 0 
+	and t.act_date::date between ft_mau::date and ft_mau::date + interval '35 days'
+group by 1,2,3,4
+--order by 1,2,3,4
+)
+select 
+	market,
+	cluster_new,
+	product_type,
+	users,
+	median(n_act_txns) as med_act_txns,
+	avg(n_act_txns) as avg_act_txns
+from (select *,	count(*) over (partition by market, cluster_new,product_type) as users from agg2) 
+group by 1,2,3,4
+order by 1,2,3;
+                            
+                            
+                            ","redshift-eu")
+save(digital,
+     retention,
+     retention_act,
+     kyc_ftmau,
+     prem_market,
+     prem_cluster,
+     su_prem_cluster,
+     digital_physical,
+     file = file.path("cluster_35days_June162020.RData"))
+
+```
+
+
+
+
+```{r}
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+library(ggplot2)
+
+# load the data
+df <- load(paste0("/Users/wendyvu/Documents/spaces_free_trial/cluster_35days_June162020.RData"))
+#dfn <- as.data.frame(stripe)
+#dfd <- as.data.frame(days_stripe)
+
+```
+
+```{r}
+
+# You can download csv file from https://drive.google.com/file/d/1pgGylnVG0ABZVRFud3igLOED9LAQ0uWE/view?usp=sharing
+
+df  <- read.csv("/Users/wendyvu/Documents/clustering_sagemaker_evergreen_results/pca_35days_FebMarchCohorts_RESULTS_May082021_relabeled.csv")
+
+df$kycc_cohort <- as.Date(df$kycc_cohort)
+df$kycc_cohort_date <- as.Date(df$kycc_cohort_date)
+df$market <- trimws(df$market, which = c("both"))
+df <- as.data.frame(filter(df,cluster_new != 'E13',kycc_cohort != '2021-04-01',market != "GBR"))
+
+
+
+```
+
+```{r}
+
+freq <- as.data.frame(
+  filter( df #filter(df,kycc_cohort >= as.Date('2020-01-01'))
+         ) %>% group_by(kycc_cohort,cluster_new) %>% 
+  summarise(users = length(user_id)) %>%
+  mutate(tot = sum(users),
+         perc = round(users/tot,4))
+)
+
+freq$cluster_new <- factor(freq$cluster_new, levels = c("E01", "E02", "E03","E04","E05","E06","E12","E07","E08","E09","E10","E11"))
+
+ggplot(filter(freq, cluster_new %in% c("E01", "E02", "E03","E04","E05","E06","E12")), aes(fill=cluster_new, y=perc, x=as.factor(kycc_cohort))) + 
+  geom_bar(stat="identity") +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(cluster_new ~ .,scales = "free") +
+  geom_text(aes(label=round(perc*100)), 
+            #vjust=1.6,
+            vjust=-0.1,
+            color="black", 
+            size=2.5) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 8, angle = 45),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 8, angle = 45))
+
+ggplot(filter(freq, cluster_new %in% c("E07","E08","E09","E10","E11")), aes(fill=cluster_new, y=perc, x=as.factor(kycc_cohort))) + 
+  geom_bar(stat="identity") +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(cluster_new ~ .,scales = "free") +
+  geom_text(aes(label=round(perc*100)), 
+            #vjust=1.6,
+            vjust=-0.1,
+            color="black", 
+            size=2.5) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 8, angle = 45),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 8, angle = 45))
+
+```
+```{r}
+
+df <- df %>% 
+  mutate(
+    launch = case_when(
+      market %in% c('DEU','AUT',"CHE") ~ as.Date('2021-03-18'),
+      market %in% c('ESP','ITA') ~ as.Date('2021-02-25'),
+      market %in% c('FRA') ~ as.Date('2021-03-11'),
+      TRUE ~ as.Date('2021-02-16')
+    ),
+    launch_cat = case_when(
+      kycc_cohort_date >= launch ~ launch,
+      TRUE ~ kycc_cohort
+    ),
+    high_low = case_when(
+      cluster_new %in% c("E01","E02","E03","E04","E05","E06","E12") ~ 'High',
+      TRUE ~ 'Low'
+    ),
+    cohort_type = case_when(
+      launch_cat %in% as.Date(c('2021-02-01','2021-03-01','2021-01-01')) ~ "Before_Launch",
+      launch == launch_cat ~ "Launch",
+      TRUE ~ as.character(kycc_cohort)
+    ),
+    market_dum = case_when(
+      market %in% c("FRA") ~ "FRA",
+      market %in% c("ESP","ITA") ~ "ESP/ITA",
+      market %in% c("AUT","DEU","CHE") ~ "DEU/AUT/CHE",
+      TRUE ~ "GrEuro"
+    ),
+    market_dum_2 = case_when(
+      market %in% c("FRA") ~ "FRA",
+      market %in% c("ITA") ~ "ITA",
+      market %in% c("ESP") ~ "ESP",
+      market %in% c("AUT") ~ "AUT",
+      market %in% c("DEU") ~ "DEU",
+      TRUE ~ "GrEuro"
+    )
+  )
+
+#df <- as.data.frame(filter(df,launch_cat >= as.Date('2020-01-01')))
+
+```
+
+```{r}
+
+freq <- as.data.frame(
+  filter(filter(df,kycc_cohort >= '2020-01-01'),
+         ) %>% group_by(market_dum,cohort_type,cluster_new) %>% 
+  summarise(users = length(user_id)) %>%
+  mutate(tot = sum(users),
+         perc = round(users/tot,4))
+) %>% group_by(cohort_type) %>%
+  mutate(
+    total_users = sum(users)
+  ) %>%
+  mutate(
+    perc_mark = tot/total_users
+  )
+
+
+ggplot(filter(freq,cluster_new == 'E01'), aes(fill=market_dum, y=perc, x=as.factor(cohort_type))) + 
+  geom_bar(stat="identity") + ggtitle("Early Spaces Power Users") + ylab("%Users") + xlab("KYCc Cohort Month") +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(market_dum ~ .,scales = "free"
+             ) +
+  geom_text(aes(label=round(perc*100)), 
+            #vjust=1.6,
+            vjust=-0.1,
+            color="black", 
+            size=7) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 16, angle = 45),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45),
+            strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+    )
+
+ggplot(filter(freq,cluster_new == 'E05'), aes(fill=market_dum, y=perc, x=as.factor(cohort_type))) + 
+  geom_bar(stat="identity") + ggtitle("Early Domestic Spenders") + ylab("%Users") + xlab("KYCc Cohort Month") +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(market_dum ~ .,scales = "free"
+             ) +
+  geom_text(aes(label=round(perc*100,2)), 
+            #vjust=1.6,
+            vjust=-0.1,
+            color="black", 
+            size=7) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 16, angle = 45),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45),
+            strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),)
+
+
+ggplot(filter(freq,cluster_new == 'E06'), aes(fill=market_dum, y=perc, x=as.factor(cohort_type))) + 
+  geom_bar(stat="identity") + ggtitle("Early Mobile Spenders") + ylab("%Users") + xlab("KYCc Cohort Month") +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(market_dum ~ .,scales = "free"
+             ) +
+  geom_text(aes(label=round(perc*100)), 
+            #vjust=1.6,
+            vjust=-0.1,
+            color="black", 
+            size=7) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 16, angle = 45),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45),
+            strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),)
+
+
+ggplot(filter(freq,cluster_new == 'E12'), aes(fill=market_dum, y=perc, x=as.factor(cohort_type))) + 
+  geom_bar(stat="identity") + ggtitle("Early Primary Account Holders") + ylab("%Users") + xlab("KYCc Cohort Month") +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(market_dum ~ .,scales = "free"
+             ) +
+  geom_text(aes(label=round(perc*100,2)), 
+            #vjust=1.6,
+            vjust=-0.1,
+            color="black", 
+            size=7) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 16, angle = 45),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45),
+            strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),)
+
+
+ggplot(filter(freq,cluster_new == 'E07'), aes(fill=market_dum, y=perc, x=as.factor(cohort_type))) + 
+  geom_bar(stat="identity") + ggtitle("Early Online Spenders") + ylab("%Users") + xlab("KYCc Cohort Month") +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(market_dum ~ .,scales = "free"
+             ) +
+  geom_text(aes(label=round(perc*100,2)), 
+            #vjust=1.6,
+            vjust=-0.1,
+            color="black", 
+            size=7) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 16, angle = 45),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45),
+            strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),)
+
+
+ggplot(filter(freq,cluster_new == 'E08'), aes(fill=market_dum, y=perc, x=as.factor(cohort_type))) + 
+  geom_bar(stat="identity") + ggtitle("Early Barely Active") + ylab("%Users") +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(market_dum ~ .,scales = "free"
+             ) +
+  geom_text(aes(label=round(perc*100)), 
+            #vjust=1.6,
+            vjust=-0.1,
+            color="black", 
+            size=7) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 16, angle = 45),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45),
+            strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),)
+
+
+ggplot(filter(freq,cluster_new == 'E09'), aes(fill=market_dum, y=perc, x=as.factor(cohort_type))) + 
+  geom_bar(stat="identity") + ggtitle("Early Cash Spenders") + ylab("%Users") +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(market_dum ~ .,scales = "free"
+             ) +
+  geom_text(aes(label=round(perc*100)), 
+            #vjust=1.6,
+            vjust=-0.1,
+            color="black", 
+            size=7) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 16, angle = 45),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45),
+            strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),)
+
+
+ggplot(filter(freq,cluster_new == 'E10'), aes(fill=market_dum, y=perc, x=as.factor(cohort_type))) + 
+  geom_bar(stat="identity") + ggtitle("Early Account Holding users") + ylab("%Users") +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(market_dum ~ .,scales = "free"
+             ) +
+  geom_text(aes(label=round(perc*100)), 
+            #vjust=1.6,
+            vjust=-0.1,
+            color="black", 
+            size=7) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 16, angle = 45),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 16, angle = 45),
+            strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),)
+
+
+
+
+freq <- as.data.frame(
+  filter(df,
+         ) %>% group_by(kycc_cohort,cluster_new) %>% 
+  summarise(users = length(user_id)) %>%
+  mutate(tot = sum(users),
+         perc = round(users/tot,4))
+) %>% group_by(kycc_cohort) %>%
+  mutate(
+    total_users = sum(users)
+  ) %>%
+  mutate(
+    perc_mark = tot/total_users
+  )
+
+ggplot(filter(freq,cluster_new %in% c("E01","E02","E03","E04","E05","E06","E12")), aes(fill=cluster_new, y=perc, x=as.factor(kycc_cohort))) + 
+  geom_bar(stat="identity") + ggtitle("") + ylab("%Users") +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(cluster_new ~ .,scales = "free"
+             ) +
+  geom_text(aes(label=round(perc*100,2)), 
+            #vjust=1.6,
+            vjust=-0.1,
+            color="black", 
+            size=4) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 14, angle = 45),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 14, angle = 45),
+            strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),)
+
+ggplot(filter(freq,!cluster_new %in% c("E01","E02","E03","E04","E05","E06","E12")), aes(fill=cluster_new, y=perc, x=as.factor(kycc_cohort))) + 
+  geom_bar(stat="identity") + ggtitle("") + ylab("%Users") +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(cluster_new ~ .,scales = "free"
+             ) +
+  geom_text(aes(label=round(perc*100,2)), 
+            #vjust=1.6,
+            vjust=-0.1,
+            color="black", 
+            size=4) +
+  theme(axis.text.x = element_text(face = "bold", #color = "#993333", 
+                           size = 14, angle = 45),
+        axis.text.y = element_text(face = "bold", #color = "blue", 
+                           size = 14, angle = 45),
+            strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),)
+```
+
+```{r}
+
+
+avg_freq <- as.data.frame(df %>% group_by(kycc_cohort,high_low) %>% 
+  summarise(users = length(user_id)) %>%
+  mutate(tot = sum(users),
+         perc = round(users/tot,4))
+)
+
+freq <- as.data.frame(df %>% group_by(market_dum,kycc_cohort,high_low) %>% 
+  summarise(users = length(user_id)) %>%
+  mutate(tot = sum(users),
+         perc = round(users/tot,4))
+)
+
+
+
+ggplot(filter(freq,kycc_cohort >= '2019-01-01'),
+       aes(x=as.factor(kycc_cohort), 
+           #y = avg_n_txn,
+           y = perc,
+           group=as.factor(high_low),
+           color=as.factor(high_low)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Value") + xlab("Period since Ft-MAU") +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("Early Domestic Spender No. DT/DD split by Mature Clusters") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=12,face="bold",angle=25
+                           ),
+    axis.text.x=element_text(size=14,face="bold",angle=45
+                             ),
+    axis.title.x = element_text(size= 14,face='bold'),
+    axis.title.y = element_text(size=14,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(market_dum ~ ., #scales = "free_y", #labeller = labeller(type = ss_labels)
+             ) + 
+  scale_color_manual(values = c("#48AC98", #"#E5C3C7",
+                                "#CB7C7A",
+                                #"#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678",
+                                #"#F5D5B9","#737373","#CCCCCC","#D3D3D3",
+                               "#999999","#8DA290","#CAA7BD"),
+                    name = "Early Users Activity", 
+                    #labels = c("1","3","Mature\nLow Activity")
+                    )
+
+ggplot(filter(freq,high_low == 'High',kycc_cohort >= '2019-01-01'),
+       aes(x=as.factor(kycc_cohort), 
+           #y = avg_n_txn,
+           y = perc,
+           group=as.factor(market_dum),
+           color=as.factor(market_dum)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Value") + xlab("Period since Ft-MAU") + #coord_cartesian(ylim = c(0, 1)) +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("Early Domestic Spender No. DT/DD split by Mature Clusters") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=12,face="bold",angle=25
+                           ),
+    axis.text.x=element_text(size=14,face="bold",angle=45
+                             ),
+    axis.title.x = element_text(size= 14,face='bold'),
+    axis.title.y = element_text(size=14,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(market_dum ~ ., #scales = "free_y", #labeller = labeller(type = ss_labels)
+             #) + 
+  scale_color_manual(values = c("#48AC98", #"#E5C3C7",
+                                "#CB7C7A",
+                                #"#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678",
+                                #"#F5D5B9","#737373","#CCCCCC","#D3D3D3",
+                               "#999999","#8DA290","#CAA7BD"),
+                    name = "Early Users Activity", 
+                    #labels = c("1","3","Mature\nLow Activity")
+                    )
+
+freq <- as.data.frame(df %>% group_by(market_dum_2,kycc_cohort,high_low) %>% 
+  summarise(users = length(user_id)) %>%
+  mutate(tot = sum(users),
+         perc = round(users/tot,4))
+)
+
+
+
+ggplot(filter(freq,kycc_cohort >= '2019-01-01'),
+       aes(x=as.factor(kycc_cohort), 
+           #y = avg_n_txn,
+           y = perc,
+           group=as.factor(high_low),
+           color=as.factor(high_low)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Value") + xlab("Period since Ft-MAU") +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("Early Domestic Spender No. DT/DD split by Mature Clusters") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=12,face="bold",angle=25
+                           ),
+    axis.text.x=element_text(size=14,face="bold",angle=45
+                             ),
+    axis.title.x = element_text(size= 14,face='bold'),
+    axis.title.y = element_text(size=14,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  facet_grid(market_dum_2 ~ ., #scales = "free_y", #labeller = labeller(type = ss_labels)
+             ) + 
+  scale_color_manual(values = c("#48AC98", #"#E5C3C7",
+                                "#CB7C7A",
+                                #"#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678",
+                                #"#F5D5B9","#737373","#CCCCCC","#D3D3D3",
+                               "#999999","#8DA290","#CAA7BD"),
+                    name = "Early Users Activity", 
+                    #labels = c("1","3","Mature\nLow Activity")
+                    )
+
+
+
+ggplot(filter(freq,high_low == 'High',kycc_cohort >= '2019-01-01'),
+       aes(x=as.factor(kycc_cohort), 
+           #y = avg_n_txn,
+           y = perc,
+           group=as.factor(market_dum_2),
+           color=as.factor(market_dum_2)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=2, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("Value") + xlab("Period since Ft-MAU") + #coord_cartesian(ylim = c(0, 1)) +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("Early Domestic Spender No. DT/DD split by Mature Clusters") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=12,face="bold",angle=25
+                           ),
+    axis.text.x=element_text(size=14,face="bold",angle=45
+                             ),
+    axis.title.x = element_text(size= 14,face='bold'),
+    axis.title.y = element_text(size=14,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(market_dum_2 ~ ., #scales = "free_y", #labeller = labeller(type = ss_labels)
+             #) + 
+  scale_color_manual(values = c("#48AC98", #"#E5C3C7",
+                                "#CB7C7A",
+                                #"#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678",
+                                #"#F5D5B9","#737373","#CCCCCC","#D3D3D3",
+                               "#999999","#8DA290","#CAA7BD"),
+                    name = "Early Users Activity", 
+                    #labels = c("1","3","Mature\nLow Activity")
+                    )
+
+```
+```{r}
+
+# Effects of standard tier within 5 weeks before and after launch by cohort weeks 
+
+# checking if the weeks makes sense and they don't bc the ciel function influences negative values in the wrong way so I need to use the floor function for negative values
+
+df$week <- round(df$diff/7,4)
+df <- df %>%
+  mutate(
+    week2 = case_when(
+      week < 0 ~ floor(week),
+      week == 0 ~ 1,
+      TRUE ~ ceiling(week)
+)
+)
+
+test <- filter(df, abs(weeks) <= 5)
+test1 <- test[,colnames(test) %in% c("weeks", "diff","cohort_type","launch","launch_cat","market_dum","kycc_cohort_date","week","week2")]
+
+```
+
+```{r}
+
+# Effects of standard tier within 5 weeks before and after launch by cohort weeks 
+
+act <- filter(df,abs(week2) <= 7) %>% group_by(week2,high_low) %>%
+  summarise(
+    users = length(user_id)
+  ) %>% 
+  mutate(
+    tot_users = sum(users),
+    perc_users = round(users/tot_users,2)
+  )
+
+act_high <- filter(act,high_low == "High")
+
+act <- filter(df,abs(week2) <= 5) %>% group_by(market_dum,cohort_type,week2,high_low) %>%
+  summarise(
+    users = length(user_id)
+  ) %>% 
+  mutate(
+    tot_users = sum(users),
+    perc_users = round(users/tot_users,2)
+  )
+
+act_high <- filter(act,high_low == "High")
+
+ggplot(filter(act,high_low == 'High'),
+       aes(x=as.factor(week2), 
+           #y = avg_n_txn,
+           y = perc_users,
+           group=as.factor(market_dum),
+           color=as.factor(market_dum)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=3, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +  geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=0,size=6) + 
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users") + xlab("KYCc Weekly Cohorts Since Launch") +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("First 35 days Ft-MAU High Activity: Pre / Post New Standard Tier Launch") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",angle=25
+                           ),
+    axis.text.x=element_text(size=16,face="bold",#angle=45
+                             ),
+    axis.title.x = element_text(size= 14,face='bold'),
+    axis.title.y = element_text(size=14,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(market_dum ~ ., #scales = "free_y", #labeller = labeller(type = ss_labels)
+  #           ) + 
+  scale_color_manual(values = c("#48AC98", #"#E5C3C7",
+                                "#CB7C7A",
+                                #"#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678",
+                                #"#F5D5B9","#737373","#CCCCCC","#D3D3D3",
+                               "#999999","#8DA290","#CAA7BD"),
+                    name = "Early High Activity Clusters", 
+                    #labels = c("1","3","Mature\nLow Activity")
+                    )
+
+act <- filter(df,abs(week2) <= 5) %>% group_by(market_dum,cohort_type,week2,cluster_new) %>%
+  summarise(
+    users = length(user_id)
+  ) %>% 
+  mutate(
+    tot_users = sum(users),
+    perc_users = round(users/tot_users,2)
+  )
+
+cluster = sort(unique(df$cluster_new))
+
+for(i in cluster){
+  print(i)
+  x = filter(act,cluster_new == i)
+  print(
+    ggplot(x,
+       aes(x=as.factor(week2), 
+           #y = avg_n_txn,
+           y = perc_users,
+           group=as.factor(market_dum),
+           color=as.factor(market_dum)
+       )
+  ) +
+  geom_line(size=1.5)+
+  geom_point(size=3, 
+             #shape=23,
+             #fill = "#E69F00"
+  ) +  geom_text(aes(label=round(perc_users*100)), position=position_dodge(width=0.9), vjust=0,size=6) + 
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% Users") + xlab("KYCc Weekly Cohorts Since Launch") +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle(i) +
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",angle=25
+    ),
+    axis.text.x=element_text(size=16,face="bold",#angle=45
+    ),
+    axis.title.x = element_text(size= 14,face='bold'),
+    axis.title.y = element_text(size=14,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+      size = 16, 
+      #color = "red", 
+      face = "bold"
+    ),
+    strip.text.y = element_text(
+      size = 16, color = "black", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(market_dum ~ ., #scales = "free_y", #labeller = labeller(type = ss_labels)
+  #           ) + 
+  scale_color_manual(values = c("#48AC98", #"#E5C3C7",
+                                "#CB7C7A",
+                                #"#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678",
+                                #"#F5D5B9","#737373","#CCCCCC","#D3D3D3",
+                                "#999999","#8DA290","#CAA7BD"),
+                     name = "Markets", 
+                     #labels = c("1","3","Mature\nLow Activity")
+  ))
+}
+
+
+
+```
+```{r}
+# DIGITAL VS PHYSICAL CARDS
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+library(ggplot2)
+
+library(RColorBrewer)
+display.brewer.all()
+
+color <- brewer.pal(12,"Set3")
+
+# load the data
+DF <- load(paste0("/Users/wendyvu/Documents/spaces_free_trial/cluster_35days_June162020.RData"))
+dfd <- as.data.frame(digital)
+dfd <- as.data.frame(filter(dfd,cluster_new != 'E13'))
+
+dfd <- dfd %>% 
+  mutate(
+    market = case_when(
+      launch == '2021-03-18' ~ 'DEU/AUT/CHE',
+      launch == "2021-02-25" ~ 'ESP/ITA',
+      launch == "2021-03-11" ~ 'FRA',
+      TRUE ~ 'GrEuro'    
+    )
+  )
+
+activity <- dfd %>% 
+  mutate(
+    high_low = case_when(
+      cluster_new %in% c("E01","E02","E03","E04","E05","E06","E12") ~ 'High',
+      TRUE ~ 'Low'
+    )
+  ) %>% group_by(market, high_low,product_type) %>% 
+  summarise(
+    users = sum(users),
+    tot_user_cluster = sum(tot_user_cluster)
+  ) %>%
+  mutate(
+    perc_user = round(users/tot_user_cluster,3)
+  )
+
+
+ggplot(filter(activity,product_type == 'New standard & digital'),
+       aes(x=as.factor(high_low), y=perc_user,fill=as.factor(market))) + xlab("Early Cluster Activity") + ylab("% Users - digital card") +
+  geom_bar(stat="identity") + geom_text(aes(label=round(perc_user*100)), position=position_dodge(width=0.9), vjust=0,size = 8) + 
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=20,face="bold",#angle=90
+                             ),
+    axis.text.y=element_text(size=20,face="bold",angle=45
+                             ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent_format(1L)) +
+  #facet_grid(. ~ launch, scales = 'free_y') +
+  facet_grid(market ~ ., #scales = "free_y"
+             ) + 
+  scale_fill_manual(values=color,
+                    name = "KYCc Monthly Cohort", 
+                    #labels = c("High Activity","Low Activity")
+                    )
+
+
+
+dfd$cluster_new <- factor(dfd$cluster_new, levels = c("E01", "E02", "E03","E04","E05","E06","E12","E07","E08","E09","E10","E11"))
+
+ggplot(filter(dfd,product_type == 'New standard & digital',tot_user_cluster > 2, cluster_new != 'E13'),
+       aes(x=as.factor(cluster_new), y=round(users/tot_user_cluster,3),fill=as.factor(market))) + xlab("Early User Clusters") + ylab("% Users - digital card") +
+  geom_bar(stat="identity") + geom_text(aes(label=round(users/tot_user_cluster*100)), position=position_dodge(width=0.9), vjust=0,size = 8) + 
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=16,face="bold",#angle=90
+                             ),
+    axis.text.y=element_text(size=16,face="bold",angle=45
+                             ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent_format(1L)) +
+  #facet_grid(. ~ launch, scales = 'free_y') +
+  facet_grid(market ~ ., #scales = "free_y"
+             ) + 
+  scale_fill_manual(values=color,
+                    name = "KYCc Monthly Cohort", 
+                    #labels = c("High Activity","Low Activity")
+                    )
+
+
+```
+
+```{r}
+
+avg_dig <- dfd %>% group_by(launch,tot_user_cluster) %>%
+  summarise(users = sum(users))
+```
+```{r}
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+library(ggplot2)
+
+library(RColorBrewer)
+display.brewer.all()
+
+color <- brewer.pal(12,"Set3")
+
+# load the data
+DF <- load(paste0("/Users/wendyvu/Documents/spaces_free_trial/cluster_35days_June162020.RData"))
+dfr <- as.data.frame(retention)
+dfa <- as.data.frame(retention_act)
+dfa$kyc_cohort_month <- as.Date(dfa$kyc_cohort_month)
+dfk <- as.data.frame(kyc_ftmau) 
+
+```
+
+```{r}
+# DID THE NEW STANDARD TIER WEED OUT GOOD OR BAD USERS?
+# WHAT PROPORTION OF FTMAU are HIgh Activity users?
+
+
+ggplot(filter(dfk,activity=="High", cohort_size > 500),
+       aes(x=as.factor(weeks), 
+           #y = avg_n_txn,
+           y = perc,
+           group=as.factor(market),
+           color=as.factor(market)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=3, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +  geom_text(aes(label=round(perc*100)), position=position_dodge(width=0.9), vjust=0,size=6) + 
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% KYCc Users") + xlab("KYCc Weekly Cohorts Since Launch") +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("High Activity Users: Pre / Post New Standard Tier Launch") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",angle=25
+                           ),
+    axis.text.x=element_text(size=16,face="bold",#angle=45
+                             ),
+    axis.title.x = element_text(size= 14,face='bold'),
+    axis.title.y = element_text(size=14,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(market_dum ~ ., #scales = "free_y", #labeller = labeller(type = ss_labels)
+  #           ) + 
+  scale_color_manual(values = c("#48AC98", #"#E5C3C7",
+                                "#CB7C7A",
+                                #"#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678",
+                                #"#F5D5B9","#737373","#CCCCCC","#D3D3D3",
+                               "#999999","#8DA290","#CAA7BD"),
+                    name = "Market", 
+                    #labels = c("1","3","Mature\nLow Activity")
+                    )
+
+avg_high <- filter(dfk,activity=="High", cohort_size > 500) %>% 
+  mutate(
+    cat = case_when(
+      weeks < 0 ~ 1,
+      TRUE ~ 2
+    )
+  ) %>% group_by(market,cat) %>%
+  summarise(
+    avg = mean(perc)
+  ) %>% arrange(cat)
+
+ggplot(avg_high,
+       aes(x=as.factor(cat), y=avg,fill=as.factor(market))) + xlab("Launch") + ylab("% KYCc Users") +
+  geom_bar(stat="identity") + geom_text(aes(label=round(avg*100,2)), position=position_dodge(width=0.9), vjust=0.7,size = 6) + 
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=14,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent_format(1L)) +
+  #facet_grid(. ~ cluster_new, scales = 'free_y') +
+  facet_grid(market ~ ., #scales = "free_y"
+             ) + scale_x_discrete(labels=c("1" = "Pre-Launch","2" = "Post-Launch")) +
+  scale_fill_manual(values=color,
+                    name = "Market", 
+                    #labels = c("Pre-Launch","Post-Launch")
+                    )
+```
+```{r}
+##IMPACT OF NEW STANDARD LAUNCH ON PREMIUM SUBS
+
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyr)
+library('dplyr')
+library('spatstat')
+library(ggplot2)
+
+library(RColorBrewer)
+#display.brewer.all()
+
+color <- brewer.pal(12,"Set3")
+
+# load the data
+DF <- load(paste0("/Users/wendyvu/Documents/spaces_free_trial/cluster_35days_June162020.RData"))
+dfpm <- as.data.frame(prem_market)
+dfpc <- as.data.frame(prem_cluster)
+dfps <- as.data.frame(su_prem_cluster)
+dfdp <- as.data.frame(digital_physical)
+
+
+dfpc$cluster_new <- factor(dfpc$cluster_new, levels = c("E01", "E02", "E03","E04","E05","E06","E12","E07","E08","E09","E10","E11"))
+
+ggplot(filter(dfpc,cluster_new != 'E13'), aes(x = cluster_new, y = perc, fill = launch_cat)) +
+    geom_bar(stat = "identity", position = "dodge") + 
+    ggtitle("Standard Tier Impact on Premium Membership Adoption") + ylab("% Users") + geom_text(aes(label=round(perc*100,1)), position=position_dodge(width=0.9), vjust=0.5,size = 4) + 
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=14,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent_format(1L)) +
+  #facet_grid(. ~ cluster_new, scales = 'free_y') +
+  facet_grid(market ~ ., scales = "free_y"
+             ) + #scale_x_discrete(labels=c("1" = "Pre-Launch","2" = "Post-Launch")) +
+  scale_fill_manual(values=color[4:5],
+                    name = "Launch", 
+                    labels = c("Before","After")
+                    )
+
+ggplot(filter(dfps,cluster_new != 'E13'), aes(x = cluster_new, y = perc, fill = launch_cat)) +
+    geom_bar(stat = "identity", position = "dodge") + 
+    ggtitle("Standard Tier Impact on SignUp Premium Membership Adoption") + ylab("% Users") + geom_text(aes(label=round(perc*100,1)), position=position_dodge(width=0.9), vjust=0.5,size = 4) + 
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=14,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent_format(1L)) +
+  #facet_grid(. ~ cluster_new, scales = 'free_y') +
+  facet_grid(market ~ ., scales = "free_y"
+             ) + #scale_x_discrete(labels=c("1" = "Pre-Launch","2" = "Post-Launch")) +
+  scale_fill_manual(values=color[4:5],
+                    name = "Launch", 
+                    labels = c("Before","After")
+                    )
+  
+ggplot(filter(dfpm, tot_users > 500),
+       aes(x=as.factor(weeks), 
+           #y = avg_n_txn,
+           y = perc,
+           group=as.factor(market),
+           color=as.factor(market)
+           )
+       ) +
+  geom_line(size=1.5)+
+  geom_point(size=3, 
+             #shape=23,
+             #fill = "#E69F00"
+           ) +  geom_text(aes(label=round(perc*100)), position=position_dodge(width=0.9), vjust=0,size=6) + 
+  #geom_hline(yintercept=0, linetype="dashed", color = "black", size= 1) +
+  #geom_text(aes(label = round(percent*100), group = membership), position = position_dodge(0.8),vjust = -0.3, size = 3.5) +
+  ylab("% KYCc Users") + xlab("KYCc Weekly Cohorts Since Launch") +
+  #geom_vline(xintercept=as.Date("2020-04"), linetype="dashed", color = "black", size= 1) +
+  ggtitle("Premium users: Pre / Post New Standard Tier Launch") +
+    theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",angle=25
+                           ),
+    axis.text.x=element_text(size=16,face="bold",#angle=45
+                             ),
+    axis.title.x = element_text(size= 14,face='bold'),
+    axis.title.y = element_text(size=14,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  #facet_grid(market_dum ~ ., #scales = "free_y", #labeller = labeller(type = ss_labels)
+  #           ) + 
+  scale_color_manual(values = c("#48AC98", #"#E5C3C7",
+                                "#CB7C7A",
+                                #"#CAD7CA","#CDA35F","#C8D7E5",
+                                "#266678",
+                                #"#F5D5B9","#737373","#CCCCCC","#D3D3D3",
+                               "#999999","#8DA290","#CAA7BD"),
+                    name = "Market", 
+                    #labels = c("1","3","Mature\nLow Activity")
+                    ) 
+```
+
+```{r}
+
+## FINANCIAL ACTIVITY BETWEEN PHYSICAL AND DIGITAL CARDS
+dfdp <- as.data.frame(digital_physical)
+dfdp$cluster_new <- factor(dfdp$cluster_new, levels = c("E01", "E02", "E03","E04","E05","E06","E12","E07","E08","E09","E10","E11","E13"))
+
+ggplot(filter(dfdp,!cluster_new %in% c("E02","E03","E13"), users >= 10), aes(x = cluster_new, y = avg_act_txns, fill = product_type)) +
+    geom_bar(stat = "identity", position = "dodge") + 
+    ggtitle("Financial Activity: Standard Digital vs Physical Card") + ylab("Avg # of Txns") + geom_text(aes(label=avg_act_txns), position=position_dodge(width=0.9), vjust=0.5,size = 4) + 
+  theme(
+    legend.title = element_text(color = "black", size = 16),
+    legend.text = element_text(color = "black", size = 16,face="bold"),
+    legend.key.size = unit(0.8, "cm"),
+    axis.text=element_text(size=16,face="bold",#angle=45
+                           ),
+    axis.text.x=element_text(size=14,face="bold",#angle=90
+                             ),
+    axis.title.x = element_text(size= 16,face='bold'),
+    axis.title.y = element_text(size=16,face='bold'),
+    strip.background = element_rect(
+      color="black",
+      #fill=values, 
+      size=1.5, 
+      linetype="solid"),
+    strip.text.x = element_text(
+        size = 16, 
+        #color = "red", 
+        face = "bold"
+        ),
+    strip.text.y = element_text(
+        size = 16, color = "black", face = "bold.italic"),
+  ) +
+  #scale_y_continuous(labels=scales::percent_format(1L)) +
+  #facet_grid(. ~ cluster_new, scales = 'free_y') +
+  facet_grid(market ~ ., scales = "free_y"
+             ) + #scale_x_discrete(labels=c("1" = "Pre-Launch","2" = "Post-Launch")) +
+  scale_fill_manual(values=color[1:2],
+                    name = "New Standard Card Type", 
+                    labels = c("Digital","Physical")
+                    )
+
+```
+
+```{r}
+# CARDS SHIPPING TRIGGER
+
+kyc_card <- test %>% group_by(kycc_cohort) %>% 
+  summarise(
+    med_days = median(kycc_card_days,na.rm=T),
+    avg_days = mean(kycc_card_days,na.rm=T),
+    n_users_35days = length(user_id[kycc_card_days <= 35]),
+    n_users_tot = length(user_id),
+    perc_users_35days = round(n_users_35days/n_users_tot,3)
+  )
+
+
+```
+
+```{r}
+# TOPUPS 
+
+df$n_dep <- df$n_ct + df$n_ft + df$n_stripe
+df$dep_amt <- df$ct_amt + df$ft_amt + df$stripe_amt
+
+top <- filter(df,abs(week2) <= 5) %>% group_by(market_dum,cohort_type,week2,high_low) %>%
+  summarise(
+    med_tp = median(n_dep),
+    avg_tp = mean(n_dep),
+    med_tp_amt = median(dep_amt),
+    avg_tp_amt = mean(dep_amt)
+  ) 
+
+```
+## NOTES TO SELF
+
+EFFECTS OF THE NEW STANDARD TIER
+  - looks like there are significant effects on users clusters with a significant reduction in Secondary spenders
+  - compare the proportion of premium memberships, does it this compensate for the number of users lossed.  
+
+SHIPPING CARD TRIGGERS INSTEAD
+TOPUP AMOUNT IS LOWER
+DIGITAL VS PHYSICAL CARD
+PRIMARY ACCOUNT USAGE INCREASING: THE IMPACT OF LOCAL IBANS
+High/low early activity vs Retention split by markets
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

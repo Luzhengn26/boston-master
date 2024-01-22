@@ -1,0 +1,10 @@
+---
+title: "CMD to Kalium: Outlining the impact of moving our KYC data sources from cmd_kyc_process to Kalium’s km_processes"
+author: "Claudia Dai"
+region: "EU"
+date: "2021-06-10"
+link: "https://docs.google.com/presentation/d/18BNbtPepmsri640bHUMG4AyH9h6VsQsWo6FDU0l553o"
+tags: "acquire, kyc, cmd, kalium, conversion, metric definition, change impact"
+research_type: "Data Deep Dives"
+summary: "This presentation deck outlines the impact of moving our KYC data sources from cmd_kyc_process to Kalium’s km_processes. KYC data in CMD (cmd_kyc_process, from now on referenced as “CMD” for simplicity) will be deprecated. CMD stores all of our customer data, and is used by other services. At time of writing, CMD has approximately 700 incoming requests per second, which results in over 2000 data warehouse requests per second. Because of this, CMD is ought to be trimmed down and separated into separate services, of which KYC marks the beginning. CMD and Kalium have diverging definitions of “KYC initiated”, and Kalium’s definition of “KYC initiated” is more aligned with business goals. With the switch from CMD to Kalium as our KYC data source, we will observe an apparent drop in conversion rate due to an apparent increase in KYCi. These apparent drops and increases are not actual drops in the CR, but a product of the fact that the definition of KYC initiated is different in Kalium, and we will use this new definition as it aligns better with business goals. The expected impact on our % KYCi > KYCc conversion rate is roughly a ~6-10% drop, for first attempt conversion roughly a ~25-32% drop."
+---

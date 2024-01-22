@@ -1,0 +1,59 @@
+{
+  "s3_buckets": [
+    {
+      "name": "research-internal.tech26.de/css/",
+      "description": "Storage for CSS files that support boston's frontend",
+      "personal_data": false,
+      "data_units": [
+        {
+          "name": "CSS style files",
+          "source_of_truth": true
+        }
+      ]
+    },
+    {
+      "name": "research-internal.tech26.de/fonts/",
+      "description": "Storage for fonts used on boston's frontend",
+      "personal_data": false,
+      "data_units": [
+        {
+          "name": "website fonts",
+          "source_of_truth": true
+        }
+      ]
+    },
+    {
+      "name": "research-internal.tech26.de/images/",
+      "description": "Storage for various images, including N26 logos, used on boston's frontend",
+      "personal_data": false,
+      "data_units": [
+        {
+          "name": "website images",
+          "source_of_truth": true
+        }
+      ]
+    },
+    {
+      "name": "research-internal.tech26.de/js/",
+      "description": "Storage for various JavaScript files, that support some website functionalities, like filtering reports by category",
+      "personal_data": false,
+      "data_units": [
+        {
+          "name": "JavaScript scripts",
+          "source_of_truth": true
+        }
+      ]
+    },
+    {
+      "name": "research-internal.tech26.de/reports/",
+      "description": "Storage for the analyses and reports that boston hosts on its frontend",
+      "personal_data": false,
+      "data_units": [
+        {
+          "name": "HTML files with analyses and reports in them",
+          "source_of_truth": true
+        }
+      ]
+    }
+  ]
+}

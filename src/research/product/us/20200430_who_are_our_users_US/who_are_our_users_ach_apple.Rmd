@@ -1,0 +1,881 @@
+---
+title: "Who Are Our Users? Current MAU using ACH or Apple Pay"
+author: "Dani Mermelstein"
+date: "4/30/2020"
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyverse)
+library(ggplot2)
+
+# load the data
+load(paste0("data/current_mau_ach_apple.RData"))
+
+# set the datasets we're working on
+demo_df <- current_mau_ach_apple_demo
+funding_df <- current_mau_ach_apple_funding
+spending_df <- current_mau_ach_apple_spending
+
+```
+
+# Current MAUs who have used ACH or Apple Pay
+
+## Demographics
+
+### Age distribution
+
+ - Average Age - both: `r round(mean(demo_df[product=='both',]$age))`
+ - Median Age - both: `r round(median(demo_df[product=='both',]$age))`
+ - Average Age - ach: `r round(mean(demo_df[product=='ach',]$age))`
+ - Median Age - ach: `r round(median(demo_df[product=='ach',]$age))`
+ - Average Age - apple: `r round(mean(demo_df[product=='apple',]$age))`
+ - Median Age - apple: `r round(median(demo_df[product=='apple',]$age))`
+
+```{r, echo=FALSE, message = FALSE}
+ggplot(demo_df, aes(x=age))+
+  geom_histogram()+
+  xlim(0,75)+
+  labs(title="Age of our Users: ACH/Apple Pay",
+       x ="Age", 
+       y = "User Count")+
+  facet_wrap(~product)
+
+```
+
+### Occupations
+```{r, echo=FALSE, message = FALSE}
+occupation_pct <- demo_df[, .(users = .N), by=.(occupation, product)]
+occupation_pct <- merge(occupation_pct, demo_df[, .(total_users = .N), by=.(product)], all.x=TRUE, by="product")
+occupation_pct$pct <- occupation_pct$users/occupation_pct$total_users
+```
+The top 5 categories (excluding OTHER) are `r percent(sum(occupation_pct[which(occupation!='OTHER'),][order(-pct),][1:5]$pct))` of all MAU
+
+```{r, echo=FALSE, message = FALSE, fig.width=10, fig.height=7}
+ggplot(occupation_pct, aes(x=reorder(occupation, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="User Occupation: ACH/Apple Pay",
+       x ="Occupation", 
+       y = "Pct of Users")+
+  facet_wrap(~product)
+
+```
+
+### Top 10 Zip Codes
+
+There are no zip codes with more than 100 users
+
+```{r, echo=FALSE, message = FALSE}
+
+states <- read.csv('~/src/boston/research/product/deep_dive/who_are_our_users_20200430_US/data/nst-est2019-alldata.csv', stringsAsFactors = FALSE)
+states <- as.data.table(states)
+states <- merge(states, read.csv('~/src/boston/research/product/deep_dive/who_are_our_users_20200430_US/state_abrev.csv', stringsAsFactors = FALSE), by.x = "NAME", by.y="State")
+states <- states[,c("NAME","REGION","POPESTIMATE2019","Abbreviation")]
+states$total_pop <- states[,.(sum(total_pop=sum(POPESTIMATE2019)))]
+states$pct <- states$POPESTIMATE2019/states$total_pop
+
+demo_state <- demo_df[, .(users=.N), by=.(state)]
+demo_state$total_users <- demo_state[,.(total_users=sum(users))]
+demo_state$user_pct <- demo_state$users/demo_state$total_users
+demo_state <- merge(demo_state, states, by.x="state", by.y="Abbreviation")
+demo_state$index <- demo_state$user_pct/demo_state$pct -1
+demo_state <- demo_state[,c("state","NAME","users","user_pct","pct","index")][order(-index),]
+demo_state$user_pct <- round(demo_state$user_pct,4)
+demo_state$pct <- round(demo_state$pct,4)
+demo_state$index <- round(demo_state$index,4)
+# demo_df[, .(users=.N), by=.(state)][order(-users),][1:10]
+# merge(demo_df[, .(users=.N), by=.(state)][order(-users),][1:10], states, by.x="state", by.y="Abbreviation")
+```
+
+Top/bottom states by over/under index
+
+```{r, echo=FALSE, message = FALSE}
+# top states by over/under index
+kable(demo_state[1:10])%>%
+  kable_styling(full_width = F)
+
+kable(demo_state[order(index),][1:10][order(-index),])%>%
+  kable_styling(full_width = F)
+
+```
+
+Top/bottom states by user count
+```{r, echo=FALSE, message = FALSE}
+# top states by user count
+kable(demo_state[order(-users),][1:10])%>%
+  kable_styling(full_width = F)
+
+kable(demo_state[order(users),][1:10][order(-users),])%>%
+  kable_styling(full_width = F)
+
+ggplot(demo_df[, .(users=.N), by=.(zip_code)][order(-users),], aes(x=users))+
+  geom_histogram()+
+  # xlim(-200,500)+
+  labs(title="Number of Users per Zip Code: Anytime MAU",
+       x ="Users", 
+       y = "Zip Codes")
+
+```
+
+Density analysis
+
+```{r, echo=FALSE, message = FALSE}
+# suburbs definition: https://www.citylab.com/life/2019/06/suburbs-definition-census-data-way-of-life/591343/
+# urban and rural definitions: https://www2.census.gov/geo/pdfs/reference/GARM/Ch12GARM.pdf
+# zip code population density source: https://blog.splitwise.com/2014/01/06/free-us-population-density-and-unemployment-rate-by-zip-code/
+# methodology (not used here) to proportionally overlay zip codes with ZTCA data: http://gis.washington.edu/phurvitz/zip_or_zcta/index.html
+density <- read.csv('~/src/boston/research/product/deep_dive/who_are_our_users_20200430_US/data/Zipcode-ZCTA-Population-Density-And-Area-Unsorted.csv', stringsAsFactors = FALSE)
+density <- as.data.table(density)
+# urban density >= 5000-8000 people/sq mile
+# suburban density >= 890-4000 people/sq mile
+# rural density < 890 people/sq mile
+
+# check what % of the population is urban
+sum(density[which(Density.Per.Sq.Mile >= 5000),]$X2010.Population)/sum(density$X2010.Population)
+# fix data type
+demo_df$zip_code <- as.integer(demo_df$zip_code)
+
+density_df <- merge(demo_df, density[,c("Zip.ZCTA","Density.Per.Sq.Mile")], by.x="zip_code", by.y = "Zip.ZCTA", all.x=TRUE)
+
+# length(density_df[is.na(Density.Per.Sq.Mile),]$user_id)
+# length(density_df[!is.na(Density.Per.Sq.Mile),]$user_id)
+density_df$urbanicity <- ifelse(density_df$Density.Per.Sq.Mile >= 5000, 'urban', 
+       ifelse(density_df$Density.Per.Sq.Mile >= 3000, 'inner_suburbs', 
+              ifelse(density_df$Density.Per.Sq.Mile >= 890, 'outer_suburbs', 
+                     ifelse(density_df$Density.Per.Sq.Mile >= 100, 'urban_fringe', 'rural'))))
+
+density_df$urbanicity_rank <- cut(density_df$Density.Per.Sq.Mile,
+                                  breaks=c(0,100,890,3000,5000,999999),
+                                  right=FALSE,
+                                  labels=c(5,4,3,2,1))
+
+
+density_summary <- density_df[!is.na(urbanicity),][,.(users=.N), by=.(urbanicity, urbanicity_rank)][order(-urbanicity_rank),]
+density_summary$total_users <- density_summary[,.(total_users=sum(users))]
+density_summary$pct_users <- density_summary$users/density_summary$total_users
+
+kable(density_summary[,c("urbanicity","urbanicity_rank","pct_users")])%>%
+  kable_styling(full_width = F)
+
+
+# write a bunch of CSVs
+write.csv(density_df[!is.na(urbanicity) & urbanicity=='urban',][,.(users=.N), by=.(urbanicity, urbanicity_rank, zip_code)][order(-users),][1:10], '~/urban_zips.csv')
+
+write.csv(density_df[!is.na(urbanicity) & urbanicity=='inner_suburbs',][,.(users=.N), by=.(urbanicity, urbanicity_rank, zip_code)][order(-users),][1:10], '~/inner_suburban_zips.csv')
+
+write.csv(density_df[!is.na(urbanicity) & urbanicity=='outer_suburbs',][,.(users=.N), by=.(urbanicity, urbanicity_rank, zip_code)][order(-users),][1:10], '~/outer_suburban_zips.csv')
+
+write.csv(density_df[!is.na(urbanicity) & urbanicity=='urban_fringe',][,.(users=.N), by=.(urbanicity, urbanicity_rank, zip_code)][order(-users),][1:10], '~/urban_fringe_zips.csv')
+
+write.csv(density_df[!is.na(urbanicity) & urbanicity=='rural',][,.(users=.N), by=.(urbanicity, urbanicity_rank, zip_code)][order(-users),][1:10], '~/rural_zips.csv')
+
+
+
+```
+
+## Signup Channel (Device)
+
+We have signup device for `r percent(sum(demo_df[complete.cases(demo_df),][, .(users=.N), by=.(signup_device)]$users)/sum(demo_df[, .(users=.N), by=.(signup_device)]$users))` of users in this group
+
+```{r, echo=FALSE, message = FALSE}
+
+kable(demo_df[complete.cases(demo_df),][, .(users=.N), by=.(signup_device)])%>%
+  kable_styling(full_width = F)
+
+```
+
+
+## Account Funding Insights
+
+### Average Monthly Balance
+
+For months where users made transactions, what was their average monthly balance?
+Excludes microdeposits and internal txns
+
+```{r, echo=FALSE, message = FALSE}
+# get monthly balance by user, then avg balance across those months per user
+ggplot(funding_df[which(is_internal_txn == FALSE),][, .(balance = sum(amount_cents)), by=.(user_id, month, product)][, .(avg_balance = mean(balance)/100), by=.(user_id, product)], aes(x=avg_balance))+
+  geom_histogram()+
+  xlim(-200,500)+
+  labs(title="Average Monthly Balance: ACH/Apple Pay",
+       x ="Average Monthly Balance, Dollars", 
+       y = "User Count")+
+  facet_wrap(~product)
+
+
+kable(funding_df[which(is_internal_txn == FALSE),][, .(balance = sum(amount_cents)), by=.(user_id, month, product)][, .(avg_balance = mean(balance)/100), by=.(user_id, product)][,.(avg_balance = mean(avg_balance)),by=.(product)])%>%
+  kable_styling(full_width = F)
+
+```
+
+### Funding Mechanisms/Types {.tabset .tabset-fade}
+
+#### FT Funding
+
+```{r, echo=FALSE, message = FALSE}
+funding <- funding_df[which(is_first_time_mau == TRUE),][, .(users = .N), by=.(type, product)]
+funding <- merge(funding, funding_df[which(is_first_time_mau == TRUE),][, .(total_users = .N), by=.(product)], all.x=TRUE, by="product")
+funding$pct <- funding$users/funding$total_users
+
+ggplot(funding, aes(x=reorder(type, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="First Time Funding: ACH/Apple Pay",
+       x ="Method", 
+       y = "Pct Users")+
+  facet_wrap(~product)
+
+```
+
+#### Subsequent Funding
+
+```{r, echo=FALSE, message = FALSE}
+funding <- funding_df[which(is_first_time_mau == FALSE & direction == 'Incoming' & is_internal_txn == FALSE),][, .(users = .N), by=.(type, product)]
+funding <- merge(funding, funding_df[which(is_first_time_mau == FALSE & direction == 'Incoming' & is_internal_txn == FALSE),][, .(total_users = .N), by=.(product)], all.x = TRUE, by="product")
+funding$pct <- funding$users/funding$total_users
+
+ggplot(funding, aes(x=reorder(type, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Repeat Funding: ACH/Apple Pay",
+       x ="Method", 
+       y = "Pct Users")+
+  facet_wrap(~product)
+```
+
+#### Funding Sources
+
+```{r, echo=FALSE, message = FALSE}
+funding <- funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE),][, .(txns = .N), by=.(company,product)]
+funding <- merge(funding, funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE),][, .(total_txns = .N), by=.(product)], all.x=TRUE, by="product")
+funding$pct <- funding$txns/funding$total_txns
+
+# there's weirdness with some company names so we need to skip the first result
+ggplot(funding[!is.na(company) & str_length(company)>1 & product=='both',][order(-pct)][1:10], aes(x=reorder(company, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Funding Source: ACH/Apple Pay - both",
+       x ="Source", 
+       y = "Pct of all Funding Txns")
+
+ggplot(funding[!is.na(company) & str_length(company)>1 & product=='ach',][order(-pct)][1:10], aes(x=reorder(company, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Funding Source: ACH/Apple Pay - ach",
+       x ="Source", 
+       y = "Pct of all Funding Txns")
+
+ggplot(funding[!is.na(company) & str_length(company)>1 & product=='apple',][order(-pct)][1:10], aes(x=reorder(company, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Funding Source: ACH/Apple Pay - apple",
+       x ="Source", 
+       y = "Pct of all Funding Txns")
+```
+
+### Direct Deposit Users {.tabset .tabset-fade}
+
+#### Income distributions
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id, month,product)][,.(avg_num=round(mean(num))), by=.(user_id,product)], aes(x=avg_num))+
+  geom_histogram()+
+  # xlim(-200,500)+
+  labs(title="Average Number of Monthly Direct Deposits: ACH/Apple Pay",
+       x ="Num of DD per Month", 
+       y = "User Count")+
+  facet_wrap(~product)
+
+ggplot(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents)/100,
+                                        num = .N),
+                                    by=.(user_id,month, product)][,.(amount=sum(amount),
+                                                         num = sum(num),
+                                                         months = .N,
+                                                         annual_income = sum(amount)/.N*12,
+                                                         alt_annual_income = sum(amount)/sum(num)*2*12),
+                                                         by=.(user_id,product)], aes(x=alt_annual_income))+
+  geom_histogram()+
+  xlim(-200,75000)+
+  labs(title="Projected Annual Income: ACH/Apple Pay",
+       x ="Annual Income", 
+       y = "User Count")+
+  facet_wrap(~product)
+
+
+funding_df[which(type=='DIR_DEP'),][, .(avg_dd_amount=mean(amount_cents)/100, median_dd_amount=median(amount_cents)/100)]
+
+```
+
+```{r, echo=FALSE, message = FALSE}
+kable(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents)/100,
+                                        num = .N),
+                                    by=.(user_id,month, product)][,.(amount=sum(amount),
+                                                         num = sum(num),
+                                                         months = .N,
+                                                         annual_income = sum(amount)/.N*12,
+                                                         alt_annual_income = sum(amount)/sum(num)*2*12),
+                                                         by=.(user_id, product)][,.(avg_alt_annual_income = mean(alt_annual_income),
+                                                                           med_alt_annual_income = median(alt_annual_income),
+                                                                           avg_annual_income = mean(annual_income),
+                                                                           med_annual_income = median(annual_income)
+                                                                           ), by=.(product)])%>%
+  kable_styling(full_width = F)
+```
+
+#### Who are the Employers and how often do they pay employees?
+
+There are `r length(unique(funding_df[which(type=='DIR_DEP'),]$user_id))` users with direct deposit from `r length(unique(funding_df[which(type=='DIR_DEP'),]$company))` companies. 
+
+The top 10 companies account for ~`r percent(sum(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(months=.N), by=.(company,user_id)][,.(users=.N),by=.(company)][order(-users),][1:10]$users)/sum(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(months=.N), by=.(company,user_id)][,.(users=.N),by=.(company)][order(-users),]$users))` of all users
+
+```{r, echo=FALSE, message = FALSE}
+
+sum(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(months=.N), by=.(company,user_id)][,.(users=.N),by=.(company)][order(-users),][1:10]$users)
+
+# get users per company
+ggplot(funding_df[which(type=='DIR_DEP' & product =='both'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company,product)][,.(months=.N), by=.(company,product,user_id)][,.(users=.N), by=.(company,product)][order(-users),][order(-users),][1:10], aes(x=reorder(company, users), y=users))+
+  geom_bar(stat = "identity")+
+  coord_flip()+
+  labs(title="Top 10 Employers: ACH/Apple Pay - both",
+       x ="Companies", 
+       y = "User Count")
+
+ggplot(funding_df[which(type=='DIR_DEP' & product =='ach'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company,product)][,.(months=.N), by=.(company,product,user_id)][,.(users=.N), by=.(company,product)][order(-users),][order(-users),][1:10], aes(x=reorder(company, users), y=users))+
+  geom_bar(stat = "identity")+
+  coord_flip()+
+  labs(title="Top 10 Employers: ACH/Apple Pay - ach",
+       x ="Companies", 
+       y = "User Count")
+
+ggplot(funding_df[which(type=='DIR_DEP' & product =='apple'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company,product)][,.(months=.N), by=.(company,product,user_id)][,.(users=.N), by=.(company,product)][order(-users),][order(-users),][1:10], aes(x=reorder(company, users), y=users))+
+  geom_bar(stat = "identity")+
+  coord_flip()+
+  labs(title="Top 10 Employers: ACH/Apple Pay - apple",
+       x ="Companies", 
+       y = "User Count")
+
+# only one employer at a time
+ggplot(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company, product)][,.(companies=.N), by=.(user_id,month, product)][,.(avg_companies=round(mean(companies))),by=.(user_id,product)], aes(x=avg_companies))+
+  geom_histogram()+
+  # xlim(-200,75000)+
+  labs(title="# of Companies paying a user per month: ACH/Apple Pay",
+       x ="Companies", 
+       y = "User Count")+
+  facet_wrap(~product)
+
+# same as above but by the top 10 employers
+top_ten <- unique(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(months=.N), by=.(company,user_id)][,.(users=.N), by=.(company)][order(-users),][1:10]$company)
+
+kable(funding_df[which(type=='DIR_DEP' & company %in% c(top_ten)),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(avg_monthly_payments = mean(num), months=.N), by=.(company,user_id)][,.(avg_monthly_payments=mean(avg_monthly_payments),users=.N),by=.(company)][order(-users),])%>%
+  kable_styling(full_width = F)
+
+
+ggplot(funding_df[which(type=='DIR_DEP' & company %in% c(top_ten)),][, .(amount=sum(amount_cents), num = .N), by=.(user_id, month,product)][,.(avg_num=round(mean(num))), by=.(user_id,product)], aes(x=avg_num))+
+  geom_histogram()+
+  # xlim(-200,500)+
+  labs(title="Average Number of Monthly Direct Deposits: ACH/Apple Pay, top 10 employers",
+       x ="Num of DD per Month", 
+       y = "User Count")+
+  facet_wrap(~product)
+```
+
+### Distribution of # and $ account funding txns per month
+
+ - Average # of transactions per month - both: `r mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & product=='both'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+ - Median # of transactions per month - both: `r median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & product=='both'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+ - Average # of transactions per month - apple: `r mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & product=='apple'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+ - Median # of transactions per month - apple: `r median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & product=='apple'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+ - Average # of transactions per month - ach: `r mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & product=='ach'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+ - Median # of transactions per month - ach: `r median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & product=='ach'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+
+ - Average amount per funding event per month - both:`r dollar(mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & product=='both'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ - Median amount per funding event per month - both: `r dollar(median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & product=='both'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ - Average amount per funding event per month - apple:`r dollar(mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & product=='apple'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ - Median amount per funding event per month - apple: `r dollar(median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & product=='apple'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ - Average amount per funding event per month - ach:`r dollar(mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & product=='ach'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ - Median amount per funding event per month - ach: `r dollar(median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & product=='ach'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE),][, .(txns = .N), by=.(user_id,month,product)][,.(txns=mean(txns)), by=.(user_id,product)], aes(x=txns))+
+  geom_histogram()+
+  xlim(0,30)+
+  labs(title="Avg # of Funding Transactions per Month per User: ACH/Apple Pay",
+       x ="Txns", 
+       y = "User Count")+
+  facet_wrap(~product)
+
+
+ggplot(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE),][, .(amount = sum(amount_cents)/100), by=.(user_id,month,product)][,.(amount=mean(amount)), by=.(user_id,product)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0,5000)+
+  labs(title="Avg Total Incoming $ Amount per Month per User: ACH/Apple Pay",
+       x ="Amount", 
+       y = "User Count")+
+  facet_wrap(~product)
+
+```
+
+## Spending Insights
+
+
+
+### Monthly transaction frequency {.tabset .tabset-fade}
+look at distributions
+
+#### Card txns
+number of txns per month
+
+ - Avg # of txns per user - both: `r mean(spending_df[which(type == 'Card' & product=='both'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - both: `r median(spending_df[which(type == 'Card' & product=='both'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+ - Avg # of txns per user - ach: `r mean(spending_df[which(type == 'Card' & product=='ach'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - ach: `r median(spending_df[which(type == 'Card' & product=='ach'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+ - Avg # of txns per user - apple: `r mean(spending_df[which(type == 'Card' & product=='apple'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - apple: `r median(spending_df[which(type == 'Card' & product=='apple'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type == 'Card'),][, .(txns = .N), by=.(user_id,month,product)][,.(txns = mean(txns)), by=.(user_id,product)], aes(x=txns))+
+  geom_histogram()+
+  xlim(0,100)+
+  labs(title="Avg # of Card Transactions per Month per User: ACH/Apple Pay",
+       x ="Txns", 
+       y = "User Count")+
+  facet_wrap(~product)
+
+
+```
+
+#### Non-Card txns
+
+number of txns per month
+
+ - Avg # of txns per user - both: `r mean(spending_df[which(type != 'Card' & product=='both'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - both: `r median(spending_df[which(type != 'Card' & product=='both'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+ - Avg # of txns per user - ach: `r mean(spending_df[which(type != 'Card' & product=='ach'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - ach: `r median(spending_df[which(type != 'Card' & product=='ach'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+ - Avg # of txns per user - apple: `r mean(spending_df[which(type != 'Card' & product=='apple'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - apple: `r median(spending_df[which(type != 'Card' & product=='apple'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type != 'Card'),][, .(txns = .N), by=.(user_id,month,product)][,.(txns = mean(txns)), by=.(user_id,product)], aes(x=txns))+
+  geom_histogram()+
+  xlim(0,100)+
+  labs(title="Avg # of Non-Card Transactions per Month per User: ACH/Apple Pay",
+       x ="Txns", 
+       y = "User Count")+
+  facet_wrap(~product)
+
+```
+
+### Monthly transaction amounts {.tabset .tabset-fade}
+
+#### Card txns
+
+ - Avg monthly spend per user - both: `r dollar(mean(spending_df[which(type == 'Card' & product=='both'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend per user - both: `r dollar(median(spending_df[which(type == 'Card' & product=='both'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend per user - ach: `r dollar(mean(spending_df[which(type == 'Card' & product=='ach'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend per user - ach: `r dollar(median(spending_df[which(type == 'Card' & product=='ach'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend per user - apple: `r dollar(mean(spending_df[which(type == 'Card' & product=='apple'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend per user - apple: `r dollar(median(spending_df[which(type == 'Card' & product=='apple'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+
+ - avg txn amount - both: `r dollar(mean(spending_df[which(type == 'Card' & product=='both'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - both: `r dollar(median(spending_df[which(type == 'Card' & product=='both'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - avg txn amount - ach: `r dollar(mean(spending_df[which(type == 'Card' & product=='ach'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - ach: `r dollar(median(spending_df[which(type == 'Card' & product=='ach'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - avg txn amount - apple: `r dollar(mean(spending_df[which(type == 'Card' & product=='apple'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - apple: `r dollar(median(spending_df[which(type == 'Card' & product=='apple'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type == 'Card'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month,product)][,.(amount = mean(amount)), by=.(user_id,product)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0,2000)+
+  labs(title="Avg $ Amount of Card Spend per Month per User: ACH/Apple Pay",
+       x ="amount", 
+       y = "User Count")+
+  facet_wrap(~product)
+
+ggplot(spending_df[which(type == 'Card'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month,product)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id,product)], aes(x=txn_amount))+
+  geom_histogram()+
+  xlim(0,100)+
+  labs(title="Avg $ Amount per Card Transaction: ACH/Apple Pay",
+       x ="amount", 
+       y = "Count")+
+  facet_wrap(~product)
+
+
+```
+
+#### Non-Card txns
+
+ - Avg monthly spend per user - both: `r dollar(mean(spending_df[which(type != 'Card' & product=='both'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend per user - both: `r dollar(median(spending_df[which(type != 'Card' & product=='both'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend per user - ach: `r dollar(mean(spending_df[which(type != 'Card' & product=='ach'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend per user - ach: `r dollar(median(spending_df[which(type != 'Card' & product=='ach'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend per user - apple: `r dollar(mean(spending_df[which(type != 'Card' & product=='apple'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend per user - apple: `r dollar(median(spending_df[which(type != 'Card' & product=='apple'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+
+ - avg txn amount - both: `r dollar(mean(spending_df[which(type != 'Card' & product=='both'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - both: `r dollar(median(spending_df[which(type != 'Card' & product=='both'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - avg txn amount - ach: `r dollar(mean(spending_df[which(type != 'Card' & product=='ach'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - ach: `r dollar(median(spending_df[which(type != 'Card' & product=='ach'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - avg txn amount - apple: `r dollar(mean(spending_df[which(type != 'Card' & product=='apple'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - apple: `r dollar(median(spending_df[which(type != 'Card' & product=='apple'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type != 'Card'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month,product)][,.(amount = mean(amount)), by=.(user_id,product)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0,3000)+
+  labs(title="Avg $ Amount of Non-Card Spend per Month per User: ACH/Apple Pay",
+       x ="amount", 
+       y = "User Count")+
+  facet_wrap(~product)
+
+
+ggplot(spending_df[which(type != 'Card'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month,product)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id,product)], aes(x=txn_amount))+
+  geom_histogram()+
+  xlim(0,300)+
+  labs(title="Avg $ Amount per Non-Card Transaction: ACH/Apple Pay",
+       x ="amount", 
+       y = "Count")+
+  facet_wrap(~product)
+
+```
+
+### Domestic vs International Card Txns {.tabset .tabset-fade}
+Number and $ volume
+
+#### Amounts
+
+ - Avg monthly spend - domestic, both: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & product=='both'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - domestic, both: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & product=='both'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend - domestic, ach: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & product=='ach'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - domestic, ach: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & product=='ach'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend - domestic, apple: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & product=='apple'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - domestic, apple: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & product=='apple'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ 
+ 
+
+ - Avg txn amount - domestic, both: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & product=='both'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - domestic, both: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & product=='both'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Avg txn amount - domestic, ach: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & product=='ach'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - domestic, ach: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & product=='ach'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Avg txn amount - domestic, apple: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & product=='apple'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - domestic, apple: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & product=='apple'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ 
+ 
+ 
+ - Avg monthly spend - international, both: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & product=='both'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - international, both: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & product=='both'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend - international, ach: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & product=='ach'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - international, ach: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & product=='ach'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend - international, apple: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & product=='apple'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - international, apple: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & product=='apple'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ 
+ 
+ 
+
+ - Avg txn amount - international, both: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & product=='both'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - international, both: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & product=='both'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Avg txn amount - international, ach: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & product=='ach'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - international, ach: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & product=='ach'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Avg txn amount - international, apple: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & product=='apple'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - international, apple: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & product=='apple'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ 
+ 
+ 
+ 
+ 
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type == 'Card' & location=='domestic'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month,product)][,.(amount = mean(amount)), by=.(user_id,product)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0,3000)+
+  labs(title="Avg $ Amount of Card Spend per Month per User: ACH/Apple Pay - domestic txns",
+       x ="amount", 
+       y = "User Count")+
+  facet_wrap(~product)
+
+ggplot(spending_df[which(type == 'Card' & location=='international'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month,product)][,.(amount = mean(amount)), by=.(user_id,product)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0,3000)+
+  labs(title="Avg $ Amount of Card Spend per Month per User: ACH/Apple Pay - international txns",
+       x ="amount", 
+       y = "User Count")+
+  facet_wrap(~product)
+
+
+ggplot(spending_df[which(type == 'Card' & location=='domestic'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month,product)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id,product)], aes(x=txn_amount))+
+  geom_histogram()+
+  xlim(0,200)+
+  labs(title="Avg $ Amount per Card Transaction: ACH/Apple Pay - domestic txns",
+       x ="amount", 
+       y = "Count")+
+  facet_wrap(~product)
+
+
+ggplot(spending_df[which(type == 'Card' & location=='international'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month,product)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id,product)], aes(x=txn_amount))+
+  geom_histogram()+
+  xlim(0,200)+
+  labs(title="Avg $ Amount per Card Transaction: ACH/Apple Pay - international txns",
+       x ="amount", 
+       y = "Count")+
+  facet_wrap(~product)
+```
+
+#### Number of txns
+
+ - Avg number of monthly txns - domestic, both: `r mean(spending_df[which(type == 'Card' & location == 'domestic' & product =='both'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Avg number of monthly txns - domestic, ach: `r mean(spending_df[which(type == 'Card' & location == 'domestic' & product =='ach'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Avg number of monthly txns - domestic, apple: `r mean(spending_df[which(type == 'Card' & location == 'domestic' & product =='apple'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median number of txns - domestic, both: `r median(spending_df[which(type == 'Card' & location == 'domestic' & product =='both'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median number of txns - domestic, ach: `r median(spending_df[which(type == 'Card' & location == 'domestic' & product =='ach'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median number of txns - domestic, apple: `r median(spending_df[which(type == 'Card' & location == 'domestic' & product =='apple'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ 
+
+
+- Avg number of monthly txns - international, both: `r mean(spending_df[which(type == 'Card' & location == 'international' & product =='both'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+- Avg number of monthly txns - international, ach: `r mean(spending_df[which(type == 'Card' & location == 'international' & product =='ach'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+- Avg number of monthly txns - international, apple: `r mean(spending_df[which(type == 'Card' & location == 'international' & product =='apple'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+- Median number of txns - international, both: `r median(spending_df[which(type == 'Card' & location == 'international' & product =='both'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+- Median number of txns - international, ach: `r median(spending_df[which(type == 'Card' & location == 'international' & product =='ach'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+- Median number of txns - international, apple: `r median(spending_df[which(type == 'Card' & location == 'international' & product =='apple'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+
+```{r, echo=FALSE, message = FALSE}
+ggplot(spending_df[which(type == 'Card' & location == 'domestic'),][, .(txns = .N), by=.(user_id,month, product)][,.(txns = mean(txns)), by=.(user_id, product)], aes(x=txns))+
+  geom_histogram()+
+  xlim(0,100)+
+  labs(title="Avg # of Card Transactions per Month per User: ACH/Apple Pay - domestic txns",
+       x ="Txns", 
+       y = "User Count")+
+  facet_wrap(~product)
+
+ggplot(spending_df[which(type == 'Card' & location == 'international'),][, .(txns = .N), by=.(user_id,month, product)][,.(txns = mean(txns)), by=.(user_id, product)], aes(x=txns))+
+  geom_histogram()+
+  xlim(0,100)+
+  labs(title="Avg # of Card Transactions per Month per User: ACH/Apple Pay - international txns",
+       x ="Txns", 
+       y = "User Count")+
+  facet_wrap(~product)
+```
+
+### Merchant Types {.tabset .tabset-fade}
+
+#### Top merchant categories
+
+```{r, echo=FALSE, message = FALSE}
+merchants <- spending_df[,.(txns=.N), by=.(merchant_category,product)]
+merchants <- merge(merchants, spending_df[,.(total_txns=.N), by=.(product)], all.x=TRUE, by="product")
+merchants$pct <- merchants$txns/merchants$total_txns
+```
+
+Top 10 categories make up `r percent(sum(merchants[which(merchant_category!= 'no_cat'), .(merchant_category, txns, pct)][1:10]$pct))` of all transactions.
+
+```{r, echo=FALSE, message = FALSE}
+ggplot(merchants[which(merchant_category!= 'no_cat' & product=='both'), .(merchant_category, txns, pct)][1:10], aes(x=reorder(merchant_category, txns), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchant Categories: ACH/Apple Pay - both",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+ggplot(merchants[which(merchant_category!= 'no_cat' & product=='ach'), .(merchant_category, txns, pct)][1:10], aes(x=reorder(merchant_category, txns), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchant Categories: ACH/Apple Pay - ach",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+ggplot(merchants[which(merchant_category!= 'no_cat' & product=='apple'), .(merchant_category, txns, pct)][1:10], aes(x=reorder(merchant_category, txns), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchant Categories: ACH/Apple Pay - apple",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+
+```
+
+
+#### Top merchant names
+
+```{r, echo=FALSE, message = FALSE}
+
+merchants <- spending_df[,.(txns=.N), by=.(merchant_name,product)]
+merchants <- merge(merchants, spending_df[,.(total_txns=.N), by=.(product)], all.x=TRUE, by="product")
+merchants$pct <- merchants$txns/merchants$total_txns
+
+ggplot(merchants[which(!is.na(merchant_name) & product=='both'), .(merchant_name, txns, pct)][order(-txns),][1:10], aes(x=reorder(merchant_name, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchants: ACH/Apple Pay - both",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+ggplot(merchants[which(!is.na(merchant_name) & product=='ach'), .(merchant_name, txns, pct)][order(-txns),][1:10], aes(x=reorder(merchant_name, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchants: ACH/Apple Pay - ach",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+ggplot(merchants[which(!is.na(merchant_name) & product=='apple'), .(merchant_name, txns, pct)][order(-txns),][1:10], aes(x=reorder(merchant_name, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchants: ACH/Apple Pay - apple",
+       x ="Category", 
+       y = "Percent of all Transactions")
+```
+
+
+## Key Feature Insights
+
+### ATM usage {.tabset .tabset-fade}
+
+
+#### Domestic
+
+`r percent(length(unique(spending_df[which(type=='ATM' & location=='domestic'),]$user_id))/length(unique(demo_df$user_id)))` of all users in this group made a domestic ATM withdrawal at some point
+
+ - Avg # of withdrawals per month - both: `r mean(spending_df[which(type=='ATM' & location=='domestic' & product=='both'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median # of withdrawals per month - both: `r median(spending_df[which(type=='ATM' & location=='domestic' & product=='both'), .(num=.N), by=.(user_id,month)][, .(avg_num=median(num)), by=.(user_id)]$avg_num)`
+ - Avg # of withdrawals per month - ach: `r mean(spending_df[which(type=='ATM' & location=='domestic' & product=='ach'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median # of withdrawals per month - ach: `r median(spending_df[which(type=='ATM' & location=='domestic' & product=='ach'), .(num=.N), by=.(user_id,month)][, .(avg_num=median(num)), by=.(user_id)]$avg_num)`
+ - Avg # of withdrawals per month - apple: `r mean(spending_df[which(type=='ATM' & location=='domestic' & product=='apple'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median # of withdrawals per month - apple: `r median(spending_df[which(type=='ATM' & location=='domestic' & product=='apple'), .(num=.N), by=.(user_id,month)][, .(avg_num=median(num)), by=.(user_id)]$avg_num)`
+ 
+
+ - Avg amount per withdrawal - both: `r dollar(mean(spending_df[which(type=='ATM' & location=='domestic' & product=='both'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - both: `r dollar(median(spending_df[which(type=='ATM' & location=='domestic' & product=='both'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Avg amount per withdrawal - ach: `r dollar(mean(spending_df[which(type=='ATM' & location=='domestic' & product=='ach'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - ach: `r dollar(median(spending_df[which(type=='ATM' & location=='domestic' & product=='ach'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Avg amount per withdrawal - apple: `r dollar(mean(spending_df[which(type=='ATM' & location=='domestic' & product=='apple'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - apple: `r dollar(median(spending_df[which(type=='ATM' & location=='domestic' & product=='apple'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type=='ATM' & location=='domestic'), .(num=.N), by=.(user_id,month, product)][, .(avg_num=mean(num)), by=.(user_id,product)], aes(x=avg_num))+
+  geom_histogram()+
+  xlim(0,20)+
+  labs(title="Average Number of ATM withdrawals per month: ACH/Apple Pay - domestic",
+       x ="ATM withdrawals per Month", 
+       y = "User Count")+
+  facet_wrap(~product)
+
+ggplot(spending_df[which(type=='ATM' & location=='domestic'), .(amount = mean(amount_cents)/100*-1), by=.(user_id,product)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0, 1500)+
+  labs(title="Average Amount per ATM withdrawal: ACH/Apple Pay - domestic",
+       x ="Avg Withdrawal Amount", 
+       y = "Count")+
+  facet_wrap(~product)
+
+
+```
+
+
+#### International
+
+`r percent(length(unique(spending_df[which(type=='ATM' & location=='international'),]$user_id))/length(unique(demo_df$user_id)))` of all users in this group made an international ATM withdrawal at some point
+
+- Avg # of withdrawals per month - both: `r mean(spending_df[which(type=='ATM' & location=='international' & product=='both'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median # of withdrawals per month - both: `r median(spending_df[which(type=='ATM' & location=='international' & product=='both'), .(num=.N), by=.(user_id,month)][, .(avg_num=median(num)), by=.(user_id)]$avg_num)`
+ - Avg # of withdrawals per month - ach: `r mean(spending_df[which(type=='ATM' & location=='international' & product=='ach'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median # of withdrawals per month - ach: `r median(spending_df[which(type=='ATM' & location=='international' & product=='ach'), .(num=.N), by=.(user_id,month)][, .(avg_num=median(num)), by=.(user_id)]$avg_num)`
+ - Avg # of withdrawals per month - apple: `r mean(spending_df[which(type=='ATM' & location=='international' & product=='apple'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median # of withdrawals per month - apple: `r median(spending_df[which(type=='ATM' & location=='international' & product=='apple'), .(num=.N), by=.(user_id,month)][, .(avg_num=median(num)), by=.(user_id)]$avg_num)`
+ 
+
+ - Avg amount per withdrawal - both: `r dollar(mean(spending_df[which(type=='ATM' & location=='international' & product=='both'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - both: `r dollar(median(spending_df[which(type=='ATM' & location=='international' & product=='both'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Avg amount per withdrawal - ach: `r dollar(mean(spending_df[which(type=='ATM' & location=='international' & product=='ach'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - ach: `r dollar(median(spending_df[which(type=='ATM' & location=='international' & product=='ach'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Avg amount per withdrawal - apple: `r dollar(mean(spending_df[which(type=='ATM' & location=='international' & product=='apple'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - apple: `r dollar(median(spending_df[which(type=='ATM' & location=='international' & product=='apple'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ 
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type=='ATM' & location=='international'), .(num=.N), by=.(user_id,month,product)][, .(avg_num=mean(num)), by=.(user_id,product)], aes(x=avg_num))+
+  geom_histogram()+
+  xlim(0,20)+
+  labs(title="Average Number of ATM withdrawals per month: ACH/Apple Pay - international",
+       x ="ATM withdrawals per Month", 
+       y = "User Count")+
+  facet_wrap(~product)
+
+
+ggplot(spending_df[which(type=='ATM' & location=='international'), .(amount = mean(amount_cents)/100*-1), by=.(user_id,product)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0, 1500)+
+  labs(title="Average Amount per ATM withdrawal: ACH/Apple Pay - international",
+       x ="Avg Withdrawal Amount", 
+       y = "Count")+
+  facet_wrap(~product)
+
+```
+
+### Spaces Usage
+Number of Spaces txns per month. What does this tell us?
+
+`r percent(length(unique(funding_df[which(type=='Spaces'),]$user_id))/length(unique(demo_df$user_id)))` of all users made a Spaces txn (ever)
+
+```{r, echo=FALSE, message = FALSE}
+
+# avg # of transactions into Spaces
+
+ggplot(funding_df[which(type=='Spaces' & direction=='Incoming'),][, .(num=.N), by=.(user_id, month,product)][, .(avg_txns=mean(num)), by=.(user_id,product)], aes(x=avg_txns))+
+  geom_histogram()+
+  xlim(0, 50)+
+  labs(title="Average # of monthly transactions INTO Spaces: ACH/Apple Pay",
+       x ="Avg # of Txns", 
+       y = "User Count")+
+  facet_wrap(~product)
+
+# avg transaction size when it's going into Spaces
+
+ggplot(funding_df[which(type=='Spaces' & direction=='Incoming'),][, .(avg_amount=mean(amount_cents)/100), by=.(user_id,product)], aes(x=avg_amount))+
+  geom_histogram()+
+  xlim(0, 500)+
+  labs(title="Average transaction amount INTO Spaces: ACH/Apple Pay",
+       x ="Amount", 
+       y = "Count")+
+  facet_wrap(~product)
+
+```
+
+## User Reengagement
+
+```{r, echo=FALSE, message = FALSE}
+
+reactivated <- reengagement_ach_apple[,.(users=.N), by=.(reactivation_txn)]
+reactivated$total_users <- current_mau_ach_apple_demo[,.(total_users=.N)]
+reactivated$pct <- percent(reactivated$users/reactivated$total_users)
+
+kable(reactivated)%>%
+  kable_styling(full_width = F)
+```

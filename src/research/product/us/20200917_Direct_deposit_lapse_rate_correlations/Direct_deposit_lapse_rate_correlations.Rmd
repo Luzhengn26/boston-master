@@ -1,0 +1,108 @@
+---
+title: "Does making a Direct Deposit influence the lapse rate"
+author: "Dani Mermelstein"
+date: "2020-09-17"
+region: "US"
+summary: "Here we look at whether there is a correlational relationship between Direct Deposit and the 8-week lapse rate. Causal impact is only feasible with an A/B test, but we can still gauge a potential relationship between funding behavior and lapse rate. We looked at MAUs who signed up after March 01, 2020, and flagged users who made a direct deposit since then. We then categorized users into the following groups based on whether they lapsed and reactivated within their first 8 weeks as an MAU."
+tags: "direct deposit, lapse rate, mau, reactivation"
+link:
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(kableExtra)
+library(bayesAB)
+library(ggplot2)
+library(scales)
+
+# load the data
+load(paste0("data/dir_dep_data.RData"))
+
+# need this up here to use in the Results section
+# flag users who have made an dir_dep transaction in their first 8 weeks
+mau_dir_dep$dir_dep_flag <- ifelse(mau_dir_dep$dd_user <= mau_dir_dep$eight_weeks, 1, 0)
+mau_dir_dep[is.na(mau_dir_dep$dir_dep_flag),]$dir_dep_flag <- 0
+
+# aggregate 
+dir_dep_groups <- mau_dir_dep[,.(cnt=.N), by=.(mau_group,dir_dep_flag)][order(dir_dep_flag,mau_group),] 
+dir_dep_groups <- merge(dir_dep_groups, dir_dep_groups[,.(total=sum(cnt)), by=.(dir_dep_flag)], all.x=TRUE, by="dir_dep_flag")
+dir_dep_groups$rate <- dir_dep_groups$cnt/dir_dep_groups$total
+
+# calculate prop test just to have
+test_output <- prop.test(as.matrix(dir_dep_groups[mau_group=='unbroken_mau',c("cnt","total")]))
+
+```
+
+# Context and definitions
+Here we look at whether there is a correlational relationship between Direct Deposit and the 8-week lapse rate. Causal impact is only feasible with an A/B test, but we can still gauge a potential relationship between funding behavior and lapse rate.
+
+We looked at MAUs who signed up after March 01, 2020, and flagged users who made a direct deposit since then. We then categorized users into the following groups based on whether they lapsed and reactivated within their first 8 weeks as an MAU:
+
+ - **full_lapse**: User became MAU, lapsed, did not reactivate, and ended the 8-week period as a lapsed user
+ - **reactivated**: User became MAU, lapsed, and reactivated. These users may or may not have ended the 8-week period as MAU
+ - **unbroken_mau**: User became MAU and did not lapse in their first 8 weeks
+
+# High-level behavior
+
+It would appear that users who have made a transaction via direct deposit have a lower `full_lapse` rate and a higher `unbroken_mau` rate:
+
+```{r, echo=FALSE}
+
+kable(dir_dep_groups)%>%
+  kable_styling(full_width = FALSE)
+
+```
+
+# Results
+
+There `r ifelse(test_output$p.value <= 0.05, "does", "does not")` appear to be a meaningful relationship between use of direct deposit to fund and whether a user lapses in their first 8 weeks at N26. We have to caution that this analysis does NOT determine a causal relationship, as there could be additional factors driving the output we see here.
+
+# Statistical significance of the relationship  {.tabset .tabset-fade .tabset-pills} 
+
+## Bayesian Stats
+
+NOTE: for this test we needed to make the size of our two groups equal, so the below numbers in the "Users" and "Outcomes" columns are a random sample of the users available for this analysis:
+
+```{r, echo=FALSE}
+
+# set outcome
+bayes_dir_dep <- mau_dir_dep
+bayes_dir_dep$outcome <- ifelse(mau_dir_dep$mau_group=='unbroken_mau',1,0)
+
+# get outcome vectors
+no_dir_dep <- as.integer(bayes_dir_dep[dir_dep_flag==0,]$outcome)
+yes_dir_dep <- as.integer(bayes_dir_dep[dir_dep_flag==1,]$outcome)
+
+# control for sample size differences
+no_dir_dep <- sample(no_dir_dep, size=length(yes_dir_dep))
+
+AB1 <- bayesTest(yes_dir_dep, no_dir_dep, priors = c('alpha' = 1, 'beta' = 1), n_samples = 1e5, distribution = 'bernoulli')
+
+kable(data.frame("Variants"=c("no_dir_dep","yes_dir_dep"), 
+           "Users"=c(length(no_dir_dep), length(yes_dir_dep)), 
+           "Outcomes"=c(sum(no_dir_dep), sum(yes_dir_dep)),
+           "Rate"=c(sum(no_dir_dep)/length(no_dir_dep), sum(yes_dir_dep)/length(yes_dir_dep)))) %>%
+  kable_styling(full_width = F)
+
+# generate plots
+images <- plot(AB1)
+levels(images$posteriors$Probability$data$recipe) <- as.factor(c("yes_dir_dep","no_dir_dep"))
+images$posteriors$Probability + ggtitle("Outcome Distribution")
+images$samples$Probability + ggtitle("Likelihood of Improvement")
+
+```
+
+### 90% Confidence Interval:
+
+```{r, echo=FALSE}
+summary(AB1)$interval$Probability
+
+```
+
+### Estimated Lift: 
+`r percent(mean(c(summary(AB1)$interval$Probability)))`

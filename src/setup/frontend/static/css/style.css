@@ -1,0 +1,748 @@
+@font-face {
+  font-family: "N26";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/GT-America-Standard-Regular.latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "N26";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/GT-America-Standard-Medium.latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "N26";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../fonts/GT-America-Extended-Medium.latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "N26";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../fonts/GT-America-Standard-Bold.latin.woff2") format("woff2");
+}
+
+/* =========================================================
+  GENERAL 
+  ========================================================= */
+
+body {
+  font-family: "N26", sans-serif;
+}
+
+#wrapper {
+  width: 90%;
+  padding: 0;
+}
+
+.row, .col {
+  margin: 0;
+}
+
+.overflow-auto {
+  overflow: auto;
+}
+
+.all-0 {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+
+#Header, #Filters {
+  border-bottom: 2px solid #eeeeee;
+  /* Add grey line to the bottom of the border only */
+}
+
+#Header, #Filters, #Research {
+  padding: 15px 0;
+}
+
+.hidden {
+  display: none;
+}
+
+.emoji {
+  vertical-align: middle;
+  font-size: 32px !important;
+  /* Increase font-size */
+}
+
+h1 {
+  font-size: 16px;
+}
+
+h2 {
+  font-size: 16px;
+}
+
+button {
+  padding: 0;
+}
+
+kbd {
+  color: #48ac98;
+  background-color: #ececec;
+}
+
+code {
+  color: #666666;
+}
+
+.codeblock {
+  background-color: #ececec;
+  padding: 1em 2em;
+  margin: 1em 0;
+}
+
+/* =========================================================
+      PRELOADER
+      ========================================================= */
+
+#load {
+  width: 100%;
+  height: 100%;
+  position: fixed;
+  z-index: 9999;
+  background: #fff;
+}
+
+/* =========================================================
+      LIST STYLING
+      ========================================================= */
+
+.modal ul, .modal ol {
+  list-style: none;
+  counter-reset: steps;
+}
+
+.modal ul li, .modal ol li {
+  margin: 0.25rem;
+  counter-increment: steps;
+}
+
+.modal ul li::before, .modal ol li::before {
+  content: counter(steps);
+  background: #48ac98;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  display: inline-block;
+  line-height: 2rem;
+  color: white;
+  text-align: center;
+  margin-right: 0.5rem;
+}
+
+.modal ol ol li::before {
+  background: #9FD4CB;
+}
+
+/* =========================================================
+      HEADER
+      ========================================================= */
+
+#Header {
+  padding: 10px 0;
+}
+
+#Header>div {
+  padding: 0;
+  margin: 0;
+}
+
+/* =========== LOGO =========== */
+
+#HeaderLogo>img {
+  height: 65px;
+}
+
+.col-pixel-width-300 {
+  flex: 0 0 300px;
+}
+
+/* =========== SEARCH =========== */
+
+#SearchInput {
+  background-image: url("/images/search_icon.png");
+  /* Add the search icon */
+  background-position: 12px 16px;
+  /* Position the search icon */
+  background-repeat: no-repeat;
+  /* Do not repeat the icon image */
+  width: 100%;
+  /* Full-width */
+  font-size: 22px;
+  /* Increase font-size */
+  font-weight: 400;
+  /* Decrease font-weight */
+  padding: 12px 20px 12px 60px;
+  /* Add some padding */
+  border: 3px transparent;
+  /* Make border transparent */
+}
+
+#SearchInput:focus {
+  outline: none;
+}
+
+/* =========== INFO MODAL =========== */
+
+.modal-dialog-full-width {
+  width: 90% !important;
+  height: 90% !important;
+  /* margin: 0 !important;
+    padding: 0 !important; */
+  max-width: none !important;
+}
+
+.modal-content-full-width {
+  height: auto !important;
+  min-height: 100% !important;
+  border-radius: 6px !important;
+  background-color: #fff !important;
+}
+
+.modal-header-full-width {
+  background-color: #48ac98 !important;
+  color: #fff !important;
+  border-bottom: 1px solid #9ea2a2 !important;
+}
+
+.modal-footer-full-width {
+  background-color: #ececec !important;
+  border-top: 1px solid #9ea2a2 !important;
+}
+
+.modal-body {
+  padding: 1rem 3rem;
+  margin: 2rem 0;
+}
+
+.modal a, .modal a:active {
+  font-weight: 600;
+  text-decoration: none;
+  color: #48ac98;
+  border-bottom: #48ac98 0.125em solid;
+}
+
+.modal a:hover {
+  background-color: #48ac98;
+  color: #fff;
+  border-bottom: #48ac98 0.125em solid;
+}
+
+.modal h2, .modal p {
+  margin: 1.5rem 0;
+  line-height: 1.5;
+}
+
+.modal-body>.section-heading, .tab-content>h2 {
+  font-weight: 600;
+  text-transform: uppercase;
+  color: gray;
+}
+
+/* =========== INFO MODAL TABS =========== */
+
+.tab-wrap {
+  width: 100%;
+  position: relative;
+  display: flex;
+}
+
+input[type="radio"][name="tabs"] {
+  position: absolute;
+  z-index: -1;
+}
+
+input[type="radio"][name="tabs"]:checked+.tab-label-content label {
+  color: #48ac98;
+}
+
+input[type="radio"][name="tabs"]:checked+.tab-label-content .tab-content {
+  display: block;
+}
+
+input[type="radio"][name="tabs"]:nth-of-type(1):checked~.slide {
+  left: calc((100% / 4) * 0);
+}
+
+input[type="radio"][name="tabs"]:nth-of-type(2):checked~.slide {
+  left: calc((100% / 4) * 1);
+}
+
+input[type="radio"][name="tabs"]:nth-of-type(3):checked~.slide {
+  left: calc((100% / 4) * 2);
+}
+
+input[type="radio"][name="tabs"]:nth-of-type(4):checked~.slide {
+  left: calc((100% / 4) * 3);
+}
+
+input[type="radio"][name="tabs"]:first-of-type:checked~.slide {
+  left: 0;
+}
+
+label {
+  cursor: pointer;
+  color: #666666;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  height: 56px;
+  transition: color 0.2s ease;
+  width: 100%;
+}
+
+.slide {
+  background: #48ac98;
+  width: calc(100% / 4);
+  height: 4px;
+  position: absolute;
+  left: 0;
+  top: calc(100% - 4px);
+  transition: left 0.3s ease-out;
+}
+
+.tab-label-content {
+  width: 100%;
+}
+
+.tab-label-content .tab-content {
+  position: absolute;
+  top: 60px;
+  left: 1px;
+  line-height: 130%;
+  display: none;
+}
+
+.tab-content {
+  /* background-color: #f5f5f5; */
+  padding: 3rem;
+  width: 100%;
+}
+
+/* =========================================================
+      FILTERS
+      ========================================================= */
+
+#Filters>div>button {
+  border: none;
+  color: #fff;
+  background: #a6a6a6;
+  border-top: 1px solid #f5f5f5;
+  -moz-transition: all 0.15s ease-in;
+  -o-transition: all 0.15s ease-in;
+  -webkit-transition: all 0.15s ease-in;
+  transition: all 0.15s ease-in;
+}
+
+#Filters>div>button#ClearFilterButton, #Filters>div>button#ClearFilterButton {
+  border: none;
+  color: #fff;
+  background: #48ac98;
+  border-top: 1px solid #f5f5f5;
+}
+
+#Filters>div>button#ClearFilterButton:disabled, #Filters>div>button#ClearFilterButton[disabled] {
+  border: none;
+  color: #fff;
+  background: #a6a6a6;
+  border-top: 1px solid #f5f5f5;
+  pointer-events: none;
+}
+
+#Filters>.active #Filters>div>button:hover, #Filters>div>button:active {
+  color: #fff;
+  background: #48ac98;
+}
+
+/* =========== FILTER BUTTONS =========== */
+
+.select-hidden {
+  display: none;
+  visibility: hidden;
+  padding-right: 10px;
+}
+
+.select {
+  cursor: pointer;
+  display: inline-block;
+  position: relative;
+  font-size: 14px;
+  color: black;
+  width: 100%;
+  height: 40px;
+}
+
+/* Cuts off overflowing text and replaces it with "..." */
+
+.select-styled, .select-options li {
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.select-styled {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background-color: #f5f5f5;
+  padding: 8px 15px;
+  -moz-transition: all 0.2s ease-in;
+  -o-transition: all 0.2s ease-in;
+  -webkit-transition: all 0.2s ease-in;
+  transition: all 0.2s ease-in;
+}
+
+.select-styled:after {
+  content: "";
+  width: 0;
+  height: 0;
+  border: 7px solid transparent;
+  border-color: #e0e0e0 transparent transparent transparent;
+  position: absolute;
+  top: 16px;
+  right: 10px;
+}
+
+.select-styled:hover {
+  color: #fff;
+  background-color: #48ac98;
+}
+
+.select-styled:active, .select-styled.active {
+  color: #fff;
+  background-color: #48ac98;
+}
+
+.select-styled:active:after, .select-styled.active:after {
+  top: 9px;
+  border-color: transparent transparent #e0e0e0 transparent;
+}
+
+.select-options {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  z-index: 999;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background-color: #f5f5f5;
+  max-height: 50vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.select-options li {
+  margin: 0;
+  padding: 12px 0;
+  text-indent: 15px;
+  border-top: 1px solid #f5f5f5;
+  -moz-transition: all 0.15s ease-in;
+  -o-transition: all 0.15s ease-in;
+  -webkit-transition: all 0.15s ease-in;
+  transition: all 0.15s ease-in;
+}
+
+.select-options li:hover {
+  color: #fff;
+  background: #48ac98;
+}
+
+.select-options li[rel="hide"] {
+  display: none;
+}
+
+/* =========================================================
+      RESEARCH
+      ========================================================= */
+
+#Research {
+  margin-bottom: 50px;
+}
+
+#ResearchTable div, #ResearchContent div {
+  margin: 0.5rem 0;
+}
+
+#ResearchContent {
+  padding: 0 50px;
+}
+
+/* =========== RESEARCH: NAVIGATION =========== */
+
+#CountText {
+  font-size: 14px;
+  /* Increase font-size */
+  font-weight: 500;
+  padding-left: 15px;
+  margin-bottom: 10px;
+  align-self: flex-start;
+}
+
+#ResearchTable {
+  border-collapse: separate;
+  /* Separate borders to be able to apply individual padding on cells */
+  border-spacing: 0 0.75rem;
+  width: 100%;
+  /* Full-width */
+  font-size: 14px;
+  /* Increase font-size */
+}
+
+tr:active, tr:hover, td:active, td:hover {
+  cursor: pointer;
+}
+
+tr:active, tr:hover {
+  background-color: #f5f5f5;
+  -moz-transition: all 0.15s ease-in;
+  -o-transition: all 0.15s ease-in;
+  -webkit-transition: all 0.15s ease-in;
+  transition: all 0.15s ease-in;
+}
+
+.bgtr {
+  /* class .bgtr is for the js script of keeping background color on selected article from the table */
+  background-color: #e0f2f1;
+  -moz-transition: all 0.15s ease-in;
+  -o-transition: all 0.15s ease-in;
+  -webkit-transition: all 0.15s ease-in;
+  transition: all 0.15s ease-in;
+}
+
+td {
+  text-align: left;
+  /* Left-align text */
+}
+
+td.right-border-round {
+  padding: 1rem 0.75rem;
+  padding-right: 30px;
+  -moz-border-radius: 0 75px 75px 0;
+  -webkit-border-radius: 0 75px 75px 0;
+  -khtml-border-radius: 0 75px 75px 0;
+  border-radius: 0 75px 75px 0;
+}
+
+.research-table-title {
+  font-size: 16px;
+  /* Increase font-size */
+}
+
+.research-table-meta {
+  color: #666666;
+  /* Change text color to dark gray */
+  font-weight: 400;
+}
+
+/* =========== RESEARCH: CONTENT =========== */
+
+#ResearchContent {
+  padding-left: 50px;
+  padding-top: 30px;
+}
+
+#ResearchContent>div {
+  margin-bottom: 25px;
+}
+
+#ResearchContent>hr {
+  width: 130px;
+  color: #48ac98;
+  border-bottom: 10px solid #48ac98;
+  margin-left: 0;
+  margin-top: 0;
+}
+
+#DetailTitle {
+  font-size: 22px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #48ac98;
+  margin: 1rem 0 !important;
+}
+
+#DetailSegment, #DetailResearchType {
+  display: inline-block;
+}
+
+#DetailLabels {
+  margin-top: 0;
+}
+
+.label {
+  display: inline-block;
+  padding: 0.5rem 0.75rem;
+  border-radius: 25px;
+  border: 1px solid #fff;
+  background: transparent;
+  color: gray;
+  font-weight: 600;
+  font-size: smaller;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+#ResearchContent>#DetailButtons>button>img {
+  vertical-align: middle;
+}
+
+#DetailSourceButtons {
+  padding-top: 15px;
+}
+
+#DetailButtons>button, #DetailButtons>button:hover, #DetailButtons>button:active {
+  background: none;
+  border: none;
+}
+
+#DetailTable {
+  display: table;
+  width: 100%;
+}
+
+#DetailTable>.detail-table-row {
+  display: row;
+}
+
+#DetailTable>.detail-table-row>div {
+  display: table-cell;
+  min-width: 100px;
+}
+
+#DetailTable>.detail-table-row>.detail-table-label {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: smaller;
+  color: gray;
+}
+
+#DetailTable>div {
+  line-height: 20px;
+}
+
+#DetailButtons {
+  display: inline;
+  margin-bottom: 20px;
+}
+
+#DetailSummary {}
+
+#DetailTagsList {
+  padding: 5px 0;
+  margin: 10px 5px;
+}
+
+.tag {
+  background: #f5f5f5;
+  border: 1px solid #fff;
+  display: inline-block;
+  padding: 0.35rem 0.65rem;
+  margin: 3px;
+  color: gray;
+}
+
+.tag:hover, .tag:active {
+  background: #48ac98;
+  color: #fff;
+}
+
+#DetailRelated .hidden {
+  display: none;
+}
+
+#DetailRelated .active {
+  display: block !important;
+  padding: 25px 0 30px 0 !important;
+}
+
+#DetailRelatedList {
+  padding: 5px 0;
+}
+
+#DetailRelatedList > button {
+  text-align: left;
+}
+
+.detail-table-label {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: smaller;
+  color: gray;
+}
+
+.related_article {
+  background: none;
+  border: 1px solid #fff;
+  display: block;
+  padding: 0.35rem;
+  font-weight: 500;
+  color: #48ac98;
+  /*
+  border-bottom: transparent 0.25em solid;
+  */
+}
+
+.related_article:hover, .related_article:active {
+  background-color: #48ac98;
+  color: #fff;
+  /*
+  border-bottom: #48ac98 0.25em solid;
+  */
+}
+
+/* =========================================================
+      FOOTER
+      ========================================================= */
+
+.footer {
+  background: #48ac98;
+  color: #fff;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+}
+
+/* =========================================================
+      RESPONSIVE RESEARCH NAV LIST
+      ========================================================= */
+
+#ResearchNav.navbar-collapse.collapse.show {
+  max-height: calc(100vh - 150px);
+  overflow-y: auto;
+}
+
+@media (min-width: 768px) {
+  .container {
+    max-width: 970px !important;
+  }
+}
+
+@media (min-width: 992px) {
+  #Research>nav, #Research>nav>.container, #ResearchNav {
+    display: flex !important;
+    flex-direction: column !important;
+    height: 100% !important;
+  }
+}

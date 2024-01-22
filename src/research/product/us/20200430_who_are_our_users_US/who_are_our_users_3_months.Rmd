@@ -1,0 +1,935 @@
+---
+title: "Who Are Our Users? MAU 90 Days"
+author: "Dani Mermelstein"
+date: "4/30/2020"
+output: 
+  html_document:
+    toc: TRUE
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(scales)
+library(kableExtra)
+library(tidyverse)
+library(ggplot2)
+
+# load the data
+load(paste0("data/mau_90.RData"))
+
+# set the datasets we're working on
+demo_df <- mau_90_demo
+funding_df <- mau_90_funding
+spending_df <- mau_90_spending
+
+```
+
+# MAU 90 Days
+
+## Demographics
+
+How many users are in each MAU group?
+
+```{r, echo=FALSE, message = FALSE}
+demo_df[, .(users=.N), by=.(mau_group)]
+```
+### Age distribution
+
+ - unbroken_mau Average Age: `r round(mean(demo_df[which(mau_group == 'unbroken_mau'),]$age))`
+ - unbroken_mau Median Age: `r round(median(demo_df[which(mau_group == 'unbroken_mau'),]$age))`
+ - mau_lapsed_mau Average Age: `r round(mean(demo_df[which(mau_group == 'mau_lapsed_mau'),]$age))`
+ - mau_lapsed_mau Median Age: `r round(median(demo_df[which(mau_group == 'mau_lapsed_mau'),]$age))`
+ - mau_lapsed_lapsed_short Average Age: `r round(mean(demo_df[which(mau_group == 'mau_lapsed_lapsed_short'),]$age))`
+ - mau_lapsed_lapsed_short Median Age: `r round(median(demo_df[which(mau_group == 'mau_lapsed_lapsed_short'),]$age))`
+ - mau_lapsed_lapsed_long Average Age: `r round(mean(demo_df[which(mau_group == 'mau_lapsed_lapsed_long'),]$age))`
+ - mau_lapsed_lapsed_long Median Age: `r round(median(demo_df[which(mau_group == 'mau_lapsed_lapsed_long'),]$age))`
+
+
+```{r, echo=FALSE, message = FALSE}
+ggplot(demo_df, aes(x=age))+
+  geom_histogram()+
+  xlim(0,75)+
+  labs(title="Age of our Users: MAU First 90 Days",
+       x ="Age", 
+       y = "User Count")+
+  facet_wrap(~mau_group)
+
+```
+
+### Occupations
+```{r, echo=FALSE, message = FALSE}
+occupation_pct <- demo_df[, .(users = .N), by=.(occupation, mau_group)]
+occupation_pct <- merge(occupation_pct, demo_df[, .(total_users = .N), by=.(mau_group)], all.x = TRUE, by="mau_group")
+occupation_pct$pct <- occupation_pct$users/occupation_pct$total_users
+```
+<!-- The top 5 categories (excluding OTHER) are `r percent(sum(occupation_pct[which(occupation!='OTHER'),][order(-pct),][1:5]$pct))` of all MAU -->
+
+```{r, echo=FALSE, message = FALSE, fig.width=10, fig.height=7}
+ggplot(occupation_pct, aes(x=reorder(occupation, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="User Occupation: MAU First 90 Days",
+       x ="Occupation", 
+       y = "Pct of Users")+
+  facet_wrap(~mau_group)
+
+```
+
+### Top 10 Zip Codes
+
+There are no zip codes with more than 100 users
+
+```{r, echo=FALSE, message = FALSE}
+
+states <- read.csv('~/src/boston/research/product/deep_dive/who_are_our_users_20200430_US/data/nst-est2019-alldata.csv', stringsAsFactors = FALSE)
+states <- as.data.table(states)
+states <- merge(states, read.csv('~/src/boston/research/product/deep_dive/who_are_our_users_20200430_US/state_abrev.csv', stringsAsFactors = FALSE), by.x = "NAME", by.y="State")
+states <- states[,c("NAME","REGION","POPESTIMATE2019","Abbreviation")]
+states$total_pop <- states[,.(sum(total_pop=sum(POPESTIMATE2019)))]
+states$pct <- states$POPESTIMATE2019/states$total_pop
+
+demo_state <- demo_df[, .(users=.N), by=.(state)]
+demo_state$total_users <- demo_state[,.(total_users=sum(users))]
+demo_state$user_pct <- demo_state$users/demo_state$total_users
+demo_state <- merge(demo_state, states, by.x="state", by.y="Abbreviation")
+demo_state$index <- demo_state$user_pct/demo_state$pct -1
+demo_state <- demo_state[,c("state","NAME","users","user_pct","pct","index")][order(-index),]
+demo_state$user_pct <- round(demo_state$user_pct,4)
+demo_state$pct <- round(demo_state$pct,4)
+demo_state$index <- round(demo_state$index,4)
+# demo_df[, .(users=.N), by=.(state)][order(-users),][1:10]
+# merge(demo_df[, .(users=.N), by=.(state)][order(-users),][1:10], states, by.x="state", by.y="Abbreviation")
+```
+
+Top/bottom states by over/under index
+
+```{r, echo=FALSE, message = FALSE}
+# top states by over/under index
+kable(demo_state[1:10])%>%
+  kable_styling(full_width = F)
+
+kable(demo_state[order(index),][1:10][order(-index),])%>%
+  kable_styling(full_width = F)
+
+```
+
+Top/bottom states by user count
+```{r, echo=FALSE, message = FALSE}
+# top states by user count
+kable(demo_state[order(-users),][1:10])%>%
+  kable_styling(full_width = F)
+
+kable(demo_state[order(users),][1:10][order(-users),])%>%
+  kable_styling(full_width = F)
+
+ggplot(demo_df[, .(users=.N), by=.(zip_code)][order(-users),], aes(x=users))+
+  geom_histogram()+
+  # xlim(-200,500)+
+  labs(title="Number of Users per Zip Code: Anytime MAU",
+       x ="Users", 
+       y = "Zip Codes")
+
+```
+
+Density analysis
+
+```{r, echo=FALSE, message = FALSE}
+# suburbs definition: https://www.citylab.com/life/2019/06/suburbs-definition-census-data-way-of-life/591343/
+# urban and rural definitions: https://www2.census.gov/geo/pdfs/reference/GARM/Ch12GARM.pdf
+# zip code population density source: https://blog.splitwise.com/2014/01/06/free-us-population-density-and-unemployment-rate-by-zip-code/
+# methodology (not used here) to proportionally overlay zip codes with ZTCA data: http://gis.washington.edu/phurvitz/zip_or_zcta/index.html
+density <- read.csv('~/src/boston/research/product/deep_dive/who_are_our_users_20200430_US/data/Zipcode-ZCTA-Population-Density-And-Area-Unsorted.csv', stringsAsFactors = FALSE)
+density <- as.data.table(density)
+# urban density >= 5000-8000 people/sq mile
+# suburban density >= 890-4000 people/sq mile
+# rural density < 890 people/sq mile
+
+# check what % of the population is urban
+sum(density[which(Density.Per.Sq.Mile >= 5000),]$X2010.Population)/sum(density$X2010.Population)
+# fix data type
+demo_df$zip_code <- as.integer(demo_df$zip_code)
+
+density_df <- merge(demo_df, density[,c("Zip.ZCTA","Density.Per.Sq.Mile")], by.x="zip_code", by.y = "Zip.ZCTA", all.x=TRUE)
+
+# length(density_df[is.na(Density.Per.Sq.Mile),]$user_id)
+# length(density_df[!is.na(Density.Per.Sq.Mile),]$user_id)
+density_df$urbanicity <- ifelse(density_df$Density.Per.Sq.Mile >= 5000, 'urban', 
+       ifelse(density_df$Density.Per.Sq.Mile >= 3000, 'inner_suburbs', 
+              ifelse(density_df$Density.Per.Sq.Mile >= 890, 'outer_suburbs', 
+                     ifelse(density_df$Density.Per.Sq.Mile >= 100, 'urban_fringe', 'rural'))))
+
+density_df$urbanicity_rank <- cut(density_df$Density.Per.Sq.Mile,
+                                  breaks=c(0,100,890,3000,5000,999999),
+                                  right=FALSE,
+                                  labels=c(5,4,3,2,1))
+
+
+density_summary <- density_df[!is.na(urbanicity),][,.(users=.N), by=.(urbanicity, urbanicity_rank)][order(-urbanicity_rank),]
+density_summary$total_users <- density_summary[,.(total_users=sum(users))]
+density_summary$pct_users <- density_summary$users/density_summary$total_users
+
+kable(density_summary[,c("urbanicity","urbanicity_rank","pct_users")])%>%
+  kable_styling(full_width = F)
+
+
+# write a bunch of CSVs
+write.csv(density_df[!is.na(urbanicity) & urbanicity=='urban',][,.(users=.N), by=.(urbanicity, urbanicity_rank, zip_code)][order(-users),][1:10], '~/urban_zips.csv')
+
+write.csv(density_df[!is.na(urbanicity) & urbanicity=='inner_suburbs',][,.(users=.N), by=.(urbanicity, urbanicity_rank, zip_code)][order(-users),][1:10], '~/inner_suburban_zips.csv')
+
+write.csv(density_df[!is.na(urbanicity) & urbanicity=='outer_suburbs',][,.(users=.N), by=.(urbanicity, urbanicity_rank, zip_code)][order(-users),][1:10], '~/outer_suburban_zips.csv')
+
+write.csv(density_df[!is.na(urbanicity) & urbanicity=='urban_fringe',][,.(users=.N), by=.(urbanicity, urbanicity_rank, zip_code)][order(-users),][1:10], '~/urban_fringe_zips.csv')
+
+write.csv(density_df[!is.na(urbanicity) & urbanicity=='rural',][,.(users=.N), by=.(urbanicity, urbanicity_rank, zip_code)][order(-users),][1:10], '~/rural_zips.csv')
+
+
+```
+
+## Signup Channel (Device)
+
+We have signup platform for `r percent(sum(demo_df[complete.cases(demo_df),][, .(users=.N), by=.(signup_device)]$users)/sum(demo_df[, .(users=.N), by=.(signup_device)]$users))` of users in this group
+
+```{r, echo=FALSE, message = FALSE}
+device <- demo_df[complete.cases(demo_df),][, .(users=.N), by=.(signup_device, mau_group)]
+device <- merge(device, demo_df[complete.cases(demo_df),][, .(total_users=.N), by=.(mau_group)], all.x=TRUE, by="mau_group")
+device$pct <- device$users/device$total_users
+
+kable(device[,c("mau_group", "signup_device", "pct")][order(-signup_device,mau_group),])%>%
+  kable_styling(full_width = F)
+
+```
+
+
+## Account Funding Insights
+
+### Average Monthly Balance
+
+For months where users made transactions, what was their average monthly balance?
+Excludes microdeposits and internal txns
+
+```{r, echo=FALSE, message = FALSE}
+# get monthly balance by user, then avg balance across those months per user
+ggplot(funding_df[which(is_internal_txn == FALSE),][, .(balance = sum(amount_cents)), by=.(user_id, month, mau_group)][, .(avg_balance = mean(balance)/100), by=.(user_id, mau_group)], aes(x=avg_balance))+
+  geom_histogram()+
+  xlim(-200,500)+
+  labs(title="Average Monthly Balance: MAU First 90 Days",
+       x ="Average Monthly Balance, Dollars", 
+       y = "User Count")+
+  facet_wrap(~mau_group)
+
+kable(funding_df[which(is_internal_txn == FALSE),][, .(balance = sum(amount_cents)), by=.(user_id, month, mau_group)][, .(avg_balance = mean(balance)/100), by=.(user_id, mau_group)][,.(avg_balance = mean(avg_balance)),by=.(mau_group)])%>%
+  kable_styling(full_width = F)
+```
+
+### Funding Mechanisms/Types {.tabset .tabset-fade}
+
+#### FT Funding
+
+```{r, echo=FALSE, message = FALSE}
+funding <- funding_df[which(is_first_time_mau == TRUE),][, .(users = .N), by=.(type, mau_group)]
+funding <- merge(funding, funding_df[which(is_first_time_mau == TRUE),][, .(total_users = .N), by=.(mau_group)], all.x=TRUE, by="mau_group")
+funding$pct <- funding$users/funding$total_users
+
+ggplot(funding, aes(x=reorder(type, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="First Time Funding: MAU First 90 Days",
+       x ="Method", 
+       y = "Pct Users")+
+  facet_wrap(~mau_group)
+
+```
+
+#### Subsequent Funding
+
+```{r, echo=FALSE, message = FALSE}
+funding <- funding_df[which(is_first_time_mau == FALSE & direction == 'Incoming' & is_internal_txn == FALSE),][, .(users = .N), by=.(type,mau_group)]
+funding <- merge(funding, funding_df[which(is_first_time_mau == FALSE & direction == 'Incoming' & is_internal_txn == FALSE),][, .(total_users = .N), by=.(mau_group)], all.x=TRUE, by="mau_group")
+funding$pct <- funding$users/funding$total_users
+
+ggplot(funding, aes(x=reorder(type, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Repeat Funding: MAU First 90 Days",
+       x ="Method", 
+       y = "Pct Users")+
+  facet_wrap(~mau_group)
+```
+
+#### Funding Sources
+
+```{r, echo=FALSE, message = FALSE}
+funding <- funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE),][, .(txns = .N), by=.(company, mau_group)]
+funding<- merge(funding, funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE),][, .(total_txns = .N), by=.(mau_group)], all.x=TRUE, by="mau_group")
+funding$pct <- funding$txns/funding$total_txns
+
+# there's weirdness with some company names so we need to skip the first result
+ggplot(funding[!is.na(company) & mau_group == 'unbroken_mau',][order(-pct)][c(1,3:11)], aes(x=reorder(company, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Funding Source: MAU First 90 Days - unbroken_mau",
+       x ="Source", 
+       y = "Pct of all Funding Txns")
+
+ggplot(funding[!is.na(company) & mau_group == 'mau_lapsed_mau',][order(-pct)][c(1,3:11)], aes(x=reorder(company, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Funding Source: MAU First 90 Days - mau_lapsed_mau",
+       x ="Source", 
+       y = "Pct of all Funding Txns")
+
+ggplot(funding[!is.na(company) & mau_group == 'mau_lapsed_lapsed_short',][order(-pct)][c(2:11)], aes(x=reorder(company, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Funding Source: MAU First 90 Days - mau_lapsed_lapsed_short",
+       x ="Source", 
+       y = "Pct of all Funding Txns")
+
+ggplot(funding[!is.na(company) & mau_group == 'mau_lapsed_lapsed_long',][order(-pct)][c(1:2,4:11)], aes(x=reorder(company, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Funding Source: MAU First 90 Days - mau_lapsed_lapsed_long",
+       x ="Source", 
+       y = "Pct of all Funding Txns")
+```
+
+### Direct Deposit Users {.tabset .tabset-fade}
+
+#### Income distributions
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id, month,mau_group)][,.(avg_num=round(mean(num))), by=.(user_id,mau_group)], aes(x=avg_num))+
+  geom_histogram()+
+  # xlim(-200,500)+
+  labs(title="Average Number of Monthly Direct Deposits: MAU First 90 Days",
+       x ="Num of DD per Month", 
+       y = "User Count")+
+  facet_wrap(~mau_group)
+
+
+ggplot(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents)/100,
+                                        num = .N),
+                                    by=.(user_id,month,mau_group)][,.(amount=sum(amount),
+                                                         num = sum(num),
+                                                         months = .N,
+                                                         annual_income = sum(amount)/.N*12,
+                                                         alt_annual_income = sum(amount)/sum(num)*2*12),
+                                                         by=.(user_id, mau_group)], aes(x=alt_annual_income))+
+  geom_histogram()+
+  xlim(-200,75000)+
+  labs(title="Projected Annual Income: MAU First 90 Days",
+       x ="Annual Income", 
+       y = "User Count")+
+  facet_wrap(~mau_group)
+
+
+```
+
+```{r, echo=FALSE, message = FALSE}
+kable(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents)/100,
+                                        num = .N),
+                                    by=.(user_id,month, mau_group)][,.(amount=sum(amount),
+                                                         num = sum(num),
+                                                         months = .N,
+                                                         annual_income = sum(amount)/.N*12,
+                                                         alt_annual_income = sum(amount)/sum(num)*2*12),
+                                                         by=.(user_id, mau_group)][,.(avg_alt_annual_income = mean(alt_annual_income),
+                                                                           med_alt_annual_income = median(alt_annual_income),
+                                                                           avg_annual_income = mean(annual_income),
+                                                                           med_annual_income = median(annual_income)
+                                                                           ), by=.(mau_group)])%>%
+  kable_styling(full_width = F)
+```
+
+#### Who are the Employers and how often do they pay employees?
+
+There are `r length(unique(funding_df[which(type=='DIR_DEP'),]$user_id))` users with direct deposit from `r length(unique(funding_df[which(type=='DIR_DEP'),]$company))` companies. 
+
+The top 10 companies account for ~`r percent(sum(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(users=.N), by=.(company)][order(-users),][1:10]$users)/sum(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(users=.N), by=.(company)]$users))` of all users
+
+```{r, echo=FALSE, message = FALSE}
+
+# sum(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(months=.N), by=.(company,user_id)][,.(users=.N), by=.(company)][order(-users),][1:10]$users)
+
+# get users per company
+ggplot(funding_df[type=='DIR_DEP' & mau_group == 'unbroken_mau',][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(deposits=.N), by=.(company, user_id)][,.(users = .N), by=.(company)][order(-users),][c(1:10)], aes(x=reorder(company, users), y=users))+
+  geom_bar(stat = "identity")+
+  coord_flip()+
+  labs(title="Top 10 Employers: MAU First 90 Days - unbroken_mau",
+       x ="Companies", 
+       y = "User Count")
+
+ggplot(funding_df[type=='DIR_DEP' & mau_group == 'mau_lapsed_mau',][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(deposits=.N), by=.(company, user_id)][,.(users = .N), by=.(company)][order(-users),][c(1:10)], aes(x=reorder(company, users), y=users))+
+  geom_bar(stat = "identity")+
+  coord_flip()+
+  labs(title="Top 10 Employers: MAU First 90 Days - mau_lapsed_mau",
+       x ="Companies", 
+       y = "User Count")
+
+ggplot(funding_df[type=='DIR_DEP' & mau_group == 'mau_lapsed_lapsed_short',][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(deposits=.N), by=.(company, user_id)][,.(users = .N), by=.(company)][order(-users),], aes(x=reorder(company, users), y=users))+
+  geom_bar(stat = "identity")+
+  coord_flip()+
+  labs(title="Top 10 Employers: MAU First 90 Days - mau_lapsed_lapsed_short",
+       x ="Companies", 
+       y = "User Count")
+
+ggplot(funding_df[type=='DIR_DEP' & mau_group == 'mau_lapsed_lapsed_long',][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(deposits=.N), by=.(company, user_id)][,.(users = .N), by=.(company)][order(-users),][c(1:10)], aes(x=reorder(company, users), y=users))+
+  geom_bar(stat = "identity")+
+  coord_flip()+
+  labs(title="Top 10 Employers: MAU First 90 Days - mau_lapsed_lapsed_long",
+       x ="Companies", 
+       y = "User Count")
+```
+
+```{r, echo=FALSE, message = FALSE}
+# only one employer at a time
+ggplot(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(companies=.N), by=.(user_id,month)][,.(avg_companies=round(mean(companies))),by=.(user_id)], aes(x=avg_companies))+
+  geom_histogram()+
+  # xlim(-200,75000)+
+  labs(title="# of Companies paying a user per month: MAU First 90 Days",
+       x ="Companies", 
+       y = "User Count")
+
+# same as above but by the top 10 employers
+top_ten <- unique(funding_df[which(type=='DIR_DEP'),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(months=.N), by=.(company,user_id)][,.(users=.N),by=.(company)][order(-users),][1:10]$company)
+
+kable(funding_df[which(type=='DIR_DEP' & company %in% c(top_ten)),][, .(amount=sum(amount_cents), num = .N), by=.(user_id,month,company)][,.(avg_monthly_payments = mean(num), months=.N), by=.(company,user_id)][,.(avg_monthly_payments=mean(avg_monthly_payments),users=.N),by=.(company)][order(-users),])%>%
+  kable_styling(full_width = F)
+
+
+ggplot(funding_df[which(type=='DIR_DEP' & company %in% c(top_ten)),][, .(amount=sum(amount_cents), num = .N), by=.(user_id, month)][,.(avg_num=round(mean(num))), by=.(user_id)], aes(x=avg_num))+
+  geom_histogram()+
+  # xlim(-200,500)+
+  labs(title="Average Number of Monthly Direct Deposits: MAU First 90 Days, top 10 employers",
+       x ="Num of DD per Month", 
+       y = "User Count")
+```
+
+### Distribution of # and $ account funding txns per month
+
+ - Average # of transactions per month - unbroken_mau: `r mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & mau_group =='unbroken_mau'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+ - Median # of transactions per month - unbroken_mau: `r median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & mau_group =='unbroken_mau'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+  - Average # of transactions per month - mau_lapsed_mau: `r mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & mau_group =='mau_lapsed_mau'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+ - Median # of transactions per month - mau_lapsed_mau: `r median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & mau_group =='mau_lapsed_mau'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+  - Average # of transactions per month - mau_lapsed_lapsed_short: `r mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & mau_group =='mau_lapsed_lapsed_short'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+ - Median # of transactions per month - mau_lapsed_lapsed_short: `r median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & mau_group =='mau_lapsed_lapsed_short'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+  - Average # of transactions per month - mau_lapsed_lapsed_long: `r mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & mau_group =='mau_lapsed_lapsed_long'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+ - Median # of transactions per month - mau_lapsed_lapsed_long: `r median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & mau_group =='mau_lapsed_lapsed_long'),][, .(txns = .N), by=.(user_id,month)]$txns)`
+
+
+
+ - Average amount - unbroken_mau:`r dollar(mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & mau_group =='unbroken_mau'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ - Median amount - unbroken_mau: `r dollar(median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & mau_group =='unbroken_mau'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ - Average amount - mau_lapsed_mau:`r dollar(mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & mau_group =='mau_lapsed_mau'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ - Median amount - mau_lapsed_mau: `r dollar(median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & mau_group =='mau_lapsed_mau'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+  - Average amount - mau_lapsed_lapsed_short:`r dollar(mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & mau_group =='mau_lapsed_lapsed_short'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ - Median amount - mau_lapsed_lapsed_short: `r dollar(median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & mau_group =='mau_lapsed_lapsed_short'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+  - Average amount - mau_lapsed_lapsed_long:`r dollar(mean(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & mau_group =='mau_lapsed_lapsed_long'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ - Median amount - mau_lapsed_lapsed_long: `r dollar(median(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE & mau_group =='mau_lapsed_lapsed_long'),][, .(amount = sum(amount_cents)/100), by=.(user_id,month)]$amount))`
+ 
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE),][, .(txns = .N), by=.(user_id,month,mau_group)][,.(txns=mean(txns)), by=.(user_id, mau_group)], aes(x=txns))+
+  geom_histogram()+
+  xlim(0,30)+
+  labs(title="Avg # of Funding Transactions per Month per User: MAU First 90 Days",
+       x ="Txns", 
+       y = "User Count")+
+  facet_wrap(~mau_group)
+
+
+ggplot(funding_df[which(direction == 'Incoming' & is_internal_txn == FALSE),][, .(amount = sum(amount_cents)/100), by=.(user_id,month, mau_group)][,.(amount=mean(amount)), by=.(user_id,mau_group)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0,5000)+
+  labs(title="Avg Total Incoming $ Amount per Month per User: MAU First 90 Days",
+       x ="Amount", 
+       y = "User Count")+
+  facet_wrap(~mau_group)
+
+```
+
+## Spending Insights
+
+
+
+### Monthly transaction frequency {.tabset .tabset-fade}
+look at distributions
+
+#### Card txns
+number of txns per month
+
+ - Avg # of txns per user - unbroken_mau: `r mean(spending_df[which(type == 'Card'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - unbroken_mau: `r median(spending_df[which(type == 'Card' & mau_group == 'unbroken_mau'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+  - Avg # of txns per user - mau_lapsed_mau: `r mean(spending_df[which(type == 'Card' & mau_group == 'mau_lapsed_mau'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - mau_lapsed_mau: `r median(spending_df[which(type == 'Card' & mau_group == 'mau_lapsed_mau'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+  - Avg # of txns per user - mau_lapsed_lapsed_short: `r mean(spending_df[which(type == 'Card' & mau_group == 'mau_lapsed_lapsed_short'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - mau_lapsed_lapsed_short: `r median(spending_df[which(type == 'Card' & mau_group == 'mau_lapsed_lapsed_short'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+  - Avg # of txns per user - mau_lapsed_lapsed_long: `r mean(spending_df[which(type == 'Card' & mau_group == 'mau_lapsed_lapsed_long'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - mau_lapsed_lapsed_long: `r median(spending_df[which(type == 'Card' & mau_group == 'mau_lapsed_lapsed_long'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type == 'Card'),][, .(txns = .N), by=.(user_id,month, mau_group)][,.(txns = mean(txns)), by=.(user_id,mau_group)], aes(x=txns))+
+  geom_histogram()+
+  xlim(0,100)+
+  labs(title="Avg # of Card Transactions per Month per User: MAU First 90 Days",
+       x ="Txns", 
+       y = "User Count")+
+  facet_wrap(~mau_group)
+
+```
+
+#### Non-Card txns
+
+number of txns per month
+
+ - Avg # of txns per user - unbroken_mau: `r mean(spending_df[which(type != 'Card'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - unbroken_mau: `r median(spending_df[which(type != 'Card' & mau_group == 'unbroken_mau'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+  - Avg # of txns per user - mau_lapsed_mau: `r mean(spending_df[which(type != 'Card' & mau_group == 'mau_lapsed_mau'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - mau_lapsed_mau: `r median(spending_df[which(type != 'Card' & mau_group == 'mau_lapsed_mau'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+  - Avg # of txns per user - mau_lapsed_lapsed_short: `r mean(spending_df[which(type != 'Card' & mau_group == 'mau_lapsed_lapsed_short'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - mau_lapsed_lapsed_short: `r median(spending_df[which(type != 'Card' & mau_group == 'mau_lapsed_lapsed_short'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+  - Avg # of txns per user - mau_lapsed_lapsed_long: `r mean(spending_df[which(type != 'Card' & mau_group == 'mau_lapsed_lapsed_long'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median # of txns per user - mau_lapsed_lapsed_long: `r median(spending_df[which(type != 'Card' & mau_group == 'mau_lapsed_lapsed_long'),][, .(txns = .N), by=.(user_id,month)][,.(txns = median(txns)), by=.(user_id)]$txns)`
+ 
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type != 'Card'),][, .(txns = .N), by=.(user_id,month, mau_group)][,.(txns = mean(txns)), by=.(user_id, mau_group)], aes(x=txns))+
+  geom_histogram()+
+  xlim(0,100)+
+  labs(title="Avg # of Non-Card Transactions per Month per User: MAU First 90 Days",
+       x ="Txns", 
+       y = "User Count")+
+  facet_wrap(~mau_group)
+
+```
+
+### Monthly transaction amounts {.tabset .tabset-fade}
+
+#### Card txns
+
+ - Avg monthly user spend - unbroken_mau: `r dollar(mean(spending_df[which(type == 'Card' & mau_group=='unbroken_mau'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly user spend - unbroken_mau: `r dollar(median(spending_df[which(type == 'Card' & mau_group=='unbroken_mau'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly user spend - mau_lapsed_mau: `r dollar(mean(spending_df[which(type == 'Card' & mau_group=='mau_lapsed_mau'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly user spend - mau_lapsed_mau: `r dollar(median(spending_df[which(type == 'Card' & mau_group=='mau_lapsed_mau'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly user spend - mau_lapsed_lapsed_short: `r dollar(mean(spending_df[which(type == 'Card' & mau_group=='mau_lapsed_lapsed_short'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly user spend - mau_lapsed_lapsed_short: `r dollar(median(spending_df[which(type == 'Card' & mau_group=='mau_lapsed_lapsed_short'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly user spend - mau_lapsed_lapsed_long: `r dollar(mean(spending_df[which(type == 'Card' & mau_group=='mau_lapsed_lapsed_long'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly user spend - mau_lapsed_lapsed_long: `r dollar(median(spending_df[which(type == 'Card' & mau_group=='mau_lapsed_lapsed_long'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+
+ - average txn amount - unbroken_mau: `r dollar(mean(spending_df[which(type == 'Card' & mau_group=='unbroken_mau'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - unbroken_mau: `r dollar(median(spending_df[which(type == 'Card' & mau_group=='unbroken_mau'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+  - average txn amount - mau_lapsed_mau: `r dollar(mean(spending_df[which(type == 'Card' & mau_group=='mau_lapsed_mau'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - mau_lapsed_mau: `r dollar(median(spending_df[which(type == 'Card' & mau_group=='mau_lapsed_mau'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+  - average txn amount - mau_lapsed_lapsed_short: `r dollar(mean(spending_df[which(type == 'Card' & mau_group=='mau_lapsed_lapsed_short'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - mau_lapsed_lapsed_short: `r dollar(median(spending_df[which(type == 'Card' & mau_group=='mau_lapsed_lapsed_short'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+  - average txn amount - mau_lapsed_lapsed_long: `r dollar(mean(spending_df[which(type == 'Card' & mau_group=='mau_lapsed_lapsed_long'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - mau_lapsed_lapsed_long: `r dollar(median(spending_df[which(type == 'Card' & mau_group=='mau_lapsed_lapsed_long'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type == 'Card'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month,mau_group)][,.(amount = mean(amount)), by=.(user_id,mau_group)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0,2000)+
+  labs(title="Avg $ Amount of Card Spend per Month per User: MAU First 90 Days",
+       x ="amount", 
+       y = "User Count")+
+  facet_wrap(~mau_group)
+
+ggplot(spending_df[which(type == 'Card'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month, mau_group)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id,mau_group)], aes(x=txn_amount))+
+  geom_histogram()+
+  xlim(0,100)+
+  labs(title="Avg $ Amount per Card Transaction: MAU First 90 Days",
+       x ="amount", 
+       y = "Count")+
+  facet_wrap(~mau_group)
+
+
+```
+
+#### Non-Card txns
+
+ - Avg monthly user spend - unbroken_mau: `r dollar(mean(spending_df[which(type != 'Card' & mau_group=='unbroken_mau'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly user spend - unbroken_mau: `r dollar(median(spending_df[which(type != 'Card' & mau_group=='unbroken_mau'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly user spend - mau_lapsed_mau: `r dollar(mean(spending_df[which(type != 'Card' & mau_group=='mau_lapsed_mau'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly user spend - mau_lapsed_mau: `r dollar(median(spending_df[which(type != 'Card' & mau_group=='mau_lapsed_mau'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly user spend - mau_lapsed_lapsed_short: `r dollar(mean(spending_df[which(type != 'Card' & mau_group=='mau_lapsed_lapsed_short'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly user spend - mau_lapsed_lapsed_short: `r dollar(median(spending_df[which(type != 'Card' & mau_group=='mau_lapsed_lapsed_short'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly user spend - mau_lapsed_lapsed_long: `r dollar(mean(spending_df[which(type != 'Card' & mau_group=='mau_lapsed_lapsed_long'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly user spend - mau_lapsed_lapsed_long: `r dollar(median(spending_df[which(type != 'Card' & mau_group=='mau_lapsed_lapsed_long'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+
+ - average txn amount - unbroken_mau: `r dollar(mean(spending_df[which(type != 'Card' & mau_group=='unbroken_mau'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - unbroken_mau: `r dollar(median(spending_df[which(type != 'Card' & mau_group=='unbroken_mau'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+  - average txn amount - mau_lapsed_mau: `r dollar(mean(spending_df[which(type != 'Card' & mau_group=='mau_lapsed_mau'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - mau_lapsed_mau: `r dollar(median(spending_df[which(type != 'Card' & mau_group=='mau_lapsed_mau'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+  - average txn amount - mau_lapsed_lapsed_short: `r dollar(mean(spending_df[which(type != 'Card' & mau_group=='mau_lapsed_lapsed_short'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - mau_lapsed_lapsed_short: `r dollar(median(spending_df[which(type != 'Card' & mau_group=='mau_lapsed_lapsed_short'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+  - average txn amount - mau_lapsed_lapsed_long: `r dollar(mean(spending_df[which(type != 'Card' & mau_group=='mau_lapsed_lapsed_long'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - median txn amount - mau_lapsed_lapsed_long: `r dollar(median(spending_df[which(type != 'Card' & mau_group=='mau_lapsed_lapsed_long'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type != 'Card'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month,mau_group)][,.(amount = mean(amount)), by=.(user_id,mau_group)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0,3000)+
+  labs(title="Avg $ Amount of Non-Card Spend per Month per User: MAU First 90 Days",
+       x ="amount", 
+       y = "User Count")+
+  facet_wrap(~mau_group)
+
+
+ggplot(spending_df[which(type != 'Card'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month,mau_group)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id,mau_group)], aes(x=txn_amount))+
+  geom_histogram()+
+  xlim(0,300)+
+  labs(title="Avg $ Amount per Non-Card Transaction: MAU First 90 Days",
+       x ="amount", 
+       y = "Count")+
+  facet_wrap(~mau_group)
+
+```
+
+### Domestic vs International Card Txns {.tabset .tabset-fade}
+Number and $ volume
+
+#### Amounts
+
+ - Avg monthly spend - domestic, unbroken_mau: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & mau_group=='unbroken_mau'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - domestic, unbroken_mau: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & mau_group=='unbroken_mau'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend - domestic, mau_lapsed_mau: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & mau_group=='mau_lapsed_mau'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - domestic, mau_lapsed_mau: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & mau_group=='mau_lapsed_mau'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend - domestic, mau_lapsed_lapsed_short: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & mau_group=='mau_lapsed_lapsed_short'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - domestic, mau_lapsed_lapsed_short: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & mau_group=='mau_lapsed_lapsed_short'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend - domestic, mau_lapsed_lapsed_long: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & mau_group=='mau_lapsed_lapsed_long'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - domestic, mau_lapsed_lapsed_long: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & mau_group=='mau_lapsed_lapsed_long'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+  
+  
+ - Avg monthly spend - international, unbroken_mau: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & mau_group=='unbroken_mau'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - international, unbroken_mau: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & mau_group=='unbroken_mau'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend - international, mau_lapsed_mau: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & mau_group=='mau_lapsed_mau'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - international, mau_lapsed_mau: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & mau_group=='mau_lapsed_mau'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend - international, mau_lapsed_lapsed_short: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & mau_group=='mau_lapsed_lapsed_short'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - international, mau_lapsed_lapsed_short: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & mau_group=='mau_lapsed_lapsed_short'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Avg monthly spend - international, mau_lapsed_lapsed_long: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & mau_group=='mau_lapsed_lapsed_long'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+ - Median monthly spend - international, mau_lapsed_lapsed_long: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & mau_group=='mau_lapsed_lapsed_long'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month)][,.(amount = mean(amount)), by=.(user_id)]$amount))`
+  
+  
+ - Avg txn amount - domestic, unbroken_mau: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & mau_group=='unbroken_mau'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - domestic, unbroken_mau: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & mau_group=='unbroken_mau'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Avg txn amount - domestic, mau_lapsed_mau: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & mau_group=='mau_lapsed_mau'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - domestic, mau_lapsed_mau: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & mau_group=='mau_lapsed_mau'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Avg txn amount - domestic, mau_lapsed_lapsed_short: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & mau_group=='mau_lapsed_lapsed_short'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - domestic, mau_lapsed_lapsed_short: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & mau_group=='mau_lapsed_lapsed_short'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+- Avg txn amount - domestic, mau_lapsed_lapsed_long: `r dollar(mean(spending_df[which(type == 'Card' & location=='domestic' & mau_group=='mau_lapsed_lapsed_long'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - domestic, mau_lapsed_lapsed_long: `r dollar(median(spending_df[which(type == 'Card' & location=='domestic' & mau_group=='mau_lapsed_lapsed_long'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+  
+  
+ - Avg txn amount - international, unbroken_mau: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & mau_group=='unbroken_mau'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - international, unbroken_mau: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & mau_group=='unbroken_mau'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Avg txn amount - international, mau_lapsed_mau: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & mau_group=='mau_lapsed_mau'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - international, mau_lapsed_mau: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & mau_group=='mau_lapsed_mau'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Avg txn amount - international, mau_lapsed_lapsed_short: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & mau_group=='mau_lapsed_lapsed_short'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - international, mau_lapsed_lapsed_short: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & mau_group=='mau_lapsed_lapsed_short'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Avg txn amount - international, mau_lapsed_lapsed_long: `r dollar(mean(spending_df[which(type == 'Card' & location=='international' & mau_group=='mau_lapsed_lapsed_long'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+ - Median txn amount - international, mau_lapsed_lapsed_long: `r dollar(median(spending_df[which(type == 'Card' & location=='international' & mau_group=='mau_lapsed_lapsed_long'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id)]$txn_amount))`
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type == 'Card' & location=='domestic'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month,mau_group)][,.(amount = mean(amount)), by=.(user_id,mau_group)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0,3000)+
+  labs(title="Avg $ Amount of Card Spend per Month per User: MAU First 90 Days - domestic txns",
+       x ="amount", 
+       y = "User Count")+
+  facet_wrap(~mau_group)
+
+ggplot(spending_df[which(type == 'Card' & location=='international'),][, .(amount = sum(amount_cents)/100*-1), by=.(user_id,month,mau_group)][,.(amount = mean(amount)), by=.(user_id,mau_group)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0,3000)+
+  labs(title="Avg $ Amount of Card Spend per Month per User: MAU First 90 Days - international txns",
+       x ="amount", 
+       y = "User Count")+
+  facet_wrap(~mau_group)
+
+
+ggplot(spending_df[which(type == 'Card' & location=='domestic'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month,mau_group)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id,mau_group)], aes(x=txn_amount))+
+  geom_histogram()+
+  xlim(0,200)+
+  labs(title="Avg $ Amount per Card Transaction:  MAU First 90 Days - domestic txns",
+       x ="amount", 
+       y = "Count")+
+  facet_wrap(~mau_group)
+
+
+ggplot(spending_df[which(type == 'Card' & location=='international'),][, .(amount = sum(amount_cents)/100*-1, num=.N), by=.(user_id,month,mau_group)][,.(txn_amount = sum(amount)/sum(num)), by=.(user_id,mau_group)], aes(x=txn_amount))+
+  geom_histogram()+
+  xlim(0,200)+
+  labs(title="Avg $ Amount per Card Transaction:  MAU First 90 Days - international txns",
+       x ="amount", 
+       y = "Count")+
+  facet_wrap(~mau_group)
+```
+
+#### Number of txns
+
+ - Avg monthly txns - domestic, unbroken_mau: `r mean(spending_df[which(type == 'Card' & location == 'domestic' & mau_group=='unbroken_mau'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median txns - domestic, unbroken_mau: `r median(spending_df[which(type == 'Card' & location == 'domestic' & mau_group=='unbroken_mau'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Avg monthly txns - domestic, mau_lapsed_mau: `r mean(spending_df[which(type == 'Card' & location == 'domestic' & mau_group=='mau_lapsed_mau'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median txns - domestic, mau_lapsed_mau: `r median(spending_df[which(type == 'Card' & location == 'domestic' & mau_group=='mau_lapsed_mau'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Avg monthly txns - domestic, mau_lapsed_lapsed_short: `r mean(spending_df[which(type == 'Card' & location == 'domestic' & mau_group=='mau_lapsed_lapsed_short'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median txns - domestic, mau_lapsed_lapsed_short: `r median(spending_df[which(type == 'Card' & location == 'domestic' & mau_group=='mau_lapsed_lapsed_short'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Avg monthly txns - domestic, mau_lapsed_lapsed_long: `r mean(spending_df[which(type == 'Card' & location == 'domestic' & mau_group=='mau_lapsed_lapsed_long'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median txns - domestic, mau_lapsed_lapsed_long: `r median(spending_df[which(type == 'Card' & location == 'domestic' & mau_group=='mau_lapsed_lapsed_long'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ 
+ 
+ - Avg monthly txns - international, unbroken_mau: `r mean(spending_df[which(type == 'Card' & location == 'international' & mau_group=='unbroken_mau'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median txns - international, unbroken_mau: `r median(spending_df[which(type == 'Card' & location == 'international' & mau_group=='unbroken_mau'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Avg monthly txns - international, mau_lapsed_mau: `r mean(spending_df[which(type == 'Card' & location == 'international' & mau_group=='mau_lapsed_mau'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median txns - international, mau_lapsed_mau: `r median(spending_df[which(type == 'Card' & location == 'international' & mau_group=='mau_lapsed_mau'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Avg monthly txns - international, mau_lapsed_lapsed_short: `r mean(spending_df[which(type == 'Card' & location == 'international' & mau_group=='mau_lapsed_lapsed_short'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median txns - international, mau_lapsed_lapsed_short: `r median(spending_df[which(type == 'Card' & location == 'international' & mau_group=='mau_lapsed_lapsed_short'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Avg monthly txns - international, mau_lapsed_lapsed_long: `r mean(spending_df[which(type == 'Card' & location == 'international' & mau_group=='mau_lapsed_lapsed_long'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+ - Median txns - international, mau_lapsed_lapsed_long: `r median(spending_df[which(type == 'Card' & location == 'international' & mau_group=='mau_lapsed_lapsed_long'),][, .(txns = .N), by=.(user_id,month)][,.(txns = mean(txns)), by=.(user_id)]$txns)`
+
+```{r, echo=FALSE, message = FALSE}
+ggplot(spending_df[which(type == 'Card' & location == 'domestic'),][, .(txns = .N), by=.(user_id,month,mau_group)][,.(txns = mean(txns)), by=.(user_id,mau_group)], aes(x=txns))+
+  geom_histogram()+
+  xlim(0,100)+
+  labs(title="Avg # of Card Transactions per Month per User: MAU First 90 Days - domestic txns",
+       x ="Txns", 
+       y = "User Count")+
+  facet_wrap(~mau_group)
+
+ggplot(spending_df[which(type == 'Card' & location == 'international'),][, .(txns = .N), by=.(user_id,month,mau_group)][,.(txns = mean(txns)), by=.(user_id,mau_group)], aes(x=txns))+
+  geom_histogram()+
+  xlim(0,100)+
+  labs(title="Avg # of Card Transactions per Month per User: MAU First 90 Days - international txns",
+       x ="Txns", 
+       y = "User Count")+
+  facet_wrap(~mau_group)
+```
+
+### Merchant Types {.tabset .tabset-fade}
+
+#### Top merchant categories
+
+```{r, echo=FALSE, message = FALSE}
+merchants <- spending_df[,.(txns=.N), by=.(merchant_category,mau_group)]
+merchants <- merge(merchants, spending_df[,.(total_txns=.N), by=.(mau_group)], all.x=TRUE, by="mau_group")
+merchants$pct <- merchants$txns/merchants$total_txns
+```
+
+Top 10 categories make up `r percent(sum(merchants[which(merchant_category!= 'no_cat'), .(merchant_category, txns, pct)][1:10]$pct))` of all transactions.
+
+```{r, echo=FALSE, message = FALSE}
+ggplot(merchants[which(merchant_category!= 'no_cat' & mau_group == 'unbroken_mau'), .(merchant_category, txns, pct)][1:10], aes(x=reorder(merchant_category, txns), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchant Categories: MAU First 90 Days - unbroken_mau",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+ggplot(merchants[which(merchant_category!= 'no_cat' & mau_group == 'mau_lapsed_mau'), .(merchant_category, txns, pct)][1:10], aes(x=reorder(merchant_category, txns), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchant Categories: MAU First 90 Days - mau_lapsed_mau",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+ggplot(merchants[which(merchant_category!= 'no_cat' & mau_group == 'mau_lapsed_lapsed_short'), .(merchant_category, txns, pct)][1:10], aes(x=reorder(merchant_category, txns), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchant Categories: MAU First 90 Days - mau_lapsed_lapsed_short",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+ggplot(merchants[which(merchant_category!= 'no_cat' & mau_group == 'mau_lapsed_lapsed_long'), .(merchant_category, txns, pct)][1:10], aes(x=reorder(merchant_category, txns), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchant Categories: MAU First 90 Days - mau_lapsed_lapsed_long",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+
+```
+
+
+#### Top merchant names
+
+```{r, echo=FALSE, message = FALSE}
+
+merchants <- spending_df[,.(txns=.N), by=.(merchant_name, mau_group)]
+merchants <- merge(merchants, spending_df[,.(total_txns=.N), by=.(mau_group)], all.x=TRUE, by="mau_group")
+merchants$pct <- merchants$txns/merchants$total_txns
+
+ggplot(merchants[which(!is.na(merchant_name) & mau_group=='unbroken_mau'), .(merchant_name, txns, pct)][order(-txns),][1:10], aes(x=reorder(merchant_name, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchants: MAU First 90 Days - unbroken_mau",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+ggplot(merchants[which(!is.na(merchant_name) & mau_group=='mau_lapsed_mau'), .(merchant_name, txns, pct)][order(-txns),][1:10], aes(x=reorder(merchant_name, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchants: MAU First 90 Days - mau_lapsed_mau",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+ggplot(merchants[which(!is.na(merchant_name) & mau_group=='mau_lapsed_lapsed_short'), .(merchant_name, txns, pct)][order(-txns),][1:10], aes(x=reorder(merchant_name, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchants: MAU First 90 Days - mau_lapsed_lapsed_short",
+       x ="Category", 
+       y = "Percent of all Transactions")
+
+ggplot(merchants[which(!is.na(merchant_name) & mau_group=='mau_lapsed_lapsed_long'), .(merchant_name, txns, pct)][order(-txns),][1:10], aes(x=reorder(merchant_name, pct), y=pct))+
+  geom_bar(stat = "identity")+
+  scale_y_continuous(labels = percent)+
+  coord_flip()+
+  labs(title="Top 10 Merchants: MAU First 90 Days - mau_lapsed_lapsed_long",
+       x ="Category", 
+       y = "Percent of all Transactions")
+```
+
+
+## Key Feature Insights
+
+### ATM usage {.tabset .tabset-fade}
+
+
+
+#### Domestic
+
+`r percent(length(unique(spending_df[which(type=='ATM' & location=='domestic'),]$user_id))/length(unique(demo_df$user_id)))` of all users in this group made a domestic ATM withdrawal at some point
+
+ - Avg withdrawals per month - unbroken_mau: `r mean(spending_df[which(type=='ATM' & location=='domestic' & mau_group=='unbroken_mau'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median withdrawals per month - unbroken_mau: `r median(spending_df[which(type=='ATM' & location=='domestic' & mau_group=='unbroken_mau'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Avg withdrawals per month - mau_lapsed_mau: `r mean(spending_df[which(type=='ATM' & location=='domestic' & mau_group=='mau_lapsed_mau'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median withdrawals per month - mau_lapsed_mau: `r median(spending_df[which(type=='ATM' & location=='domestic' & mau_group=='mau_lapsed_mau'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Avg withdrawals per month - mau_lapsed_lapsed_short: `r mean(spending_df[which(type=='ATM' & location=='domestic' & mau_group=='mau_lapsed_lapsed_short'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median withdrawals per month - mau_lapsed_lapsed_short: `r median(spending_df[which(type=='ATM' & location=='domestic' & mau_group=='mau_lapsed_lapsed_short'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Avg withdrawals per month - mau_lapsed_lapsed_long: `r mean(spending_df[which(type=='ATM' & location=='domestic' & mau_group=='mau_lapsed_lapsed_long'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median withdrawals per month - mau_lapsed_lapsed_long: `r median(spending_df[which(type=='ATM' & location=='domestic' & mau_group=='mau_lapsed_lapsed_long'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+
+ - Avg amount per withdrawal - unbroken_mau: `r dollar(mean(spending_df[which(type=='ATM' & location=='domestic' & mau_group=='unbroken_mau'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - unbroken_mau: `r dollar(median(spending_df[which(type=='ATM' & location=='domestic' & mau_group=='unbroken_mau'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Avg amount per withdrawal - mau_lapsed_mau: `r dollar(mean(spending_df[which(type=='ATM' & location=='domestic' & mau_group=='mau_lapsed_mau'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - mau_lapsed_mau: `r dollar(median(spending_df[which(type=='ATM' & location=='domestic' & mau_group=='mau_lapsed_mau'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Avg amount per withdrawal - mau_lapsed_lapsed_short: `r dollar(mean(spending_df[which(type=='ATM' & location=='domestic' & mau_group=='mau_lapsed_lapsed_short'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - mau_lapsed_lapsed_short: `r dollar(median(spending_df[which(type=='ATM' & location=='domestic' & mau_group=='mau_lapsed_lapsed_short'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Avg amount per withdrawal - mau_lapsed_lapsed_long: `r dollar(mean(spending_df[which(type=='ATM' & location=='domestic' & mau_group=='mau_lapsed_lapsed_long'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - mau_lapsed_lapsed_long: `r dollar(median(spending_df[which(type=='ATM' & location=='domestic' & mau_group=='mau_lapsed_lapsed_long'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type=='ATM' & location=='domestic'), .(num=.N), by=.(user_id,month, mau_group)][, .(avg_num=mean(num)), by=.(user_id, mau_group)], aes(x=avg_num))+
+  geom_histogram()+
+  xlim(0,20)+
+  labs(title="Average Number of ATM withdrawals per month: MAU First 90 Days - domestic",
+       x ="ATM withdrawals per Month", 
+       y = "User Count")+
+  facet_wrap(~mau_group)
+
+ggplot(spending_df[which(type=='ATM' & location=='domestic'), .(amount = mean(amount_cents)/100*-1), by=.(user_id, mau_group)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0, 1500)+
+  labs(title="Average Amount per ATM withdrawal: MAU First 90 Days - domestic",
+       x ="Avg Withdrawal Amount", 
+       y = "Count")+
+  facet_wrap(~mau_group)
+
+
+```
+
+
+#### International
+
+`r percent(length(unique(spending_df[which(type=='ATM' & location=='international'),]$user_id))/length(unique(demo_df$user_id)))` of all users in this group made an international ATM withdrawal at some point
+
+ - Avg withdrawals per month - unbroken_mau: `r mean(spending_df[which(type=='ATM' & location=='international' & mau_group=='unbroken_mau'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median withdrawals per month - unbroken_mau: `r median(spending_df[which(type=='ATM' & location=='international' & mau_group=='unbroken_mau'), .(num=.N), by=.(user_id,month)][, .(avg_num=median(num)), by=.(user_id)]$avg_num)`
+ - Avg withdrawals per month - mau_lapsed_mau: `r mean(spending_df[which(type=='ATM' & location=='international' & mau_group=='mau_lapsed_mau'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median withdrawals per month - mau_lapsed_mau: `r median(spending_df[which(type=='ATM' & location=='international' & mau_group=='mau_lapsed_mau'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Avg withdrawals per month - mau_lapsed_lapsed_short: `r mean(spending_df[which(type=='ATM' & location=='international' & mau_group=='mau_lapsed_lapsed_short'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median withdrawals per month - mau_lapsed_lapsed_short: `r median(spending_df[which(type=='ATM' & location=='international' & mau_group=='mau_lapsed_lapsed_short'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Avg withdrawals per month - mau_lapsed_lapsed_long: `r mean(spending_df[which(type=='ATM' & location=='international' & mau_group=='mau_lapsed_lapsed_long'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+ - Median withdrawals per month - mau_lapsed_lapsed_long: `r median(spending_df[which(type=='ATM' & location=='international' & mau_group=='mau_lapsed_lapsed_long'), .(num=.N), by=.(user_id,month)][, .(avg_num=mean(num)), by=.(user_id)]$avg_num)`
+
+ - Avg amount per withdrawal - unbroken_mau: `r dollar(mean(spending_df[which(type=='ATM' & location=='international' & mau_group=='unbroken_mau'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - unbroken_mau: `r dollar(median(spending_df[which(type=='ATM' & location=='international' & mau_group=='unbroken_mau'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Avg amount per withdrawal - mau_lapsed_mau: `r dollar(mean(spending_df[which(type=='ATM' & location=='international' & mau_group=='mau_lapsed_mau'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - mau_lapsed_mau: `r dollar(median(spending_df[which(type=='ATM' & location=='international' & mau_group=='mau_lapsed_mau'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Avg amount per withdrawal - mau_lapsed_lapsed_short: `r dollar(mean(spending_df[which(type=='ATM' & location=='international' & mau_group=='mau_lapsed_lapsed_short'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - mau_lapsed_lapsed_short: `r dollar(median(spending_df[which(type=='ATM' & location=='international' & mau_group=='mau_lapsed_lapsed_short'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Avg amount per withdrawal - mau_lapsed_lapsed_long: `r dollar(mean(spending_df[which(type=='ATM' & location=='international' & mau_group=='mau_lapsed_lapsed_long'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+ - Median amount per withdrawal - mau_lapsed_lapsed_long: `r dollar(median(spending_df[which(type=='ATM' & location=='international' & mau_group=='mau_lapsed_lapsed_long'), .(amount = mean(amount_cents)/100*-1), by=.(user_id)]$amount))`
+
+```{r, echo=FALSE, message = FALSE}
+
+ggplot(spending_df[which(type=='ATM' & location=='international'), .(num=.N), by=.(user_id,month,mau_group)][, .(avg_num=mean(num)), by=.(user_id,mau_group)], aes(x=avg_num))+
+  geom_histogram()+
+  xlim(0,20)+
+  labs(title="Average Number of ATM withdrawals per month: MAU First 90 Days - international",
+       x ="ATM withdrawals per Month", 
+       y = "User Count")+
+  facet_wrap(~mau_group)
+
+
+ggplot(spending_df[which(type=='ATM' & location=='international'), .(amount = mean(amount_cents)/100*-1), by=.(user_id,mau_group)], aes(x=amount))+
+  geom_histogram()+
+  xlim(0, 1500)+
+  labs(title="Average Amount per ATM withdrawal: MAU First 90 Days - international",
+       x ="Avg Withdrawal Amount", 
+       y = "Count")+
+  facet_wrap(~mau_group)
+
+```
+
+### Spaces Usage
+Number of Spaces txns per month. What does this tell us?
+
+`r percent(length(unique(funding_df[which(type=='Spaces'),]$user_id))/length(unique(demo_df$user_id)))` of all users made a Spaces txn (ever)
+
+```{r, echo=FALSE, message = FALSE}
+
+# avg # of transactions into Spaces
+
+ggplot(funding_df[which(type=='Spaces' & direction=='Incoming'),][, .(num=.N), by=.(user_id, month,mau_group)][, .(avg_txns=mean(num)), by=.(user_id,mau_group)], aes(x=avg_txns))+
+  geom_histogram()+
+  xlim(0, 50)+
+  labs(title="Average # of monthly transactions INTO Spaces: MAU First 90 Days",
+       x ="Avg # of Txns", 
+       y = "User Count")+
+  facet_wrap(~mau_group)
+
+# avg transaction size when it's going into Spaces
+
+ggplot(funding_df[which(type=='Spaces' & direction=='Incoming'),][, .(avg_amount=mean(amount_cents)/100), by=.(user_id,mau_group)], aes(x=avg_amount))+
+  geom_histogram()+
+  xlim(0, 500)+
+  labs(title="Average transaction amount INTO Spaces: MAU First 90 Days",
+       x ="Amount", 
+       y = "Count")+
+  facet_wrap(~mau_group)
+
+```
+
+
